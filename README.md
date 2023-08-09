@@ -2,16 +2,8 @@
 
 Implementation for the user interface of RLHF-Blender: A Configurable Interactive Interface for Learning from Diverse Human Feedback
 
-<div class="panel panel-info">
-**Note**
-{: .panel-heading}
-<div class="panel-body">
-
-The following repository is part of of the RLHF-Blender project. You find the main repository (including the RLHF-Blender python package) [here](https://github.com/ymetz/rlhfblender).
-
-
-</div>
-</div>
+> [!NOTE]  
+>  The following repository is part of of the RLHF-Blender project. You find the main repository (including the RLHF-Blender python package) [here](https://github.com/ymetz/rlhfblender).
 
 ## RLHF-Blender UI
 
