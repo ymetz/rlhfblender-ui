@@ -1,7 +1,7 @@
 import {SetupConfig} from './types';
 
 // Make sure that this config mirrors the format of the UIConfig model in the backend
-const default_ui_config: SetupConfig = {
+const DefaultSetupConfig: SetupConfig = {
   id: -1,
   name: '',
   description: '',
@@ -11,18 +11,17 @@ const default_ui_config: SetupConfig = {
     episodePreview: false,
     episodeItem: true,
     episodeItemVideo: true,
-    rightSidebar: false,
     horizontalRanking: false,
-    allowEqualRanking: false,
-    videoScrollbar: false,
-    fullTimeLine: false,
+    showProposedFeedback: false,
+    uncertaintyLine: false,
+    actionLabels: false,
   },
   feedbackComponents: {
     rating: true,
     ranking: true,
-    demonstration: false,
-    correction: false,
-    featureSelection: false,
+    demonstration: true,
+    correction: true,
+    featureSelection: true,
     text: false,
   },
   max_ranking_elements: 5,
@@ -30,4 +29,4 @@ const default_ui_config: SetupConfig = {
   customInput: '',
 };
 
-export default default_ui_config;
+export default DefaultSetupConfig;

@@ -1,3 +1,5 @@
+import React from 'react';
+
 type Episode = {
   env_name: string;
   benchmark_type: string;
@@ -7,14 +9,38 @@ type Episode = {
 };
 
 type Target = {
-  episode: Episode;
-  step: number;
+  target_id: string;
+  reference: Episode;
+  timestamp: number;
+  origin: string;
+  step?: number;
+  start?: number;
+  end?: number;
 };
 
+// Using this enum is probably more robust than using strings. I am also using
+// the convention that feedbacktypes correspond to the adjective used to
+// describe the feedback type (e.g., evaluative feedback).
+// Idea is good, but i would prefer to use a string, because it is more flexible
+// in the frontend. In the backend, we do use the fixed enum.
+enum FeedbackType {
+  Evaluative = 'evaluative',
+  Comparative = 'comparative',
+  Corrective = 'corrective',
+  Demonstrative = 'demonstrative',
+  FeatureSelection = 'featureSelection',
+  Textual = 'textual',
+}
+
 type Feedback = {
-  target: Target | Target[] | null;
-  timestamp: string;
-  numeric_feedback: number;
+  feedback_type: FeedbackType;
+  targets: Target[] | null;
+  granularity: 'state' | 'episode' | 'segment' | 'entire';
+  timestamp: number;
+  session_id: string;
+
+  // Optional additional fields
+  [key: string]: unknown;
 };
 
 type Project = {
@@ -44,16 +70,23 @@ type SetupConfig = {
   customInput: string;
 };
 
+type AppMode = 'study' | 'free';
+
 type AppState = {
   // Drag and drop
+  app_mode: AppMode;
   videoURLCache: {[key: string]: string};
   rewardsCache: {[key: string]: number[]};
+  uncertaintyCache: {[key: string]: number[]};
   thumbnailURLCache: {[key: string]: string};
   status_bar_collapsed: boolean;
   modalOpen: boolean;
   startModalOpen: boolean;
+  endModalOpen: boolean;
   projects: Project[];
   experiments: Experiment[];
+  activeEnvId: string;
+  actionLabels: any[];
   sessionId: string;
   filtered_experiments: Experiment[];
   selectedProject: Project;
@@ -74,15 +107,16 @@ type AppState = {
   allSetupConfigs: SetupConfig[];
   activeSetupConfig: SetupConfig;
   scheduledFeedback: Feedback[];
-  isPendingFeedback: boolean;
   currentStep: number;
-  startModalContent: JSX.IntrinsicElements | null;
+  startModalContent: React.ReactNode | string | undefined;
+  allThemes: string[];
+  theme: string;
+  isOnSubmit: boolean;
 };
 
 type AppProps = {};
 
 export type {
-  Buffer,
   AppState,
   AppProps,
   Episode,
@@ -91,3 +125,4 @@ export type {
   Feedback,
   Experiment,
 };
+export {FeedbackType};

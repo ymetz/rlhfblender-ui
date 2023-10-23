@@ -59,7 +59,8 @@ export default function ConfigModal(props: ConfigModalProps) {
   ) => {
     const overwrite_config = Object.assign({}, new_config);
     const value = event.target.value;
-    overwrite_config[event.target.id] = value;
+    // @ts-ignore
+    overwrite_config[event.target?.id] = value;
     setNewConfig(overwrite_config);
   };
 
@@ -70,6 +71,7 @@ export default function ConfigModal(props: ConfigModalProps) {
     const key = event.target.id.split('_')[0];
     const component = event.target.id.split('_')[1];
     const value = event.target.checked;
+    // @ts-ignore
     overwrite_config[key as keyof SetupConfig][component] = value;
     setNewConfig(overwrite_config);
   };
@@ -111,12 +113,12 @@ export default function ConfigModal(props: ConfigModalProps) {
           <DialogContentText>
             Adapt the settings below to your needs.
           </DialogContentText>
-          {Object.keys(new_config).map((key: string) => {
+          {Object.keys(new_config).map((key: string, index: number) => {
             if (key === 'id' || key === 'customInput') {
               return <div></div>;
             } else if (key === 'uiComponents' || key === 'feedbackComponents') {
               return (
-                <div>
+                <div key={index}>
                   <DialogContentText>
                     Choose which {key} to include in the experiment.
                   </DialogContentText>

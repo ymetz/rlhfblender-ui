@@ -10,6 +10,7 @@ import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
 import {Project, Experiment, SetupConfig} from '../types';
 import LibraryAddIcon from '@mui/icons-material/LibraryAdd';
+import {useTheme} from '@mui/material/styles';
 
 interface MenuProps {
   statusBarCollapsed: boolean;
@@ -22,6 +23,9 @@ interface MenuProps {
   activeSetupConfigId: string;
   selectSetupConfig: (event: SelectChangeEvent) => void;
   allSetupConfigs: SetupConfig[];
+  allThemes: string[];
+  selectTheme: (event: SelectChangeEvent) => void;
+  activeTheme: string;
   createCustomConfig: () => void;
   resetSampler: () => void;
   sessionId: string;
@@ -39,9 +43,13 @@ const Menu: React.FC<MenuProps> = ({
   selectSetupConfig,
   allSetupConfigs,
   createCustomConfig,
+  allThemes,
+  selectTheme,
   resetSampler,
+  activeTheme,
   sessionId,
 }) => {
+  const theme = useTheme();
   return (
     <Collapse in={!statusBarCollapsed} timeout="auto" sx={{display: 'flex'}}>
       <Box
@@ -49,6 +57,7 @@ const Menu: React.FC<MenuProps> = ({
           m: 2,
           display: 'flex',
           justifyContent: 'space-evenly',
+          backgroundColor: theme.palette.background.l1,
         }}
       >
         <FormControl sx={{width: '10vw', marginRight: '2vw'}}>
@@ -105,10 +114,28 @@ const Menu: React.FC<MenuProps> = ({
             })}
           </Select>
         </FormControl>
+        <FormControl sx={{width: '10vw', marginRight: '2vw'}}>
+          <InputLabel id="theme-select-label">Theme</InputLabel>
+          <Select
+            labelId="theme-select-label"
+            id="theme-simple-select"
+            value={activeTheme}
+            label="Themes"
+            onChange={selectTheme}
+          >
+            {allThemes.map((theme, index) => {
+              return (
+                <MenuItem key={index} value={theme}>
+                  {theme}
+                </MenuItem>
+              );
+            })}
+          </Select>
+        </FormControl>
         <FormControl sx={{marginRight: '2vw', marginTop: '1vh'}}>
           <Tooltip title="Create New Config">
             <IconButton onClick={createCustomConfig}>
-              <LibraryAddIcon />
+              <LibraryAddIcon sx={{color: theme.palette.text.secondary}} />
             </IconButton>
           </Tooltip>
         </FormControl>
@@ -118,7 +145,13 @@ const Menu: React.FC<MenuProps> = ({
           </Button>
         </FormControl>
         <FormControl sx={{width: '25vw', marginRight: '2vw', float: 'right'}}>
-          <Typography sx={{marginRight: '2vw', marginTop: '1vh'}}>
+          <Typography
+            sx={{
+              marginRight: '2vw',
+              marginTop: '1vh',
+              color: theme.palette.text.primary,
+            }}
+          >
             Session: {sessionId}
           </Typography>
         </FormControl>

@@ -8,17 +8,23 @@ import Delete from '@mui/icons-material/Delete';
 import Send from '@mui/icons-material/Send';
 import Tooltip from '@mui/material/Tooltip';
 import axios from 'axios';
+import {Feedback, FeedbackType} from '../types';
+import {EpisodeFromID} from '../id';
 
 interface FeatureHighlightModalProps {
   episodeId: string;
   getThumbnailURL: (episodeId: string) => Promise<string | undefined>;
   onClose: () => void;
+  onCloseSubmit: (feedback: Feedback) => void;
+  sessionId: string;
 }
 
 const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
   episodeId,
   getThumbnailURL,
   onClose,
+  onCloseSubmit,
+  sessionId,
 }) => {
   const canvasRef = useRef<ReactSketchCanvasRef>(null);
 
@@ -33,8 +39,8 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
         const img = new Image();
         img.src = url;
         img.onload = () => {
-          setImageWidth(img.naturalWidth);
-          setImageHeight(img.naturalHeight);
+          setImageWidth(350);
+          setImageHeight(350);
           setThumbnailURL(url);
         };
       }
@@ -75,6 +81,21 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
       .catch(e => {
         console.log('Error exporting image:', e);
       });
+
+    onCloseSubmit({
+      feedback_type: FeedbackType.FeatureSelection,
+      targets: [
+        {
+          target_id: episodeId,
+          reference: EpisodeFromID(episodeId),
+          origin: 'offline',
+          timestamp: Date.now(),
+        },
+      ],
+      granularity: 'entire',
+      timestamp: Date.now(),
+      session_id: sessionId,
+    } as Feedback);
 
     onClose();
   };

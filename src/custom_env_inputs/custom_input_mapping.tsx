@@ -1,13 +1,14 @@
 import * as React from 'react';
 import * as customInputs from '.';
-import {Feedback} from '../types';
 
 type CustomInputProps = {
   custom_input: string;
-  space: object;
-  action: number | number[];
-  inputProps: object;
-  setFeedback: (feedback: Feedback) => void;
+  space: any;
+  action?: any;
+  needSubmit: boolean;
+  canNextStep: boolean;
+  inputProps: any;
+  setFeedback: (feedback: any) => void;
 };
 
 export function CustomInput(props: CustomInputProps) {
@@ -27,8 +28,9 @@ export function CustomInput(props: CustomInputProps) {
     <CustomInput
       {...props.inputProps}
       space={props.space}
-      action={props.action}
       setFeedback={props.setFeedback}
+      needsSubmit={props.needSubmit}
+      canNextStep={props.canNextStep}
     />
   );
 }

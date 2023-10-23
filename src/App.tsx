@@ -1,9 +1,10 @@
 // React
-import React, {SyntheticEvent, createRef} from 'react';
+import React, {createRef} from 'react';
 
 // Our components
 import ConfigModal from './components/config-modal';
 import ExperimentStartModal from './components/experiment-start-modal';
+import ExperimentEndModal from './components/experiment-end-modal';
 import Menu from './components/menu';
 
 // Drag and drop
@@ -21,31 +22,52 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
 // Default UI Config
-import defaultUIConfig from './default_ui_config';
+import defaultSetupConfig from './default-setup-config';
 
 // Axios
 import axios from 'axios';
 
 // Types
-import {AppProps, AppState, Episode, SetupConfig, Feedback} from './types';
+import {
+  AppProps,
+  AppState,
+  Episode,
+  SetupConfig,
+  Feedback,
+  FeedbackType,
+} from './types';
 
 // Utils
-import {IDfromEpisode, EpisodeFromID} from './id';
-import initialEpisodes from './initial-data';
 import FeedbackInterface from './components/feedback-interface';
+
+// User Tracking Library
+// Contexts
+import {SetupConfigContext} from './setup-ui-context';
+import {GetterContext} from './getter-context';
+
+// Style
+import {ThemeProvider} from '@mui/material/styles';
+import getDesignTokens from './theme';
+import {createTheme} from '@mui/material/styles';
+import {PaletteMode} from '@mui/material';
+import {EpisodeFromID, IDfromEpisode} from './id';
 
 class App extends React.Component<AppProps, AppState> {
   private scrollableListContainerRef = createRef<HTMLDivElement>();
   constructor(props: AppProps) {
     super(props);
     this.state = {
+      app_mode: 'study',
       videoURLCache: {},
       rewardsCache: {},
+      uncertaintyCache: {},
       thumbnailURLCache: {},
-      status_bar_collapsed: false,
+      status_bar_collapsed: true,
       projects: [],
       experiments: [],
       filtered_experiments: [],
+      activeEnvId: '',
+      actionLabels: [],
       activeEpisodes: [],
       highlightedEpisodes: [],
       selectedProject: {id: -1, project_name: '', project_experiments: []},
@@ -53,51 +75,23 @@ class App extends React.Component<AppProps, AppState> {
       sliderValue: 0,
       modalOpen: false,
       startModalOpen: false,
+      endModalOpen: false,
       sessionId: '-',
       // Drag and drop
-      rankeableEpisodeIDs: [
-        IDfromEpisode(initialEpisodes[0]),
-        IDfromEpisode(initialEpisodes[1]),
-        IDfromEpisode(initialEpisodes[2]),
-        IDfromEpisode(initialEpisodes[3]),
-        IDfromEpisode(initialEpisodes[4]),
-      ],
+      rankeableEpisodeIDs: [],
 
-      ranks: {
-        'rank-1': {
-          rank: 1,
-          title: 'Rank 1',
-          episodeItemIDs: [IDfromEpisode(initialEpisodes[0])],
-        },
-        'rank-2': {
-          rank: 2,
-          title: 'Rank 2',
-          episodeItemIDs: [IDfromEpisode(initialEpisodes[1])],
-        },
-        'rank-3': {
-          rank: 3,
-          title: 'Rank 3',
-          episodeItemIDs: [IDfromEpisode(initialEpisodes[2])],
-        },
-        'rank-4': {
-          rank: 4,
-          title: 'Rank 4',
-          episodeItemIDs: [IDfromEpisode(initialEpisodes[3])],
-        },
-        'rank-5': {
-          rank: 5,
-          title: 'Rank 5',
-          episodeItemIDs: [IDfromEpisode(initialEpisodes[4])],
-        },
-      },
+      ranks: {},
       // Facilitate reordering of the columns
-      columnOrder: ['rank-1', 'rank-2', 'rank-3', 'rank-4', 'rank-5'],
+      columnOrder: [],
       episodeIDsChronologically: [],
       allSetupConfigs: [],
-      activeSetupConfig: defaultUIConfig,
+      activeSetupConfig: defaultSetupConfig,
       scheduledFeedback: [],
       currentStep: 0,
-      startModalContent: null,
+      startModalContent: undefined,
+      allThemes: ['light', 'dark'],
+      theme: 'dark',
+      isOnSubmit: false,
     };
   }
 
@@ -114,7 +108,19 @@ class App extends React.Component<AppProps, AppState> {
       this.setState({allSetupConfigs: res.data});
     });
 
-    //this.getEpisodeIDsChronologically();
+    this.activateMatomo();
+  }
+
+  activateMatomo() {
+    // @ts-ignore
+    const _mtm = (window._mtm = window._mtm || []);
+    _mtm.push({'mtm.startTime': new Date().getTime(), event: 'mtm.Start'});
+    const d = document,
+      g = d.createElement('script'),
+      s = d.getElementsByTagName('script')[0];
+    g.async = true;
+    g.src = 'https://motomo.metz.dbvis.de/js/container_I8N6IWLd.js';
+    s?.parentNode?.insertBefore(g, s);
   }
 
   toggleStatusBar() {
@@ -133,7 +139,6 @@ class App extends React.Component<AppProps, AppState> {
     const filtered_experiments = this.state.experiments.filter(experiment =>
       project_experiments.includes(experiment.exp_name)
     );
-    console.log(filtered_experiments);
     this.setState({
       selectedProject: selectedProject,
       filtered_experiments: filtered_experiments,
@@ -158,7 +163,7 @@ class App extends React.Component<AppProps, AppState> {
 
   createCustomConfig = () => this.setState({modalOpen: true});
 
-  closeConfigModal = (new_config: SetupConfig) => {
+  closeConfigModal = (new_config: SetupConfig | null) => {
     if (new_config === null) {
       this.setState({modalOpen: false});
       return;
@@ -207,16 +212,39 @@ class App extends React.Component<AppProps, AppState> {
         this.setState(
           {
             sessionId: res.data.session_id,
-            startModalOpen: true,
+            startModalOpen: !this.state.app_mode === 'study',
             currentStep: 0,
+            activeEnvId: res.data.environment_id,
           },
-          () =>
-            this.getEpisodeIDsChronologically(this.sampleEpisodes.bind(this))
+          () => {
+            this.getEpisodeIDsChronologically(() => {
+              this.sampleEpisodes();
+            });
+            this.getActionLabels(this.state.activeEnvId);
+          }
         );
       });
   }
 
   closeStartModal() {
+    if (this.state.app_mode === 'study') {
+      // Set project, episode and experiment
+      this.setState(
+        {
+          selectedProject:
+            this.state.projects.find(project => project.id === 0) ||
+            this.state.selectedProject,
+          selectedExperiment:
+            this.state.experiments.find(experiment => experiment.id === 8) ||
+            this.state.selectedExperiment,
+          activeSetupConfig:
+            this.state.allSetupConfigs.find(
+              SetupConfig => SetupConfig.name === 'Study'
+            ) || this.state.activeSetupConfig,
+        },
+        this.resetSampler
+      );
+    }
     this.setState({startModalOpen: false});
   }
 
@@ -239,6 +267,17 @@ class App extends React.Component<AppProps, AppState> {
     this.sampleEpisodes();
   }
 
+  submitDemoFeedback(feedback: Feedback) {
+    if (this.state.sessionId !== '-') {
+      axios.post('/data/give_feedback', feedback).catch(error => {
+        console.log(error);
+      });
+      this.setState({
+        scheduledFeedback: [...this.state.scheduledFeedback, feedback],
+      });
+    }
+  }
+
   async sampleEpisodes() {
     // Call sample_episodes and then put the returned episodes into the activeEpisodeIDs
     if (this.state.selectedExperiment.id === -1) {
@@ -249,10 +288,12 @@ class App extends React.Component<AppProps, AppState> {
       params: {num_episodes: this.state.activeSetupConfig.max_ranking_elements},
       url: '/data/sample_episodes',
     }).then(res => {
-      const episodeIDs = res.data.map((e: Episode) => IDfromEpisode(e));
+      const episodeIDs: string[] = res.data.map((e: Episode) =>
+        IDfromEpisode(e)
+      );
 
       const new_ranks = Object.fromEntries(
-        Array.from({length: 5}, (_, i) => [
+        Array.from({length: episodeIDs.length}, (_, i) => [
           `rank-${i}`,
           {
             rank: i + 1,
@@ -262,19 +303,16 @@ class App extends React.Component<AppProps, AppState> {
         ])
       );
       const old_current_step = this.state.currentStep;
+
       this.setState({
-        ...this.state,
         activeEpisodes: res.data,
         rankeableEpisodeIDs: res.data.map((e: Episode) => IDfromEpisode(e)),
         ranks: new_ranks,
-        columnOrder: Object.entries(new_ranks).map(([key]) => key),
+        columnOrder: Object.entries(new_ranks).map(([key, _]) => key),
         currentStep: old_current_step + 1,
+        endModalOpen: res.data.length === 0,
       });
     });
-  }
-
-  scrollbarHandler(_: Event | SyntheticEvent, value: number | number[]) {
-    this.setState({sliderValue: value as number});
   }
 
   // Create onDragEnd function
@@ -300,9 +338,17 @@ class App extends React.Component<AppProps, AppState> {
     const srcDroppableId = source.droppableId;
     const srcDroppable = this.state.ranks[srcDroppableId];
 
-    let newState: AppState;
+    let newState: {
+      rankeableEpisodeIDs: string[];
+      ranks: {
+        [key: string]: {rank: number; title: string; episodeItemIDs: string[]};
+      };
+      columnOrder: string[];
+    };
 
-    const newRankeableEpisodeIDs = Array.from(this.state.rankeableEpisodeIDs);
+    const newRankeableEpisodeIDs: string[] = Array.from(
+      this.state.rankeableEpisodeIDs
+    );
     if (srcDroppableId === 'scrollable-episode-list') {
       // This is a new episode, so we need to add it to rankeableEpisodeIDs.
       newRankeableEpisodeIDs.push(draggableId);
@@ -324,12 +370,12 @@ class App extends React.Component<AppProps, AppState> {
       };
 
       newState = {
-        ...this.state,
         rankeableEpisodeIDs: newRankeableEpisodeIDs,
         ranks: {
           ...this.state.ranks,
           [destDroppableId]: newRank,
         },
+        columnOrder: this.state.columnOrder,
       };
     } else {
       // We are moving an episode from one rank to another.
@@ -353,14 +399,48 @@ class App extends React.Component<AppProps, AppState> {
       };
 
       newState = {
-        ...this.state,
         ranks: {
           ...this.state.ranks,
           [destDroppableId]: newDestRank,
           [srcDroppableId]: newSrcRank,
         },
+        rankeableEpisodeIDs: newRankeableEpisodeIDs,
+        columnOrder: this.state.columnOrder,
       };
     }
+
+    // Get the episodes and associated ranks in the new order
+    const orderedEpisodes: {id: string; reference: Episode}[] = [];
+    const orderedRanks: number[] = [];
+    for (const rank of newState.columnOrder) {
+      const rankObject = newState.ranks[rank];
+
+      for (const episodeID of rankObject.episodeItemIDs) {
+        orderedEpisodes.push({
+          id: episodeID,
+          reference: EpisodeFromID(episodeID),
+        });
+        orderedRanks.push(rankObject.rank);
+      }
+    }
+
+    // Log current order as feedback
+    const feedback: Feedback = {
+      feedback_type: FeedbackType.Comparative,
+      timestamp: Date.now(),
+      session_id: this.state.sessionId,
+      targets: orderedEpisodes.map(e => ({
+        target_id: e.id,
+        reference: e.reference,
+        origin: 'offline',
+        timestamp: Date.now(),
+      })),
+      preferences: orderedRanks,
+      granularity: 'episode',
+    };
+    axios.post('/data/give_feedback', feedback).catch(error => {
+      console.log(error);
+    });
 
     this.setState(newState);
   };
@@ -391,6 +471,25 @@ class App extends React.Component<AppProps, AppState> {
     }
   };
 
+  getActionLabels = async (envId: string) => {
+    axios
+      .post('/data/get_action_label_urls', {
+        envId: envId,
+      })
+      .then(response => {
+        const actionLabels = response.data.map((url: string, index: number) => {
+          return (
+            <g key={'action_' + index}>
+              <image href={url} width="18" height="18" />
+            </g>
+          );
+        });
+        this.setState({
+          actionLabels: actionLabels,
+        });
+      });
+  };
+
   getVideoURL = async (episodeId: string) => {
     if (this.state.videoURLCache[episodeId]) {
       return this.state.videoURLCache[episodeId];
@@ -405,7 +504,6 @@ class App extends React.Component<AppProps, AppState> {
         const newVideoURLCache = this.state.videoURLCache;
         newVideoURLCache[episodeId] = url;
         this.setState({
-          ...this.state,
           videoURLCache: newVideoURLCache,
         });
         return url;
@@ -427,7 +525,6 @@ class App extends React.Component<AppProps, AppState> {
           new Float32Array(response.data)
         );
         this.setState({
-          ...this.state,
           rewardsCache: newRewardsCache,
         });
         return newRewardsCache[episodeId];
@@ -435,112 +532,197 @@ class App extends React.Component<AppProps, AppState> {
     }
   };
 
+  getUncertainty = async (episodeId: string) => {
+    if (this.state.uncertaintyCache[episodeId]) {
+      return this.state.uncertaintyCache[episodeId];
+    } else {
+      await axios({
+        method: 'get',
+        url: 'data/get_uncertainty',
+        params: EpisodeFromID(episodeId),
+      }).then(response => {
+        const newUncetaintyCache = this.state.uncertaintyCache;
+        newUncetaintyCache[episodeId] = Array.from(
+          new Float32Array(response.data)
+        );
+        this.setState({
+          uncertaintyCache: newUncetaintyCache,
+        });
+        return newUncetaintyCache[episodeId];
+      });
+    }
+  };
+
+  hasFeedback(episode: Episode, feedbackType: FeedbackType) {
+    for (const feedback of this.state.scheduledFeedback) {
+      if (feedback.targets === null) {
+        continue;
+      }
+      if (
+        IDfromEpisode(feedback.targets[0].reference) ===
+          IDfromEpisode(episode) &&
+        feedback.feedback_type === feedbackType
+      ) {
+        return true;
+      }
+    }
+
+    // If no feedback matched.
+    return false;
+  }
+
+  toggleAppMode(newMode: string) {
+    this.setState({
+      app_mode: newMode,
+      status_bar_collapsed: newMode === 'study',
+    });
+  }
+
   render() {
     return (
-      <Box
-        id="app"
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100vh',
-          width: '100vw',
-          maxHeight: '100vh',
-          maxWidth: '100vw',
-          boxSizing: 'border-box',
-        }}
+      <ThemeProvider
+        theme={createTheme(getDesignTokens(this.state.theme as PaletteMode))}
       >
-        <Box
-          id="menu"
-          sx={{
-            flexDirection: 'column',
-            bgcolor: 'background.default',
-            boxShadow: '0px 0px 20px 0px rgba(0, 0, 0, 0.2)',
+        <GetterContext.Provider
+          value={{
+            getVideoURL: this.getVideoURL.bind(this),
+            getThumbnailURL: this.getThumbnailURL.bind(this),
+            getRewards: this.getRewards.bind(this),
+            getUncertainty: this.getUncertainty.bind(this),
           }}
         >
-          <Menu
-            statusBarCollapsed={this.state.status_bar_collapsed}
-            selectedProjectId={this.state.selectedProject.id.toString()}
-            selectProject={this.selectProject.bind(this)}
-            projects={this.state.projects}
-            selectedExperimentId={this.state.selectedExperiment.id.toString()}
-            selectExperiment={this.selectExperiment.bind(this)}
-            experiments={this.state.filtered_experiments}
-            activeSetupConfigId={this.state.activeSetupConfig.id.toString()}
-            selectSetupConfig={this.selectSetupConfig.bind(this)}
-            allSetupConfigs={this.state.allSetupConfigs}
-            createCustomConfig={this.createCustomConfig.bind(this)}
-            resetSampler={this.resetSampler.bind(this)}
-            sessionId={this.state.sessionId}
-          />
-          <Box sx={{display: 'flex', flexDirection: 'row'}}>
-            <IconButton
-              onClick={() =>
-                this.setState({
-                  status_bar_collapsed: !this.state.status_bar_collapsed,
-                })
-              }
+          <SetupConfigContext.Provider value={this.state.activeSetupConfig}>
+            <Box
+              id="app"
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100vh',
+                width: '100vw',
+                maxHeight: '100vh',
+                maxWidth: '100vw',
+                boxSizing: 'border-box',
+              }}
             >
-              {this.state.status_bar_collapsed ? (
-                <ExpandMoreIcon />
-              ) : (
-                <ExpandLessIcon />
-              )}
-            </IconButton>
-            <Chip
-              label={
-                this.state.sessionId !== '-'
-                  ? 'Status: Active'
-                  : 'Status: Waiting'
-              }
-              color={this.state.sessionId !== '-' ? 'success' : 'info'}
-              sx={{marginRight: '2vw', marginTop: '0.2vh', float: 'right'}}
-            />
-            {this.state.status_bar_collapsed && (
-              <Typography
+              <Box
+                id="menu"
                 sx={{
-                  width: '45vw',
-                  fontWeight: 'bold',
-                  margin: 'auto',
-                  marginTop: '0.6vh',
-                  float: 'right',
+                  flexDirection: 'column',
+                  bgcolor: createTheme(
+                    getDesignTokens(this.state.theme as PaletteMode)
+                  ).palette.background.l1,
                 }}
               >
-                RLHF-Blender v0.1
-              </Typography>
-            )}
-          </Box>
-        </Box>
-        {this.state.selectedProject.id >= 0 ? (
-          <FeedbackInterface
-            onDragEnd={this.onDragEnd.bind(this)}
-            currentProgressBarStep={this.state.currentStep}
-            episodeIDsChronologically={this.state.episodeIDsChronologically}
-            activeSetupConfig={this.state.activeSetupConfig}
-            scrollbarHandler={this.scrollbarHandler.bind(this)}
-            sliderValue={this.state.sliderValue}
-            parentWidthPx={this.scrollableListContainerRef.current?.clientWidth}
-            rankeableEpisodeIDs={this.state.rankeableEpisodeIDs}
-            columnOrder={this.state.columnOrder}
-            ranks={this.state.ranks}
-            scheduleFeedback={this.scheduleFeedback.bind(this)}
-            getVideo={this.getVideoURL.bind(this)}
-            getRewards={this.getRewards.bind(this)}
-            getThumbnail={this.getThumbnailURL.bind(this)}
-            submitFeedback={this.submitFeedback.bind(this)}
-          />
-        ) : null}
-        <ConfigModal
-          config={this.state.activeSetupConfig}
-          open={this.state.modalOpen}
-          onClose={this.closeConfigModal.bind(this)}
-        />
-        <ExperimentStartModal
-          feedbackComponents={this.state.activeSetupConfig.feedbackComponents}
-          content={this.state.startModalContent}
-          open={this.state.startModalOpen}
-          onClose={this.closeStartModal.bind(this)}
-        />
-      </Box>
+                <Menu
+                  statusBarCollapsed={this.state.status_bar_collapsed}
+                  selectedProjectId={this.state.selectedProject.id.toString()}
+                  selectProject={this.selectProject.bind(this)}
+                  projects={this.state.projects}
+                  selectedExperimentId={this.state.selectedExperiment.id.toString()}
+                  selectExperiment={this.selectExperiment.bind(this)}
+                  experiments={this.state.filtered_experiments}
+                  activeSetupConfigId={this.state.activeSetupConfig.id.toString()}
+                  selectSetupConfig={this.selectSetupConfig.bind(this)}
+                  allSetupConfigs={this.state.allSetupConfigs}
+                  createCustomConfig={this.createCustomConfig.bind(this)}
+                  resetSampler={this.resetSampler.bind(this)}
+                  sessionId={this.state.sessionId}
+                  allThemes={this.state.allThemes}
+                  selectTheme={(event: SelectChangeEvent) =>
+                    this.setState({theme: event.target.value})
+                  }
+                  activeTheme={this.state.theme}
+                />
+                <Box sx={{display: 'flex', flexDirection: 'row'}}>
+                  <IconButton
+                    disabled={this.state.app_mode === 'study'}
+                    onClick={() =>
+                      this.setState({
+                        status_bar_collapsed: !this.state.status_bar_collapsed,
+                      })
+                    }
+                  >
+                    {this.state.status_bar_collapsed ? (
+                      <ExpandMoreIcon />
+                    ) : (
+                      <ExpandLessIcon />
+                    )}
+                  </IconButton>
+                  <Chip
+                    label={
+                      this.state.sessionId !== '-'
+                        ? 'Status: Active'
+                        : 'Status: Waiting'
+                    }
+                    color={this.state.sessionId !== '-' ? 'success' : 'info'}
+                    sx={{
+                      marginRight: '2vw',
+                      marginTop: '0.2vh',
+                      float: 'right',
+                    }}
+                  />
+                  {this.state.status_bar_collapsed && (
+                    <Typography
+                      sx={{
+                        width: '45vw',
+                        fontWeight: 'bold',
+                        margin: 'auto',
+                        marginTop: '0.6vh',
+                        float: 'right',
+                        color: createTheme(
+                          getDesignTokens(this.state.theme as PaletteMode)
+                        ).palette.text.primary,
+                      }}
+                    >
+                      RLHF-Blender v0.1
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+              {this.state.selectedProject.id >= 0 ? (
+                <FeedbackInterface
+                  onDragEnd={this.onDragEnd.bind(this)}
+                  currentProgressBarStep={this.state.currentStep}
+                  episodeIDsChronologically={
+                    this.state.episodeIDsChronologically
+                  }
+                  activeSetupConfig={this.state.activeSetupConfig}
+                  parentWidthPx={
+                    this.scrollableListContainerRef.current?.clientWidth
+                  }
+                  rankeableEpisodeIDs={this.state.rankeableEpisodeIDs}
+                  columnOrder={this.state.columnOrder}
+                  ranks={this.state.ranks}
+                  activeEnvId={this.state.activeEnvId}
+                  scheduleFeedback={this.scheduleFeedback.bind(this)}
+                  actionLabels={this.state.actionLabels}
+                  sessionId={this.state.sessionId}
+                  onDemoModalSubmit={this.submitDemoFeedback.bind(this)}
+                  submitFeedback={this.submitFeedback.bind(this)}
+                  hasFeedback={this.hasFeedback.bind(this)}
+                />
+              ) : null}
+              <ConfigModal
+                config={this.state.activeSetupConfig}
+                open={this.state.modalOpen}
+                onClose={this.closeConfigModal.bind(this)}
+              />
+              <ExperimentStartModal
+                feedbackComponents={
+                  this.state.activeSetupConfig.feedbackComponents
+                }
+                content={this.state.startModalContent}
+                open={this.state.startModalOpen}
+                toggleAppMode={this.toggleAppMode.bind(this)}
+                onClose={this.closeStartModal.bind(this)}
+              />
+              <ExperimentEndModal
+                open={this.state.endModalOpen}
+              ></ExperimentEndModal>
+            </Box>
+          </SetupConfigContext.Provider>
+        </GetterContext.Provider>
+      </ThemeProvider>
     );
   }
 }

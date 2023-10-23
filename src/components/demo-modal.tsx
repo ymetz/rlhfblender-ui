@@ -4,13 +4,13 @@ import * as React from 'react';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import Grid from '@mui/material/Grid';
+import Box from '@mui/material/Box';
 import DialogActions from '@mui/material/DialogActions';
 import {CustomInput} from '../custom_env_inputs/custom_input_mapping';
-import {DialogContent, DialogTitle} from '@mui/material';
+import {DialogContent, DialogTitle, Typography} from '@mui/material';
 
 // Types
-import {Episode, Feedback} from '../types';
-import {EpisodeFromID} from '../id';
+import {Feedback, FeedbackType} from '../types';
 
 // Our components
 import Space from './spaces/space_mapping';
@@ -18,103 +18,202 @@ import Space from './spaces/space_mapping';
 // Axios
 import axios, {AxiosResponse} from 'axios';
 
+// Styling
+import {useTheme} from '@mui/material/styles';
+
 type DemoModalProps = {
   open: boolean;
-  episodeId: string;
-  step: number;
-  frame: string;
   onClose: () => void;
-  onCloseSubmit: (feedback: Feedback, step: number) => void;
+  onCloseSubmit: (feedback: Feedback) => void;
   custom_input: string;
+  activeEnvId: string;
+  sessionId: string;
   inputProps: object;
+  seed: number;
 };
 
 type StepDetails = {
-  action_distribution: number[];
-  action: number | number[];
   reward: number;
-  infos: object;
-  action_space: {shape: number[]; label: string} & {[key: string]: string};
+  done: boolean;
+  infos: any;
 };
 
 export default function DemoModal(props: DemoModalProps) {
-  const [feedback, setFeedback] = React.useState<Feedback>({
-    target: {episode: EpisodeFromID(props.episodeId || ''), step: props.step},
-    numeric_feedback: 0,
-    timestamp: '',
-  });
+  const [initDemo, setInitDemo] = React.useState<boolean>(false);
+  const [processId, setProcessId] = React.useState<number>(-1);
+  const [demoNumber, setDemoNumber] = React.useState<number>(0);
+  const [renderURL, setRenderURL] = React.useState<string>('');
+  const [episodeDone, setEpisodeDone] = React.useState<boolean>(false);
   const [stepDetails, setStepDetails] = React.useState<StepDetails>({
-    action_distribution: [],
-    action: 0,
     reward: 0,
-    action_space: {shape: [], label: ''},
+    done: false,
     infos: {},
   });
+  const [stepCount, setStepCount] = React.useState<number>(0);
+  const [actionSpace, setActionSpace] = React.useState<
+    {shape: number[]; label: string} & {[key: string]: any}
+  >({shape: [], label: ''});
+  const theme = useTheme();
 
-  // Retreive details for the particular step of the episode by calling "/get_single_step_details" with the episode ID and step number
   React.useEffect(() => {
+    if (initDemo) {
+      axios
+        .post('/data/initialize_demo_session', {
+          env_id: props.activeEnvId,
+          seed: props.seed,
+          session_id: props.sessionId,
+        })
+        .then((response: AxiosResponse) => {
+          setProcessId(response.data.pid);
+          setStepDetails(response.data.step);
+          setDemoNumber(response.data.demo_number);
+          setEpisodeDone(false);
+          setActionSpace(response.data.action_space);
+        });
+    }
+  }, [initDemo, props.activeEnvId, props.sessionId]);
+
+  // Get Render URL from the backend
+  React.useEffect(() => {
+    if (processId !== -1) {
+      axios({
+        method: 'get',
+        url: 'data/get_demo_image?session_id=' + props.sessionId,
+        responseType: 'blob',
+      }).then(response => {
+        const url = URL.createObjectURL(response.data);
+        setRenderURL(url);
+      });
+    }
+  }, [processId, props.sessionId, stepCount]);
+
+  const performAction = (action: number | number[]) => {
     axios
-      .post('/data/get_single_step_details', {
-        ...EpisodeFromID(props.episodeId || ''),
-        step: props.step,
+      .post('/data/demo_step', {
+        session_id: props.sessionId,
+        action: action,
       })
       .then((response: AxiosResponse) => {
-        setStepDetails(response.data);
-      })
-      .catch(error => {
-        console.log(error);
+        setStepDetails(response.data.step);
+        setStepCount(stepCount + 1);
+        if (response.data.step.done) {
+          setEpisodeDone(true);
+        }
       });
-  }, [props.episodeId, props.step]);
+  };
+
+  // Function to close the demo session in the backend (when the modal is closed)
+  React.useEffect(() => {
+    if (!props.open && processId !== -1) {
+      axios
+        .post('/data/end_demo_session', {
+          session_id: props.sessionId,
+          pid: processId,
+        })
+        .then((response: AxiosResponse) => {
+          setProcessId(-1);
+          setInitDemo(false);
+          setRenderURL('');
+          setStepCount(0);
+        });
+    }
+  }, [props.open, processId, props.sessionId]);
 
   return (
     <Dialog open={props.open} onClose={props.onClose}>
-      <div
-        style={{
-          backgroundColor: 'purple',
-          height: '10px',
-          width: '100%',
-          marginBottom: '10px',
-        }}
-      ></div>
       {/* Draw a cornered region in purple, like a folder corner and add the label Correction"*/}
-      <DialogTitle>
-        Correction for: {props.episodeId} - {props.step}
-      </DialogTitle>
+      <DialogTitle>Demo Generation</DialogTitle>
       <DialogContent>
-        <Grid container spacing="1">
-          <Grid item xs={6}>
-            <img src={props.frame} height="200px" alt="frame" />
+        {!initDemo && (
+          <Button
+            onClick={() => setInitDemo(true)}
+            sx={{color: theme.palette.primary.main}}
+          >
+            Start Demonstration
+          </Button>
+        )}
+        <Grid container spacing={1}>
+          <Grid item xs="auto">
+            {initDemo && renderURL && (
+              <img
+                src={renderURL}
+                alt="render"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                }}
+              />
+            )}
+            {initDemo && !renderURL && <p>Loading...</p>}
           </Grid>
-          <Grid item xs={6}>
-            <Space
-              space={stepDetails?.action_space || {}}
-              spaceProps={{
-                width: 200,
-                height: 200,
-                action: stepDetails?.action || 0,
-                distribution: stepDetails?.action_distribution || [],
-                actionSpace: stepDetails?.action_space,
+          {initDemo && !episodeDone && (
+            <Grid item xs>
+              <CustomInput
+                space={actionSpace}
+                custom_input={props.custom_input}
+                inputProps={props.inputProps}
+                setFeedback={performAction}
+                needSubmit={false}
+                canNextStep={true}
+              />
+            </Grid>
+          )}
+          {initDemo && episodeDone && (
+            <Grid item xs={12}>
+              <p>Episode Done</p>
+            </Grid>
+          )}
+          {stepDetails.infos?.mission && (
+            <Grid
+              item
+              xs={12}
+              sx={{
+                width: '100%',
+                height: '100%',
+                backgroundColor: theme.palette.background.l1,
+                m: 1,
+                borderRadius: 2,
+                border: `1px solid ${theme.palette.divider}`,
               }}
-            />
-          </Grid>
-          <Grid item xs={12} alignContent={'center'}>
-            <CustomInput
-              space={stepDetails?.action_space || {}}
-              custom_input={props.custom_input}
-              inputProps={props.inputProps}
-              action={stepDetails?.action}
-              setFeedback={setFeedback}
-            />
-          </Grid>
+            >
+              <Typography>{`Mission: ${stepDetails.infos.mission}`}</Typography>
+            </Grid>
+          )}
         </Grid>
       </DialogContent>
       <DialogActions>
         <Button onClick={props.onClose}>Cancel</Button>
         <Button
           sx={{color: 'green'}}
-          onClick={() => props.onCloseSubmit(feedback, props.step)}
+          disabled={!episodeDone}
+          onClick={() => {
+            props.onCloseSubmit({
+              feedback_type: FeedbackType.Demonstrative,
+              targets: [
+                {
+                  target_id:
+                    props.activeEnvId +
+                    '_generated_-1-1' +
+                    demoNumber.toString(),
+                  reference: {
+                    env_name: props.activeEnvId,
+                    benchmark_type: 'generated',
+                    benchmark_id: -1,
+                    checkpoint_step: -1,
+                    episode_num: demoNumber,
+                  },
+                  origin: 'generated',
+                  timestamp: Date.now(),
+                },
+              ],
+              granularity: 'episode',
+              timestamp: Date.now(),
+              session_id: props.sessionId,
+            } as Feedback);
+            props.onClose();
+          }}
         >
-          Submit
+          Submit Demonstration
         </Button>
       </DialogActions>
     </Dialog>

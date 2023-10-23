@@ -1,47 +1,6 @@
-# RLHF-Blender UI
+# Getting Started with Create React App
 
-Implementation for the user interface of RLHF-Blender: A Configurable Interactive Interface for Learning from Diverse Human Feedback
-
-<div class="panel panel-info">
-**Note**
-{: .panel-heading}
-<div class="panel-body">
-
-The following repository is part of of the RLHF-Blender project. You find the main repository (including the RLHF-Blender python package) [here](https://github.com/ymetz/rlhfblender).
-
-
-</div>
-</div>
-
-## RLHF-Blender UI
-
-### Installation
-
-1. Clone the repository
-
-```bash
-git clone https://github.com/ymetz/rlhfblender-ui.git
-```
-
-2. Install dependencies
-
-```bash
-cd rlhfblender-ui
-npm install
-```
-
-3. Start the development server
-
-```bash
-npm start
-```
-
-4. Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
-
-### Usage
-
-The RLHF-Blender UI is a React application that can be used to interact with the RLHF-Blender python package. The UI is designed to be used in a browser and can be accessed via the URL [http://localhost:3000](http://localhost:3000) after starting the development server.
-Additional guides to setup advanced interface (e.g. a local join setup via docker-compose or a remote setup in Kubernetes) is provided in the [main repository](https://github.com/ymetz/rlhfblender).
+This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
 ## Available Scripts
 
@@ -69,3 +28,19 @@ The build is minified and the filenames include the hashes.\
 Your app is ready to be deployed!
 
 See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+
+### `npm run eject`
+
+**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+
+If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+
+Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+
+You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+
+## Learn More
+
+You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+
+To learn React, check out the [React documentation](https://reactjs.org/).

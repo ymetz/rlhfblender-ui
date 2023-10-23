@@ -14,18 +14,7 @@ import {WithTooltipProvidedProps} from '@visx/tooltip/lib/enhancers/withTooltip'
 import {localPoint} from '@visx/event';
 import {LinearGradient} from '@visx/gradient';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
-
-export const background = '#3b6978';
-export const background2 = '#204051';
-export const accentColor = '#80d2ff';
-export const accentColorDark = '#75daad';
-export const rewardColor = '#80d2ff';
-const tooltipStyles = {
-  ...defaultStyles,
-  background,
-  border: '1px solid white',
-  color: 'white',
-};
+import {useTheme} from '@mui/material/styles';
 
 export type AreaProps = {
   width: number;
@@ -36,11 +25,14 @@ export type AreaProps = {
 
 export type TimelineChartProps = AreaProps & {
   rewards: number[];
+  actions: number[];
+  uncertainty: number[];
+  actionLabels: any[];
   videoDuration: number;
   onChange: (value: number) => void;
-  onDemoClick: (step: number) => void;
-  givenFeedbackMarkers: {x: number}[];
-  proposedFeedbackMarkers: {x: number}[];
+  onCorrectionClick: (step: number) => void;
+  givenFeedbackMarkers: any[];
+  proposedFeedbackMarkers: any[];
 };
 
 export type TooltipProps = {
@@ -58,9 +50,12 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
     width,
     height,
     rewards,
-    margin = {top: 5, right: 10, bottom: 25, left: 20},
+    uncertainty,
+    actions,
+    actionLabels,
+    margin = {top: 20, right: 10, bottom: 25, left: 30},
     onChange,
-    onDemoClick,
+    onCorrectionClick,
     givenFeedbackMarkers,
     proposedFeedbackMarkers,
     videoDuration,
@@ -74,9 +69,11 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
     // bounds
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
-
     const rewardArray = rewards;
+    //rewardArray.push(rewardArray[rewardArray.length - 1]);
     const fps = rewardArray.length / videoDuration;
+
+    const theme = useTheme();
 
     // scales
     const stepScale = useMemo(
@@ -95,6 +92,15 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
           nice: true,
         }),
       [innerHeight, margin.top, rewardArray]
+    );
+    const uncertaintyScale = useMemo(
+      () =>
+        scaleLinear({
+          range: [innerHeight + margin.top, margin.top],
+          domain: [0, Math.max(...uncertainty) || 0],
+          nice: true,
+        }),
+      [innerHeight, margin.top, uncertainty]
     );
 
     // tooltip handler
@@ -129,11 +135,18 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
     return (
       <div>
         <svg width={width} height={height}>
-          <rect x={0} y={0} width={width} height={height} fill="#ffffff" />
+          <rect
+            x={0}
+            y={0}
+            width={width}
+            height={height}
+            fill={theme.palette.background.l0}
+          />
           <LinearGradient
             id="area-gradient"
-            from={rewardColor}
-            to={rewardColor}
+            from={theme.palette.primary.main}
+            to={theme.palette.primary.main}
+            fromOpacity={0.6}
             toOpacity={0.2}
           />
           <AxisLeft
@@ -142,18 +155,38 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             label="Reward"
             numTicks={valueScale.ticks().length / 4}
             tickFormat={value => `${value}`}
+            stroke={theme.palette.text.secondary}
+            tickLabelProps={{
+              fill: theme.palette.text.primary,
+            }}
+            tickLineProps={{
+              stroke: theme.palette.text.secondary,
+            }}
+            labelProps={{
+              fill: theme.palette.text.primary,
+            }}
           />
           <AxisBottom
             scale={stepScale}
             top={innerHeight + margin.top}
-            label="Step"
+            label=""
+            stroke={theme.palette.text.secondary}
+            tickLabelProps={{
+              fill: theme.palette.text.primary,
+            }}
+            tickLineProps={{
+              stroke: theme.palette.text.secondary,
+            }}
+            labelProps={{
+              fill: theme.palette.text.primary,
+            }}
           />
           <GridRows
             left={margin.left}
             scale={valueScale}
             width={innerWidth}
             strokeDasharray="1,3"
-            stroke={accentColor}
+            stroke={theme.palette.primary.main}
             strokeOpacity={0}
             pointerEvents="none"
           />
@@ -162,7 +195,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             scale={stepScale}
             height={innerHeight}
             strokeDasharray="1,3"
-            stroke={accentColor}
+            stroke={theme.palette.primary.main}
             strokeOpacity={0.2}
             pointerEvents="none"
           />
@@ -176,6 +209,16 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             fill="url(#area-gradient)"
             curve={curveMonotoneX}
           />
+          <AreaClosed
+            data={uncertainty}
+            x={(_, i) => stepScale(i) ?? 0}
+            y={d => uncertaintyScale(d) ?? 0}
+            yScale={valueScale}
+            strokeWidth={1}
+            stroke={theme.palette.primary.light}
+            fill="transparent"
+            curve={curveMonotoneX}
+          />
           <Bar
             x={margin.left}
             y={margin.top}
@@ -187,7 +230,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             onTouchMove={handleTooltip}
             onMouseMove={handleTooltip}
             onDoubleClick={event =>
-              onDemoClick(
+              onCorrectionClick(
                 Math.floor(stepScale.invert(localPoint(event)?.x || 0))
               )
             }
@@ -196,7 +239,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
           <Line
             from={{x: stepScale(tooltipLeft * fps), y: margin.top}}
             to={{x: stepScale(tooltipLeft * fps), y: innerHeight + margin.top}}
-            stroke={accentColorDark}
+            stroke={theme.palette.primary.main}
             strokeWidth={3}
             pointerEvents="none"
           />
@@ -208,13 +251,13 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
               <LocationOnIcon
                 inheritViewBox
                 sx={{
-                  color: '#fca503',
+                  color: theme.palette.primary.dark,
                   '&:hover': {
-                    stroke: 'black',
+                    color: theme.palette.primary.light,
                   },
                 }}
                 fontSize="small"
-                onClick={() => onDemoClick(marker.x)}
+                onClick={() => onCorrectionClick(marker.x)}
               />
             </g>
           ))}
@@ -227,25 +270,38 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
                 inheritViewBox
                 sx={{
                   '&:hover': {
-                    stroke: 'black',
+                    stroke: theme.palette.background.default,
                   },
                 }}
-                color="info"
+                color="primary"
                 fontSize="small"
-                onClick={() => onDemoClick(marker.x)}
+                onClick={() => onCorrectionClick(marker.x)}
               />
             </g>
           ))}
+          {actions.map(
+            (action, index) =>
+              actionLabels[action] && (
+                <g
+                  key={'action_' + index}
+                  transform={`translate(${stepScale(index) - 9},${
+                    innerHeight + margin.top - 9
+                  })`}
+                >
+                  {actionLabels[action]}
+                </g>
+              )
+          )}
           {tooltipData && (
             <g>
               <circle
                 cx={stepScale(tooltipLeft * fps)}
                 cy={tooltipTop + 1}
                 r={4}
-                fill="black"
-                fillOpacity={0.1}
-                stroke="black"
-                strokeOpacity={0.1}
+                fill={theme.palette.text.primary}
+                fillOpacity={1.0}
+                stroke={theme.palette.text.primary}
+                strokeOpacity={1.0}
                 strokeWidth={2}
                 pointerEvents="none"
               />
@@ -253,8 +309,8 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
                 cx={stepScale(tooltipLeft * fps)}
                 cy={tooltipTop}
                 r={4}
-                fill={accentColorDark}
-                stroke="white"
+                fill={theme.palette.primary.main}
+                stroke={theme.palette.text.primary}
                 strokeWidth={2}
                 pointerEvents="none"
               />
@@ -267,7 +323,6 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
               key={Math.random()}
               top={tooltipTop - 12}
               left={stepScale(tooltipLeft * fps) + 12}
-              style={tooltipStyles}
             >
               {`${tooltipData.value}`}
             </TooltipWithBounds>
@@ -283,6 +338,27 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             >
               {tooltipData.index}
             </Tooltip>
+          </div>
+        )}
+        {/*Info text on top right, saying: correciton on double click, visible when tooltip is visible*/}
+        {tooltipData && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              padding: '5px 10px 0 0',
+            }}
+          >
+            <div
+              style={{
+                color: theme.palette.text.primary,
+                fontSize: 13,
+                fontFamily: 'sans-serif',
+              }}
+            >
+              <div>Double click to correct</div>
+            </div>
           </div>
         )}
       </div>

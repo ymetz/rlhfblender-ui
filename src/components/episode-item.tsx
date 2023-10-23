@@ -1,4 +1,4 @@
-import {useRef, useEffect, useState} from 'react';
+import React, {useRef, useEffect, useState, useContext} from 'react';
 
 import {Draggable} from 'react-beautiful-dnd';
 
@@ -11,66 +11,169 @@ import PlayArrowSharp from '@mui/icons-material/PlayArrowSharp';
 import FastRewind from '@mui/icons-material/FastRewind';
 import PauseSharp from '@mui/icons-material/PauseSharp';
 import FastForwardSharp from '@mui/icons-material/FastForwardSharp';
-import Draw from '@mui/icons-material/Draw';
+import EvalIcon from '../icons/eval-icon';
+import FeatIcon from '../icons/feat-icon';
+import CorrIcon from '../icons/corr-icon';
 import Box from '@mui/material/Box';
-import Grid from '@mui/material/Grid';
 import IconButton from '@mui/material/IconButton';
 import Fade from '@mui/material/Fade';
-import {Dialog} from '@mui/material';
+import Dialog from '@mui/material/Dialog';
 import {useTheme} from '@mui/material/styles';
-
+import Typography from '@mui/material/Typography';
+import Tooltip from '@mui/material/Tooltip';
+import chroma from 'chroma-js';
 // Axios
-import axios, {AxiosResponse} from 'axios';
+import axios from 'axios';
 
 // Types
 import {EpisodeFromID} from '../id';
-import {Feedback} from '../types';
+import {Feedback, FeedbackType} from '../types';
 
 // Our components
 import TimelineChart from './timeline-chart';
-import ParentSize from '@visx/responsive/lib/components/ParentSize';
 import FeatureHighlightModal from './feature-highlight-modal';
-import DemoModal from './demo-modal';
-import React from 'react';
+import CorrectionModal from './correction-modal';
+
+// Context
+import {SetupConfigContext} from '../setup-ui-context';
+import {useGetter} from '../getter-context';
+import styled from 'styled-components';
+import {ParentSize} from '@visx/responsive';
+import {useRatingInfo} from '../rating-info-context';
+import Button from '@mui/material/Button';
+import DemoIcon from '../icons/demo-icon';
+
+interface EpisodeItemContainerProps {
+  isDragging?: boolean;
+  horizontalRanking?: boolean;
+  numItemsInColumn?: number;
+  hasFeedback?: boolean;
+  isOnSubmit?: boolean;
+}
+
+const EpisodeItemContainer = styled('div')<EpisodeItemContainerProps>(
+  ({
+    theme,
+    isDragging,
+    horizontalRanking,
+    numItemsInColumn,
+    isOnSubmit,
+    hasFeedback,
+  }) => ({
+    backgroundColor: isDragging
+      ? chroma
+          .mix(theme.palette.background.l1, theme.palette.primary.main, 0.05)
+          .hex()
+      : theme.palette.background.l1,
+    flex: 1,
+    borderRadius: '10px',
+    margin: '10px',
+    display: 'grid',
+    border: `1px solid ${theme.palette.divider}`,
+    justifyItems: 'stretch',
+    boxShadow:
+      isOnSubmit && hasFeedback
+        ? `0px 0px 20px 0px ${theme.palette.primary.main}`
+        : 'none',
+    transition: 'box-shadow 0.2s ease-in-out',
+    gridTemplateColumns:
+      horizontalRanking && numItemsInColumn === 1
+        ? '1fr'
+        : 'auto auto minmax(50%, 1fr) auto',
+    gridTemplateRows:
+      horizontalRanking && numItemsInColumn === 1
+        ? 'auto auto auto auto auto'
+        : 'auto auto auto',
+    gridTemplateAreas:
+      horizontalRanking && numItemsInColumn === 1
+        ? `"drag"
+        "video"
+        "timelinechart"
+        "mission"
+        "evaluative"
+        "demo"
+        `
+        : `"drag video evaluative demo"
+      "drag video timelinechart timelinechart"
+      "drag video mission mission"`,
+  })
+);
+
+const DragHandleContainer = styled('div')({
+  gridArea: 'drag',
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  cursor: 'grab',
+});
+
+const EvaluativeContainer = styled('div')<EpisodeItemContainerProps>(
+  ({theme, hasFeedback, horizontalRanking, isOnSubmit}) => ({
+    gridArea: 'evaluative',
+    display: 'grid',
+    gridTemplateColumns: 'auto auto 1fr auto',
+    gridTemplateRows: '1fr',
+    borderRadius: '10px',
+    boxShadow:
+      isOnSubmit && hasFeedback
+        ? `0px 0px 20px 0px ${theme.palette.primary.main}`
+        : 'none',
+    transition: 'box-shadow 0.2s ease-in-out',
+    border: hasFeedback
+      ? `1px solid ${theme.palette.primary.main}`
+      : `1px solid ${theme.palette.divider}`,
+    backgroundColor: theme.palette.background.l0,
+    margin: '10px',
+    alignItems: 'center',
+    width: horizontalRanking ? 'auto' : '50%',
+  })
+);
 
 interface EpisodeItemProps {
   episodeID: string;
   index: number;
-  horizontalDrag: boolean;
   scheduleFeedback: (pendingFeedback: Feedback) => void;
-  getVideo: (videoURL: string) => Promise<string | undefined>;
-  getThumbnailURL: (episodeID: string) => Promise<string | undefined>;
-  getRewards: (episodeID: string) => Promise<number[] | undefined>;
-  customInput: string;
+  numItemsInColumn: number;
+  sessionId: string;
+  evalFeedback: number | undefined;
+  updateEvalFeedback: (episodeId: string, rating: number) => void;
+  setDemoModalOpen: ({open, seed}: {open: boolean; seed: number}) => void;
+  actionLabels?: any[];
 }
 
 type StepDetails = {
   action_distribution: number[];
   action: number | number[];
   reward: number;
-  info: {[key: string]: string} & {mission?: string};
+  info: {[key: string]: string} & {mission?: string; seed?: number};
   action_space: object;
 };
 
 const EpisodeItem: React.FC<EpisodeItemProps> = ({
   episodeID,
   index,
-  horizontalDrag,
   scheduleFeedback,
-  getVideo,
-  getThumbnailURL,
-  getRewards,
-  customInput,
+  sessionId,
+  numItemsInColumn,
+  evalFeedback,
+  updateEvalFeedback,
+  setDemoModalOpen,
+  actionLabels = [],
 }) => {
   const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
   const [videoURL, setVideoURL] = useState('');
   const [playing, setPlaying] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoSliderValue, setVideoSliderValue] = useState(0);
+  const [evaluativeSliderValue, setEvaluativeSliderValue] = useState(
+    evalFeedback || 5
+  );
   const [mouseOnVideo, setMouseOnVideo] = useState(false);
   const [rewards, setRewards] = useState<number[]>([]);
+  const [uncertainty, setUncertainty] = useState<number[]>([]);
+  const [actions, setActions] = useState<number[]>([]);
   const [highlightModelOpen, setHighlightModelOpen] = useState(false);
-  const [demoModalOpen, setDemoModalOpen] = useState(false);
+  const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
   const [selectedStep, setSelectedStep] = useState(0);
   const [givenFeedbackMarkers, setGivenFeedbackMarkers] = useState<any[]>([]);
   const [proposedFeedbackMarkers, setProposedFeedbackMarkers] = useState<any[]>(
@@ -84,24 +187,56 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     action_space: {},
   });
   const theme = useTheme();
+  const setupConfig = useContext(SetupConfigContext);
+  const {isOnSubmit, hasFeedback} = useRatingInfo();
+
+  // Whether this episode has already received feedback
+  const hasEvaluativeFeedback = hasFeedback(
+    EpisodeFromID(episodeID),
+    FeedbackType.Evaluative
+  );
+  const hasCorrectiveFeedback = hasFeedback(
+    EpisodeFromID(episodeID),
+    FeedbackType.Corrective
+  );
+  const hasFeatureSelectionFeedback = hasFeedback(
+    EpisodeFromID(episodeID),
+    FeedbackType.FeatureSelection
+  );
+
+  const {getThumbnailURL, getVideoURL, getRewards, getUncertainty} =
+    useGetter();
 
   useEffect(() => {
-    getVideo(episodeID).then(url => {
+    getVideoURL(episodeID).then(url => {
       setVideoURL(url ? url : '');
     });
-  }, [episodeID, getVideo]);
+  }, [episodeID, getVideoURL]);
 
   // Retreive details for the particular step of the episode by calling "/get_single_step_details" with the episode ID and step number
   useEffect(() => {
     axios
       .post('/data/get_single_step_details', {
         ...EpisodeFromID(episodeID || ''),
-        step: 1,
+        step: 0,
       })
-      .then((response: AxiosResponse) => {
+      .then((response: any) => {
         setStepDetails(response.data);
       })
-      .catch(error => {
+      .catch((error: any) => {
+        console.log(error);
+      });
+  }, [episodeID]);
+
+  useEffect(() => {
+    axios
+      .post('/data/get_actions_for_episode', {
+        ...EpisodeFromID(episodeID || ''),
+      })
+      .then((response: any) => {
+        setActions(response.data);
+      })
+      .catch((error: any) => {
         console.log(error);
       });
   }, [episodeID]);
@@ -123,9 +258,22 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   }, [episodeID, getRewards]);
 
   useEffect(() => {
+    if (setupConfig.uiComponents.uncertaintyLine) {
+      getUncertainty(episodeID).then(uncertainty => {
+        setUncertainty(uncertainty ? uncertainty : []);
+      });
+    }
+  }, [
+    episodeID,
+    getUncertainty,
+    setupConfig.uiComponents.showUncertainty,
+    setupConfig.uiComponents.uncertaintyLine,
+  ]);
+
+  useEffect(() => {
     if (playing) {
       const interval = setInterval(() => {
-        // Maksure currentTime is not NaN
+        // Make sure currentTime is not NaN
         setVideoSliderValue(
           Number.isNaN(videoRef.current.currentTime)
             ? 0
@@ -146,15 +294,14 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
 
   const onLoadMetaDataHandler = () => {
     setVideoDuration(videoRef.current.duration);
-    //setProposedFeedbackMarkers(rewards.filter((_,i) => i % 20).map((reward, index) => ({x: index * 20, y: reward})));
-    // Create 5 random markers in the range of 0-reward length
-    //const randomMarkers = Array.from({length: 5}, () => Math.floor(Math.random() * rewards.length));
-    setProposedFeedbackMarkers(
-      Array.from({length: 4}, (_, i) => ({
-        x: Math.floor(Math.random() * rewards.length),
-        y: Math.floor(Math.random() * 10),
-      }))
-    );
+    if (setupConfig.uiComponents.showProposedFeedback) {
+      setProposedFeedbackMarkers(
+        Array.from({length: 4}, (_, i) => ({
+          x: Math.floor(Math.random() * rewards.length),
+          y: Math.floor(Math.random() * 10),
+        }))
+      );
+    }
   };
 
   const videoSliderHandler = (value: number | number[]) => {
@@ -163,31 +310,62 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     setVideoSliderValue(Number.isNaN(value) ? 0 : (value as number));
   };
 
-  console.log(stepDetails);
-
-  const onFeedbackSliderChangeHandler = (
+  const evaluativeFeedbackHandler = (
     _: Event | React.SyntheticEvent<Element, Event>,
     value: number | number[]
   ) => {
     const feedback: Feedback = {
-      target: {episode: EpisodeFromID(episodeID || ''), step: -1},
-      timestamp: Date.now().toString(),
-      numeric_feedback: value as number,
+      feedback_type: FeedbackType.Evaluative,
+      targets: [
+        {
+          target_id: episodeID,
+          reference: EpisodeFromID(episodeID || ''),
+          origin: 'offline',
+          timestamp: Date.now(),
+        },
+      ],
+      granularity: 'episode',
+      timestamp: Date.now(),
+      session_id: sessionId,
+      score: value as number,
     };
+
+    axios.post('/data/give_feedback', feedback).catch(error => {
+      console.log(error);
+    });
+
+    setEvaluativeSliderValue(value as number);
+    updateEvalFeedback(episodeID, value as number);
     scheduleFeedback(feedback);
   };
 
-  const onDemoModalOpenHandler = (step: number) => {
+  const onCorrectionModalOpenHandler = (step: number) => {
     setSelectedStep(step);
-    setDemoModalOpen(true);
+    setCorrectionModalOpen(true);
   };
 
-  const onDemoModalSubmit = (feedback: Feedback, step: number) => {
+  const onFeatureSelectionSubmit = (feedback: Feedback) => {
+    if (sessionId !== '-') {
+      axios.post('/data/give_feedback', feedback).catch(error => {
+        console.log(error);
+      });
+      scheduleFeedback(feedback);
+    }
+  };
+
+  const onCorrectionModalSubmit = (feedback: Feedback, step: number) => {
     setGivenFeedbackMarkers([
       ...givenFeedbackMarkers,
       {x: step, y: feedback.numeric_feedback},
     ]);
-    setDemoModalOpen(false);
+    setCorrectionModalOpen(false);
+    if (sessionId !== '-') {
+      console.log(feedback);
+      axios.post('/data/give_feedback', feedback).catch(error => {
+        console.log(error);
+      });
+      scheduleFeedback(feedback);
+    }
   };
 
   const getSingleFrame = (video: HTMLVideoElement, time: number) => {
@@ -208,44 +386,52 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
 
   return (
     <Draggable draggableId={episodeID} index={index}>
-      {provided => (
-        <Grid
-          container
-          spacing={1}
-          sx={{
-            bgcolor: 'background.paper',
-            m: 1,
-            borderRadius: '10px',
-            boxShadow: 5,
-            flex: 1,
-          }}
+      {(provided, snapshot) => (
+        <EpisodeItemContainer
+          horizontalRanking={setupConfig.uiComponents.horizontalRanking}
+          numItemsInColumn={numItemsInColumn}
+          isDragging={snapshot.isDragging}
           ref={provided.innerRef}
+          isOnSubmit={isOnSubmit}
+          hasFeedback={false}
           {...provided.draggableProps}
         >
           {/* Drag handle */}
-          <Grid
-            item
-            xs={1}
-            {...provided.dragHandleProps}
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              borderRight: `1px solid ${theme.palette.grey[400]}`,
-              alignItems: 'center',
-            }}
-          >
-            <DragIndicator />
-          </Grid>
+          <DragHandleContainer {...provided.dragHandleProps}>
+            <DragIndicator
+              sx={{
+                transform:
+                  setupConfig.uiComponents.horizontalRanking &&
+                  numItemsInColumn === 1
+                    ? 'rotate(90deg)'
+                    : 'none',
+                m: 1,
+                color: theme.palette.text.secondary,
+              }}
+            />
+          </DragHandleContainer>
 
           {/* Video */}
-          <Grid
-            item
-            xs={'auto'}
+          <Box
             sx={{
-              position: 'relative',
-              borderRight: `1px solid ${theme.palette.grey[400]}`,
+              gridArea: 'video',
+              justifySelf: 'center',
+              alignSelf: 'center',
+              borderRadius: '10px',
+              border: hasFeatureSelectionFeedback
+                ? `1px solid ${theme.palette.primary.main}`
+                : `1px solid ${theme.palette.divider}`,
+              boxShadow:
+                isOnSubmit && hasFeatureSelectionFeedback
+                  ? `0px 0px 20px 0px ${theme.palette.primary.main}`
+                  : 'none',
+              m: 1,
               overflow: 'hidden',
+              position: 'relative',
+              width: '100%',
+              height: '100%',
+              maxHeight: '25vh',
+              maxWidth: '25vh',
             }}
           >
             {videoURL && (
@@ -256,159 +442,284 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
                 onMouseEnter={onVideoMouseEnterHandler}
                 onMouseLeave={onVideoMouseLeaveHandler}
                 style={{
-                  minHeight: 0, // By default, minHeight is 'auto' for video, which prevents the video from being resized
-                  minWidth: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
                 }}
               >
                 <source src={videoURL} type="video/mp4" />
               </video>
             )}
-            <Fade in={mouseOnVideo} timeout={500}>
-              <Box
-                onMouseEnter={onVideoMouseEnterHandler}
-                onMouseLeave={onVideoMouseLeaveHandler}
-                sx={{
-                  position: 'absolute',
-                  bottom: 0,
-                  left: 0,
-                  display: 'flex',
-                  justifyContent: 'center',
-                }}
-              >
-                <IconButton className="controls_icons" aria-label="reqind">
-                  <FastRewind style={{color: 'white'}} />
-                </IconButton>
-                <IconButton
-                  className="controls_icons"
-                  aria-label="reqind"
-                  onClick={playButtonHandler}
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                display: 'grid',
+                gridTemplateRows: '1fr',
+                gridTemplateColumns: setupConfig.uiComponents.featureSelection
+                  ? '1fr'
+                  : '75% auto',
+              }}
+            >
+              <Fade in={mouseOnVideo} timeout={500}>
+                <Box
+                  onMouseEnter={onVideoMouseEnterHandler}
+                  onMouseLeave={onVideoMouseLeaveHandler}
+                  sx={{
+                    gridTemplateRows: '1fr',
+                    gridTemplateColumns: '1fr 1fr 1fr',
+                  }}
                 >
-                  {!playing ? (
-                    <PlayArrowSharp style={{color: 'white'}} />
-                  ) : (
-                    <PauseSharp style={{color: 'white'}} />
-                  )}
-                </IconButton>
+                  <IconButton className="controls_icons" aria-label="reqind">
+                    <FastRewind style={{color: theme.palette.text.secondary}} />
+                  </IconButton>
+                  <IconButton
+                    className="controls_icons"
+                    aria-label="reqind"
+                    onClick={playButtonHandler}
+                  >
+                    {!playing ? (
+                      <PlayArrowSharp
+                        style={{color: theme.palette.text.secondary}}
+                      />
+                    ) : (
+                      <PauseSharp
+                        style={{color: theme.palette.text.secondary}}
+                      />
+                    )}
+                  </IconButton>
 
-                <IconButton className="controls_icons" aria-label="reqind">
-                  <FastForwardSharp style={{color: 'white'}} />
-                </IconButton>
-
-                <IconButton>
-                  <Draw
-                    style={{color: 'white'}}
-                    onClick={() => setHighlightModelOpen(!highlightModelOpen)}
+                  <IconButton className="controls_icons" aria-label="reqind">
+                    <FastForwardSharp
+                      style={{color: theme.palette.text.secondary}}
+                    />
+                  </IconButton>
+                </Box>
+              </Fade>
+              {setupConfig.feedbackComponents.featureSelection && (
+                <IconButton
+                  onClick={() => setHighlightModelOpen(!highlightModelOpen)}
+                >
+                  <FeatIcon
+                    color={
+                      hasFeatureSelectionFeedback
+                        ? theme.palette.primary.main
+                        : theme.palette.text.secondary
+                    }
                   />
                 </IconButton>
-              </Box>
-            </Fade>
-          </Grid>
+              )}
+            </Box>
+          </Box>
 
           {/* Evaluative feedback and timechart slider */}
-          <Grid
-            item
-            xs
+          <EvaluativeContainer
+            hasFeedback={hasEvaluativeFeedback}
+            isOnSubmit={isOnSubmit}
+            horizontalRanking={setupConfig.uiComponents.horizontalRanking}
+          >
+            <Box
+              sx={{
+                m: 1,
+                p: 1,
+                borderRight: `1px solid ${theme.palette.divider}`,
+              }}
+            >
+              <EvalIcon
+                color={
+                  hasEvaluativeFeedback
+                    ? theme.palette.primary.main
+                    : theme.palette.text.secondary
+                }
+              />
+            </Box>
+            <ThumbDown
+              sx={{
+                color: theme.palette.text.secondary,
+                m: 1,
+                height: '1vw',
+                '&:hover': {
+                  color: theme.palette.primary.main,
+                },
+              }}
+              onClick={_ =>
+                setEvaluativeSliderValue(Math.max(0, evaluativeSliderValue - 1))
+              }
+            />
+            <Slider
+              step={1}
+              min={0}
+              max={10}
+              value={evaluativeSliderValue}
+              valueLabelDisplay="auto"
+              aria-label="Custom thumb label"
+              defaultValue={5}
+              marks
+              sx={{
+                color: chroma
+                  .mix(
+                    theme.palette.primary.main,
+                    theme.palette.text.secondary,
+                    1.0 - (evaluativeSliderValue + 1) / 10
+                  )
+                  .hex(),
+              }}
+              onChangeCommitted={evaluativeFeedbackHandler}
+            />
+            <ThumbUp
+              sx={{
+                color: theme.palette.primary.main,
+                m: 1,
+                height: '1vw',
+              }}
+              onClick={_ =>
+                setEvaluativeSliderValue(
+                  Math.min(10, evaluativeSliderValue + 1)
+                )
+              }
+            />
+          </EvaluativeContainer>
+          <Box
             sx={{
-              // Without this, the Grid item will grow, since it
-              // wants to accomodate the slider. However, since
-              // the slider's size depends on this grid item,
-              // it would grow to an indeterminate size.
+              display: 'flex',
+              gridArea: 'demo',
+            }}
+          >
+            {setupConfig.feedbackComponents.demonstration && (
+              <Box
+                sx={{
+                  p: 1,
+                  m: 1,
+                  backgroundColor: theme.palette.background.l1,
+                  overflow: 'hidden',
+                }}
+              >
+                <Button
+                  variant="contained"
+                  onClick={() =>
+                    setDemoModalOpen({
+                      open: true,
+                      seed: stepDetails.info?.seed || 0,
+                    })
+                  }
+                  endIcon={
+                    <DemoIcon color={theme.palette.primary.contrastText} />
+                  }
+                >
+                  Demo
+                </Button>
+              </Box>
+            )}
+          </Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              borderRadius: '10px',
+              m: 1,
+              border: hasCorrectiveFeedback
+                ? `1px solid ${theme.palette.primary.main}`
+                : `1px solid ${theme.palette.divider}`,
+              backgroundColor: theme.palette.background.l0,
+              boxShadow:
+                isOnSubmit && hasCorrectiveFeedback
+                  ? `0px 0px 20px 0px ${theme.palette.primary.main}`
+                  : 'none',
+              gridArea: 'timelinechart',
               overflow: 'hidden',
             }}
           >
-            <Grid container>
-              <Grid
-                item
-                xs={12}
-                sx={{borderBottom: `1px solid ${theme.palette.grey[400]}`}}
-              >
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    borderRadius: '10px',
-                    m: 1,
-                    border: `1px solid ${theme.palette.grey[400]}`,
-                  }}
-                >
-                  <ThumbDown
-                    sx={{margin: '0.5em', color: theme.palette.text.secondary}}
-                  />
-                  <Slider
-                    aria-label="Custom thumb label"
-                    defaultValue={50}
-                    sx={{color: theme.palette.grey[600]}}
-                    onChangeCommitted={onFeedbackSliderChangeHandler}
-                  />
-                  <ThumbUp
-                    sx={{margin: '0.5em', color: theme.palette.text.secondary}}
-                  />
-                </Box>
-              </Grid>
-              <Grid item xs={12} sx={{overflow: 'hidden'}}>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    borderRadius: '10px',
-                    m: 1,
-                    border: `1px solid ${theme.palette.grey[400]}`,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <ParentSize>
-                    {({width, height}) => {
-                      return (
-                        <TimelineChart
-                          rewards={rewards}
-                          width={width}
-                          height={110}
-                          videoDuration={videoDuration}
-                          tooltipLeft={videoSliderValue}
-                          givenFeedbackMarkers={givenFeedbackMarkers}
-                          proposedFeedbackMarkers={proposedFeedbackMarkers}
-                          onChange={videoSliderHandler}
-                          onDemoClick={onDemoModalOpenHandler}
-                        />
-                      );
-                    }}
-                  </ParentSize>
-                </Box>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    borderRadius: '10px',
-                    m: 1,
-                    overflow: 'hidden',
-                  }}
-                >
-                  {Object.prototype.hasOwnProperty.call(
-                    stepDetails?.info,
-                    'mission'
-                  ) ?? <>"Mission: " + {stepDetails?.info?.mission || ''}</>}
-                </Box>
-              </Grid>
-            </Grid>
-          </Grid>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                m: 1,
+                p: 1,
+                borderRight: `1px solid ${theme.palette.divider}`,
+                height: '100%',
+              }}
+            >
+              <Tooltip title="Double Click to Correct">
+                <CorrIcon
+                  color={
+                    hasCorrectiveFeedback
+                      ? theme.palette.primary.main
+                      : theme.palette.text.secondary
+                  }
+                />
+              </Tooltip>
+            </Box>
+            <ParentSize>
+              {parent => (
+                <TimelineChart
+                  rewards={rewards}
+                  uncertainty={
+                    setupConfig.uiComponents.uncertaintyLine ? uncertainty : []
+                  }
+                  actions={actions}
+                  actionLabels={
+                    setupConfig.uiComponents.actionLabels ? actionLabels : []
+                  }
+                  width={parent.width - 20}
+                  height={100}
+                  videoDuration={videoDuration}
+                  tooltipLeft={videoSliderValue}
+                  givenFeedbackMarkers={givenFeedbackMarkers}
+                  proposedFeedbackMarkers={proposedFeedbackMarkers}
+                  onChange={videoSliderHandler}
+                  onCorrectionClick={onCorrectionModalOpenHandler}
+                />
+              )}
+            </ParentSize>
+          </Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              borderRadius: '10px',
+              backgroundColor: theme.palette.background.l0,
+              border: `1px solid ${theme.palette.divider}`,
+              m: 1,
+              p: 1,
+              overflow: 'hidden',
+              gridArea: 'mission',
+            }}
+          >
+            {Object.prototype.hasOwnProperty.call(
+              stepDetails?.info,
+              'mission'
+            ) ? (
+              <Typography color={theme.palette.text.primary}>
+                Mission: {stepDetails?.info?.mission || ''}
+              </Typography>
+            ) : (
+              <></>
+            )}
+          </Box>
+
           <Dialog open={highlightModelOpen}>
             <FeatureHighlightModal
               episodeId={episodeID}
               getThumbnailURL={getThumbnailURL}
               onClose={() => setHighlightModelOpen(false)}
+              onCloseSubmit={onFeatureSelectionSubmit}
+              sessionId={sessionId}
             />
           </Dialog>
-          <DemoModal
-            open={demoModalOpen}
+          <CorrectionModal
+            open={correctionModalOpen}
             episodeId={episodeID}
             step={selectedStep}
             frame={getSingleFrame(videoRef.current, selectedStep)}
-            onClose={() => setDemoModalOpen(false)}
-            onCloseSubmit={onDemoModalSubmit}
-            custom_input={customInput}
+            onClose={() => setCorrectionModalOpen(false)}
+            onCloseSubmit={onCorrectionModalSubmit}
+            custom_input={setupConfig?.customInput}
+            sessionId={sessionId}
             inputProps={{}}
           />
-        </Grid>
+        </EpisodeItemContainer>
       )}
     </Draggable>
   );

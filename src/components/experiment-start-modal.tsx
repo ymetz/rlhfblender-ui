@@ -11,8 +11,9 @@ import {Divider, Stack} from '@mui/material';
 type ExperimentStartModalProps = {
   open: boolean;
   onClose: () => void;
-  content: string;
+  content: React.ReactNode | string | undefined;
   feedbackComponents: {[key: string]: boolean};
+  toggleAppMode: () => void;
 };
 
 export default function ExperimentStartModal(props: ExperimentStartModalProps) {
@@ -22,10 +23,19 @@ export default function ExperimentStartModal(props: ExperimentStartModalProps) {
         <DialogTitle>RLHF-Blender: Instructions</DialogTitle>
         <DialogContent dividers>
           <DialogContentText>
-            Welcome to the experiment! Please adhear to the following
-            instructions:
+            Welcome to the experiment! Please watch the following video to get
+            an introduction to the interface:
           </DialogContentText>
-          <DialogContentText>{props.content}</DialogContentText>
+          <iframe
+            width="560"
+            height="315"
+            src="https://www.youtube.com/embed/u5Ey8KojoiY?si=O3KxwcHiSe_P8tTs"
+            title="YouTube video player"
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen="allowFullScreen"
+          ></iframe>
+          {props.content}
           <DialogContentText>
             <Divider></Divider>
             <DialogContent dividers>
@@ -37,7 +47,7 @@ export default function ExperimentStartModal(props: ExperimentStartModalProps) {
               <Stack direction="row" spacing={10}>
                 {Object.entries(props.feedbackComponents ?? {})
                   ?.filter(([_, v]) => v)
-                  .map(([key]) => {
+                  .map(([key, _]) => {
                     return (
                       <div key={key}>
                         <Typography
@@ -71,6 +81,9 @@ export default function ExperimentStartModal(props: ExperimentStartModalProps) {
                             : ''}
                           {key === 'featureSelection'
                             ? 'Open the feature selection window by clicking the pen in the rendering window. You can select relevant features via brushing.'
+                            : ''}
+                          {key === 'demonstration'
+                            ? 'Demonstrate a sequence of steps by selecting an action and wait for the next step'
                             : ''}
                         </Typography>
                       </div>
