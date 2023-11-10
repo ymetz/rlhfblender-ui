@@ -447,7 +447,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
                   objectFit: 'cover',
                 }}
               >
-                <source src={videoURL} type="video/mp4" />
+                <source src={videoURL} type="video/webm" />
               </video>
             )}
             <Box
