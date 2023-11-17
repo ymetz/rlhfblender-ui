@@ -119,6 +119,7 @@ type AppProps = {};
 export type {
   AppState,
   AppProps,
+  AppMode,
   Episode,
   Project,
   SetupConfig,

@@ -31,6 +31,7 @@ import axios from 'axios';
 import {
   AppProps,
   AppState,
+  AppMode,
   Episode,
   SetupConfig,
   Feedback,
@@ -74,7 +75,7 @@ class App extends React.Component<AppProps, AppState> {
       selectedExperiment: {id: -1, exp_name: ''},
       sliderValue: 0,
       modalOpen: false,
-      startModalOpen: false,
+      startModalOpen: true,
       endModalOpen: false,
       sessionId: '-',
       // Drag and drop
@@ -107,20 +108,6 @@ class App extends React.Component<AppProps, AppState> {
     axios.get('/ui_configs').then(res => {
       this.setState({allSetupConfigs: res.data});
     });
-
-    this.activateMatomo();
-  }
-
-  activateMatomo() {
-    // @ts-ignore
-    const _mtm = (window._mtm = window._mtm || []);
-    _mtm.push({'mtm.startTime': new Date().getTime(), event: 'mtm.Start'});
-    const d = document,
-      g = d.createElement('script'),
-      s = d.getElementsByTagName('script')[0];
-    g.async = true;
-    g.src = 'https://motomo.metz.dbvis.de/js/container_I8N6IWLd.js';
-    s?.parentNode?.insertBefore(g, s);
   }
 
   toggleStatusBar() {
@@ -571,7 +558,7 @@ class App extends React.Component<AppProps, AppState> {
     return false;
   }
 
-  toggleAppMode(newMode: string) {
+  toggleAppMode(newMode: AppMode) {
     this.setState({
       app_mode: newMode,
       status_bar_collapsed: newMode === 'study',

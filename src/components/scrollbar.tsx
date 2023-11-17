@@ -10,9 +10,9 @@ import KeyboardArrowUp from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDown from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowLeft from '@mui/icons-material/KeyboardArrowLeft';
 import KeyboardArrowRight from '@mui/icons-material/KeyboardArrowRight';
-import styled from 'styled-components';
 import {SetupConfigContext} from '../setup-ui-context';
 import {useTheme} from '@mui/material/styles';
+import { styled } from '@mui/system';
 
 // Custom styles
 interface ScrollbarStyledProps extends React.ComponentPropsWithoutRef<'div'> {
@@ -23,7 +23,7 @@ const ScrollbarContainer = styled('div')<ScrollbarStyledProps>(
   ({theme, horizontalRanking}) => ({
     display: 'flex',
     flexDirection: horizontalRanking ? 'column' : 'row',
-    backgroundColor: theme.palette.background.l1,
+    backgroundColor: theme.palette.background?.l1,
     height: '100%',
     width: '100%',
   })
@@ -33,7 +33,7 @@ const ScrollbarContentContainer = styled('div')<ScrollbarStyledProps>(
   ({theme, horizontalRanking}) => ({
     display: 'flex',
     flexDirection: horizontalRanking ? 'row' : 'column',
-    backgroundColor: theme.palette.background.l0,
+    backgroundColor: theme.palette.background?.l0,
     border: `1px solid ${theme.palette.divider}`,
     msOverflowStyle: 'none',
     overflowY: 'auto',
@@ -67,7 +67,7 @@ const TrackAndThumb = styled('div')<ScrollbarStyledProps>(
 
 const Track = styled('div')<ScrollbarStyledProps>(
   ({theme, horizontalRanking}) => ({
-    backgroundColor: theme.palette.background.l0,
+    backgroundColor: theme.palette.background?.l0,
     borderRadius: '12px',
     bottom: 0,
     left: 0,
@@ -76,7 +76,7 @@ const Track = styled('div')<ScrollbarStyledProps>(
     cursor: 'pointer',
     position: 'absolute',
     width: horizontalRanking ? 'auto' : '1vw',
-    border: `1px solid ${theme.palette.divider}`,
+    border: `1px solid ${theme.palette?.divider}`,
   })
 );
 

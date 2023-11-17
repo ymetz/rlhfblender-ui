@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import {Episode} from '../types';
 import {IDfromEpisode} from '../id';
 import {Droppable} from 'react-beautiful-dnd';
+import React from 'react';
 
 interface AlternativeScrollableEpisodeListProps {
   episodeIDs: Episode[];

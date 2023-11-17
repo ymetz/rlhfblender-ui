@@ -37,7 +37,7 @@ import CorrectionModal from './correction-modal';
 // Context
 import {SetupConfigContext} from '../setup-ui-context';
 import {useGetter} from '../getter-context';
-import styled from 'styled-components';
+import { styled } from '@mui/system';
 import {ParentSize} from '@visx/responsive';
 import {useRatingInfo} from '../rating-info-context';
 import Button from '@mui/material/Button';
@@ -447,7 +447,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
                   objectFit: 'cover',
                 }}
               >
-                <source src={videoURL} type="video/webm" />
+                <source src={videoURL} type="video/mp4" />
               </video>
             )}
             <Box

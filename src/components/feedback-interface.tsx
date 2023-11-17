@@ -22,7 +22,7 @@ import {SetupConfigContext} from '../setup-ui-context';
 import DemoModal from './demo-modal';
 
 // Styled components
-import styled from 'styled-components';
+import { styled } from '@mui/system';
 import {useTheme} from '@mui/material/styles';
 import Progressbar from './progressbar';
 
@@ -75,7 +75,7 @@ function generateTemplateRows(props: StyledDroppableColumnContainerProps) {
   return templateString;
 }
 
-const DroppableColumnContainer = styled.div<StyledDroppableColumnContainerProps>`
+const DroppableColumnContainer = styled('div')<StyledDroppableColumnContainerProps>`
   display: grid;
   flex: 1;
   grid-template-columns: ${props => generateTemplateColumns(props)};

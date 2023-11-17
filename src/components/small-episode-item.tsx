@@ -6,6 +6,7 @@ import Lock from '@mui/icons-material/Lock';
 import {Episode} from '../types';
 import {Tooltip} from '@mui/material';
 import {useGetter} from '../getter-context';
+import React from 'react';
 
 interface SmallEpisodeItemProps {
   isRankeable: boolean;
