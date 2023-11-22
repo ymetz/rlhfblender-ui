@@ -85,7 +85,11 @@ export default function ConfigModal(props: ConfigModalProps) {
 
   return (
     <div>
-      <Dialog open={props.open} onClose={() => props.onClose(null)}>
+      <Dialog open={props.open} onClose={() => props.onClose(null)}
+      PaperProps={{ style: {
+        minHeight: '50%',
+        maxHeight: '50%',
+      }}} >
         <DialogTitle>RLHF-Blender: Experiment Setup</DialogTitle>
         <DialogContent>
           <DialogContentText>

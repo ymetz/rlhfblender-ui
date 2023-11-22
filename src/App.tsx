@@ -50,7 +50,7 @@ import {GetterContext} from './getter-context';
 import {ThemeProvider} from '@mui/material/styles';
 import getDesignTokens from './theme';
 import {createTheme} from '@mui/material/styles';
-import {PaletteMode} from '@mui/material';
+import {Button, PaletteMode} from '@mui/material';
 import {EpisodeFromID, IDfromEpisode} from './id';
 
 class App extends React.Component<AppProps, AppState> {
@@ -97,6 +97,15 @@ class App extends React.Component<AppProps, AppState> {
   }
 
   componentDidMount() {
+    
+    const url = new URL(window.location.href);
+    console.log(url, url.searchParams.get('studyMode'))
+     // we can switch to 'configure' for the configuration mode, but study is default
+    const studyMode = url.searchParams.get('studyMode') || 'study';
+    if (studyMode === 'configure') {
+      this.setState({app_mode: 'configure', status_bar_collapsed: false, startModalOpen: true});
+    }
+
     axios.get('/get_all?model_name=project').then(res => {
       this.setState({projects: res.data});
     });
@@ -106,6 +115,7 @@ class App extends React.Component<AppProps, AppState> {
     });
 
     axios.get('/ui_configs').then(res => {
+      console.log(res.data);
       this.setState({allSetupConfigs: res.data});
     });
   }
@@ -706,6 +716,35 @@ class App extends React.Component<AppProps, AppState> {
               <ExperimentEndModal
                 open={this.state.endModalOpen}
               ></ExperimentEndModal>
+              <Button
+                sx={{
+                  position: 'absolute',
+                  bottom: '2vh',
+                  right: '2vw',
+                  visibility: this.state.app_mode === 'configure' ? 'visible' : 'hidden',
+                  backgroundColor: '#29b6f6',
+                }}
+                variant="contained"
+                onClick={() => {
+                  axios
+                    .post('/save_ui_config', this.state.activeSetupConfig)
+                    .then(res => {
+                      console.log(res);
+                    });
+                }}
+              >  
+                Save Current Config For Study
+              </Button>
+              <Chip 
+                sx={{
+                  position: 'absolute',
+                  top: '2vh',
+                  right: '2vw',
+                  visibility: this.state.app_mode === 'configure' ? 'visible' : 'hidden',
+                }}
+                label="Config Mode"
+                color="warning"
+              />
             </Box>
           </SetupConfigContext.Provider>
         </GetterContext.Provider>

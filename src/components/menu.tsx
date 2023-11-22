@@ -11,6 +11,7 @@ import Tooltip from '@mui/material/Tooltip';
 import {Project, Experiment, SetupConfig} from '../types';
 import LibraryAddIcon from '@mui/icons-material/LibraryAdd';
 import {useTheme} from '@mui/material/styles';
+import React from 'react';
 
 interface MenuProps {
   statusBarCollapsed: boolean;
@@ -107,7 +108,7 @@ const Menu: React.FC<MenuProps> = ({
           >
             {allSetupConfigs.map((config, index) => {
               return (
-                <MenuItem key={index} value={config.id.toString()}>
+                <MenuItem key={index} value={config.id.toString() || "-"}>
                   {config.name}
                 </MenuItem>
               );

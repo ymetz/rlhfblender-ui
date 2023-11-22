@@ -70,7 +70,7 @@ type SetupConfig = {
   customInput: string;
 };
 
-type AppMode = 'study' | 'free';
+type AppMode = 'study' | 'configure';
 
 type AppState = {
   // Drag and drop
