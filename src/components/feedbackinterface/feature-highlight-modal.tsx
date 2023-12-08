@@ -8,8 +8,8 @@ import Delete from '@mui/icons-material/Delete';
 import Send from '@mui/icons-material/Send';
 import Tooltip from '@mui/material/Tooltip';
 import axios from 'axios';
-import {Feedback, FeedbackType} from '../types';
-import {EpisodeFromID} from '../id';
+import {Feedback, FeedbackType} from '../../types';
+import {EpisodeFromID} from '../../id';
 
 interface FeatureHighlightModalProps {
   episodeId: string;

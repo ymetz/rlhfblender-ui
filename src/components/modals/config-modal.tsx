@@ -17,20 +17,20 @@ import {FormControl, InputLabel, MenuItem, Stack} from '@mui/material';
 import UploadIcon from '@mui/icons-material/Upload';
 
 // A list of all available custom inputs
-import {AvailableCustomInputs} from '../custom_env_inputs/custom_input_mapping';
+import {AvailableCustomInputs} from '../../custom_env_inputs/custom_input_mapping';
 
 // Our types
-import {SetupConfig} from '../types';
+import {UIConfig, BackendConfig} from '../../types';
 
 export type ConfigModalProps = {
-  config: SetupConfig;
+  config: UIConfig | BackendConfig;
   open: boolean;
-  onClose: (newConfig: null | SetupConfig) => void;
+  onClose: (newConfig: null | UIConfig) => void;
 };
 
 export default function ConfigModal(props: ConfigModalProps) {
   /* Dynamically create a form based on the config object */
-  const config: SetupConfig = props.config;
+  const config: UIConfig | BackendConfig = props.config;
 
   const availableCustomInputs = AvailableCustomInputs();
 
@@ -72,7 +72,7 @@ export default function ConfigModal(props: ConfigModalProps) {
     const component = event.target.id.split('_')[1];
     const value = event.target.checked;
     // @ts-ignore
-    overwrite_config[key as keyof SetupConfig][component] = value;
+    overwrite_config[key as keyof UIConfig][component] = value;
     setNewConfig(overwrite_config);
   };
 
@@ -127,11 +127,11 @@ export default function ConfigModal(props: ConfigModalProps) {
                     Choose which {key} to include in the experiment.
                   </DialogContentText>
                   <FormGroup>
-                    {Object.keys(new_config[key as keyof SetupConfig]).map(
+                    {Object.keys(new_config[key as keyof UIConfig]).map(
                       (component: string) => {
                         const element =
                           new_config[key][
-                            component as keyof SetupConfig[typeof key]
+                            component as keyof UIConfig[typeof key]
                           ];
                         return (
                           <div>
@@ -153,7 +153,7 @@ export default function ConfigModal(props: ConfigModalProps) {
                 </div>
               );
             } else if (
-              typeof new_config[key as keyof SetupConfig] === 'string'
+              typeof new_config[key as keyof UIConfig] === 'string'
             ) {
               return (
                 <TextField
@@ -162,12 +162,12 @@ export default function ConfigModal(props: ConfigModalProps) {
                   label={key}
                   type="text"
                   fullWidth
-                  value={new_config[key as keyof SetupConfig]}
+                  value={new_config[key as keyof UIConfig]}
                   onChange={formChangeHandler}
                 />
               );
             } else if (
-              typeof new_config[key as keyof SetupConfig] === 'number'
+              typeof new_config[key as keyof UIConfig] === 'number'
             ) {
               return (
                 <TextField
@@ -176,7 +176,7 @@ export default function ConfigModal(props: ConfigModalProps) {
                   label={key}
                   type="number"
                   fullWidth
-                  value={new_config[key as keyof SetupConfig]}
+                  value={new_config[key as keyof UIConfig]}
                   onChange={formChangeHandler}
                 />
               );

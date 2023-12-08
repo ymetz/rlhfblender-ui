@@ -2,10 +2,10 @@
 import React, {createRef} from 'react';
 
 // Our components
-import ConfigModal from './components/config-modal';
-import ExperimentStartModal from './components/experiment-start-modal';
-import ExperimentEndModal from './components/experiment-end-modal';
-import Menu from './components/menu';
+import ConfigModal from './components/modals/config-modal';
+import ExperimentStartModal from './components/modals/experiment-start-modal';
+import ExperimentEndModal from './components/modals/experiment-end-modal';
+import Menu from './components/menubar/menu';
 
 // Drag and drop
 import {DropResult} from 'react-beautiful-dnd';
@@ -21,8 +21,7 @@ import Box from '@mui/material/Box';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
-// Default UI Config
-import defaultSetupConfig from './default-setup-config';
+import {defaultUIConfig, defaultBackendConfig} from './default-setup-configs';
 
 // Axios
 import axios from 'axios';
@@ -33,9 +32,10 @@ import {
   AppState,
   AppMode,
   Episode,
-  SetupConfig,
+  UIConfig,
+  BackendConfig,
   Feedback,
-  FeedbackType,
+  FeedbackType
 } from './types';
 
 // Utils
@@ -43,7 +43,7 @@ import FeedbackInterface from './components/feedback-interface';
 
 // User Tracking Library
 // Contexts
-import {SetupConfigContext} from './setup-ui-context';
+import {UIConfigContext} from './setup-ui-context';
 import {GetterContext} from './getter-context';
 
 // Style
@@ -74,7 +74,8 @@ class App extends React.Component<AppProps, AppState> {
       selectedProject: {id: -1, project_name: '', project_experiments: []},
       selectedExperiment: {id: -1, exp_name: ''},
       sliderValue: 0,
-      modalOpen: false,
+      uiConfigModalOpen: false,
+      backendConfigModalOpen: false,
       startModalOpen: true,
       endModalOpen: false,
       sessionId: '-',
@@ -85,8 +86,10 @@ class App extends React.Component<AppProps, AppState> {
       // Facilitate reordering of the columns
       columnOrder: [],
       episodeIDsChronologically: [],
-      allSetupConfigs: [],
-      activeSetupConfig: defaultSetupConfig,
+      allUIConfigs: [],
+      allBackendConfigs: [],
+      activeUIConfig: defaultUIConfig,
+      activeBackendConfig: defaultBackendConfig,
       scheduledFeedback: [],
       currentStep: 0,
       startModalContent: undefined,
@@ -116,7 +119,11 @@ class App extends React.Component<AppProps, AppState> {
 
     axios.get('/ui_configs').then(res => {
       console.log(res.data);
-      this.setState({allSetupConfigs: res.data});
+      this.setState({allUIConfigs: res.data});
+    });
+
+    axios.get('/backend_configs').then(res => {
+      this.setState({allBackendConfigs: res.data});
     });
   }
 
@@ -150,22 +157,30 @@ class App extends React.Component<AppProps, AppState> {
     this.setState({selectedExperiment});
   }
 
-  selectSetupConfig(event: SelectChangeEvent) {
-    const selectedSetupConfig =
-      this.state.allSetupConfigs.find(
-        SetupConfig => SetupConfig.id === Number.parseInt(event.target.value)
-      ) || this.state.activeSetupConfig;
-    this.setState({activeSetupConfig: selectedSetupConfig});
+  selectUIConfig(event: SelectChangeEvent) {
+    const selectedUIConfig =
+      this.state.allUIConfigs.find(
+        uiConfig => uiConfig.id === Number.parseInt(event.target.value)
+      ) || this.state.activeUIConfig;
+    this.setState({activeUIConfig: selectedUIConfig});
   }
 
-  createCustomConfig = () => this.setState({modalOpen: true});
+  selectBackendConfig(event: SelectChangeEvent) {
+    const selectedBackendConfig =
+      this.state.allBackendConfigs.find(
+        backendConfig => backendConfig.id === Number.parseInt(event.target.value)
+      ) || this.state.activeBackendConfig;
+    this.setState({activeBackendConfig: selectedBackendConfig});
+  }
 
-  closeConfigModal = (new_config: SetupConfig | null) => {
+  createCustomUIConfig = () => this.setState({uiConfigModalOpen: true});
+
+  closeUIConfigModal = (new_config: UIConfig | null) => {
     if (new_config === null) {
-      this.setState({modalOpen: false});
+      this.setState({uiConfigModalOpen: false});
       return;
     }
-    const last_id = this.state.allSetupConfigs.reduce(
+    const last_id = this.state.allUIConfigs.reduce(
       (max, config) => Math.max(max, config.id),
       0
     );
@@ -173,9 +188,9 @@ class App extends React.Component<AppProps, AppState> {
 
     this.setState(
       {
-        modalOpen: false,
-        activeSetupConfig: new_config,
-        allSetupConfigs: [...this.state.allSetupConfigs, new_config],
+        uiConfigModalOpen: false,
+        activeUIConfig: new_config,
+        allUIConfigs: [...this.state.allUIConfigs, new_config],
       },
       () =>
         axios.post('/save_ui_config', new_config).then(res => {
@@ -183,6 +198,32 @@ class App extends React.Component<AppProps, AppState> {
         })
     );
   };
+
+  createCustomBackendConfig = () => this.setState({backendConfigModalOpen: true});
+
+  closeBackendConfigModal = (new_config: BackendConfig | null) => {
+    if (new_config === null) {
+      this.setState({backendConfigModalOpen: false});
+      return;
+    }
+    const last_id = this.state.allBackendConfigs.reduce(
+      (max, config) => Math.max(max, config.id),
+      0
+    );
+    new_config.id = last_id + 1;
+
+    this.setState(
+      {
+        backendConfigModalOpen: false,
+        activeBackendConfig: new_config,
+        allBackendConfigs: [...this.state.allBackendConfigs, new_config],
+      },
+      () =>
+        axios.post('/save_backend_config', new_config).then(res => {
+          console.log(res);
+        })
+    );
+  }
 
   /* Gets a list of identifiers of episodes in chronological order. */
   getEpisodeIDsChronologically(optionalCallback?: () => void) {
@@ -203,13 +244,13 @@ class App extends React.Component<AppProps, AppState> {
         '/data/reset_sampler?experiment_id=' +
           this.state.selectedExperiment.id +
           '&sampling_strategy=' +
-          this.state.activeSetupConfig.samplingStrategy
+          this.state.activeBackendConfig.samplingStrategy
       )
       .then(res => {
         this.setState(
           {
             sessionId: res.data.session_id,
-            startModalOpen: !this.state.app_mode === 'study',
+            startModalOpen: !this.state.app_mode === "study",
             currentStep: 0,
             activeEnvId: res.data.environment_id,
           },
@@ -234,10 +275,14 @@ class App extends React.Component<AppProps, AppState> {
           selectedExperiment:
             this.state.experiments.find(experiment => experiment.id === 8) ||
             this.state.selectedExperiment,
-          activeSetupConfig:
-            this.state.allSetupConfigs.find(
-              SetupConfig => SetupConfig.name === 'Study'
-            ) || this.state.activeSetupConfig,
+          activeUIConfig:
+            this.state.allUIConfigs.find(
+              UIConfig => UIConfig.name === 'Study'
+            ) || this.state.activeUIConfig,
+          activeBackendConfig:
+            this.state.allBackendConfigs.find(
+              backendConfig => backendConfig.name === 'Study'
+            ) || this.state.activeBackendConfig,
         },
         this.resetSampler
       );
@@ -282,7 +327,7 @@ class App extends React.Component<AppProps, AppState> {
     }
     await axios({
       method: 'get',
-      params: {num_episodes: this.state.activeSetupConfig.max_ranking_elements},
+      params: {num_episodes: this.state.activeUIConfig.max_ranking_elements},
       url: '/data/sample_episodes',
     }).then(res => {
       const episodeIDs: string[] = res.data.map((e: Episode) =>
@@ -588,7 +633,7 @@ class App extends React.Component<AppProps, AppState> {
             getUncertainty: this.getUncertainty.bind(this),
           }}
         >
-          <SetupConfigContext.Provider value={this.state.activeSetupConfig}>
+          <UIConfigContext.Provider value={this.state.activeUIConfig}>
             <Box
               id="app"
               sx={{
@@ -618,10 +663,14 @@ class App extends React.Component<AppProps, AppState> {
                   selectedExperimentId={this.state.selectedExperiment.id.toString()}
                   selectExperiment={this.selectExperiment.bind(this)}
                   experiments={this.state.filtered_experiments}
-                  activeSetupConfigId={this.state.activeSetupConfig.id.toString()}
-                  selectSetupConfig={this.selectSetupConfig.bind(this)}
-                  allSetupConfigs={this.state.allSetupConfigs}
-                  createCustomConfig={this.createCustomConfig.bind(this)}
+                  activeUIConfigId={this.state.activeUIConfig.id.toString()}
+                  activeBackendConfigId={this.state.activeBackendConfig.id.toString()}
+                  selectUIConfig={this.selectUIConfig.bind(this)}
+                  selectBackendConfig={this.selectBackendConfig.bind(this)}
+                  allUIConfigs={this.state.allUIConfigs}
+                  allBackendConfigs={this.state.allBackendConfigs}
+                  createCustomUIConfig={this.createCustomUIConfig.bind(this)}
+                  createCustomBackendConfig={this.createCustomBackendConfig.bind(this)}
                   resetSampler={this.resetSampler.bind(this)}
                   sessionId={this.state.sessionId}
                   allThemes={this.state.allThemes}
@@ -683,7 +732,7 @@ class App extends React.Component<AppProps, AppState> {
                   episodeIDsChronologically={
                     this.state.episodeIDsChronologically
                   }
-                  activeSetupConfig={this.state.activeSetupConfig}
+                  activeUIConfig={this.state.activeUIConfig}
                   parentWidthPx={
                     this.scrollableListContainerRef.current?.clientWidth
                   }
@@ -700,13 +749,18 @@ class App extends React.Component<AppProps, AppState> {
                 />
               ) : null}
               <ConfigModal
-                config={this.state.activeSetupConfig}
-                open={this.state.modalOpen}
-                onClose={this.closeConfigModal.bind(this)}
+                config={this.state.activeUIConfig}
+                open={this.state.uiConfigModalOpen}
+                onClose={this.closeUIConfigModal.bind(this)}
+              />
+              <ConfigModal
+                config={this.state.activeBackendConfig}
+                open={this.state.backendConfigModalOpen}
+                onClose={this.closeBackendConfigModal.bind(this)}
               />
               <ExperimentStartModal
                 feedbackComponents={
-                  this.state.activeSetupConfig.feedbackComponents
+                  this.state.activeUIConfig.feedbackComponents
                 }
                 content={this.state.startModalContent}
                 open={this.state.startModalOpen}
@@ -727,9 +781,8 @@ class App extends React.Component<AppProps, AppState> {
                 variant="contained"
                 onClick={() => {
                   axios
-                    .post('/save_ui_config', this.state.activeSetupConfig)
+                    .post('/save_ui_config', this.state.activeUIConfig)
                     .then(res => {
-                      console.log(res);
                     });
                 }}
               >  
@@ -746,7 +799,7 @@ class App extends React.Component<AppProps, AppState> {
                 color="warning"
               />
             </Box>
-          </SetupConfigContext.Provider>
+          </UIConfigContext.Provider>
         </GetterContext.Provider>
       </ThemeProvider>
     );

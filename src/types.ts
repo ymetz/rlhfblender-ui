@@ -54,7 +54,7 @@ type Experiment = {
   exp_name: string;
 };
 
-type SetupConfig = {
+type UIConfig = {
   // A map of enabled/disabled UI components
   id: number;
   name: string;
@@ -66,8 +66,22 @@ type SetupConfig = {
     [key: string]: boolean;
   };
   max_ranking_elements: number;
-  samplingStrategy: string;
   customInput: string;
+};
+
+type BackendConfig = {
+  id: number;
+  name: string;
+  description: string;
+  samplingStrategy: string;
+  loggerMode: string;
+
+  // Configs for feedback model training
+  feedbackModelTrainingEnabled: boolean;
+  feeedbackModelType: string;
+  feedbackModelConfig: {
+    [key: string]: unknown;
+  };
 };
 
 type AppMode = 'study' | 'configure';
@@ -80,7 +94,8 @@ type AppState = {
   uncertaintyCache: {[key: string]: number[]};
   thumbnailURLCache: {[key: string]: string};
   status_bar_collapsed: boolean;
-  modalOpen: boolean;
+  uiConfigModalOpen: boolean;
+  backendConfigModalOpen: boolean;
   startModalOpen: boolean;
   endModalOpen: boolean;
   projects: Project[];
@@ -104,8 +119,10 @@ type AppState = {
   episodeIDsChronologically: Episode[];
   activeEpisodes: Episode[];
   highlightedEpisodes: {value: number}[];
-  allSetupConfigs: SetupConfig[];
-  activeSetupConfig: SetupConfig;
+  allUIConfigs: UIConfig[];
+  allBackendConfigs: BackendConfig[];
+  activeUIConfig: UIConfig;
+  activeBackendConfig: BackendConfig;
   scheduledFeedback: Feedback[];
   currentStep: number;
   startModalContent: React.ReactNode | string | undefined;
@@ -122,7 +139,8 @@ export type {
   AppMode,
   Episode,
   Project,
-  SetupConfig,
+  UIConfig,
+  BackendConfig,
   Feedback,
   Experiment,
 };

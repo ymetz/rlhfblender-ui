@@ -1,11 +1,11 @@
 import {Draggable} from 'react-beautiful-dnd';
 import Box from '@mui/material/Box';
 import {useEffect, useState, useRef} from 'react';
-import {IDfromEpisode} from '../id';
+import {IDfromEpisode} from '../../id';
 import Lock from '@mui/icons-material/Lock';
-import {Episode} from '../types';
+import {Episode} from '../../types';
 import {Tooltip} from '@mui/material';
-import {useGetter} from '../getter-context';
+import {useGetter} from '../../getter-context';
 import React from 'react';
 
 interface SmallEpisodeItemProps {

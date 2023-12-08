@@ -11,25 +11,22 @@ import Send from '@mui/icons-material/Send';
 import {Button} from '@mui/material';
 
 // Our components
-import DroppableColumn from './droppable-column';
-import ScrollableEpisodeList from './scrollable-episode-list';
+import DroppableColumn from './feedbackinterface/droppable-column';
+import ScrollableEpisodeList from './feedbackinterface/scrollable-episode-list';
 
 // Types
-import {Episode, SetupConfig, Feedback, FeedbackType} from '../types';
+import {Episode, UIConfig, Feedback, FeedbackType} from '../types';
 
 // Context
-import {SetupConfigContext} from '../setup-ui-context';
-import DemoModal from './demo-modal';
+import {UIConfigContext} from '../setup-ui-context';
+import DemoModal from './feedbackinterface/demo-modal';
 
 // Styled components
 import { styled } from '@mui/system';
 import {useTheme} from '@mui/material/styles';
-import Progressbar from './progressbar';
+import Progressbar from './feedbackinterface/progressbar';
 
 import {RatingInfoContext} from '../rating-info-context';
-
-// Custom icons
-import DemoIcon from '../icons/demo-icon';
 
 interface StyledDroppableColumnContainerProps {
   columnOrder: string[];
@@ -87,7 +84,7 @@ interface FeedbackInterfaceProps {
   onDragEnd: (dropResult: DropResult) => void;
   currentProgressBarStep: number;
   episodeIDsChronologically: Episode[];
-  activeSetupConfig: SetupConfig;
+  activeUIConfig: UIConfig;
   parentWidthPx: number | undefined;
   rankeableEpisodeIDs: string[];
   columnOrder: string[];
@@ -122,7 +119,7 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
   submitFeedback,
   hasFeedback,
 }) => {
-  const activeSetupConfig = useContext(SetupConfigContext);
+  const activeUIConfig = useContext(UIConfigContext);
   const numEpisodes = episodeIDsChronologically.length;
   const [demoModalOpen, setDemoModalOpen] = React.useState({
     open: false,
@@ -130,7 +127,7 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
   });
   const [isOnSubmit, setIsOnSubmit] = React.useState(false);
   const [evalFeedback, setEvalFeedback] = React.useState({});
-  const horizontalDrag = activeSetupConfig.uiComponents.horizontalRanking;
+  const horizontalDrag = activeUIConfig.uiComponents.horizontalRanking;
   const theme = useTheme();
 
   const updateEvalFeedback = (episodeId: string, newRating: number) => {
@@ -148,7 +145,7 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
       }}
     >
       <Box sx={{display: 'flex', flexDirection: 'row'}}>
-        {activeSetupConfig.uiComponents.progressBar && (
+        {activeUIConfig.uiComponents.progressBar && (
           <Box
             id="progress-bar"
             sx={{
@@ -171,7 +168,7 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
             <Progressbar
               maxSteps={
                 Math.ceil(
-                  numEpisodes / activeSetupConfig.max_ranking_elements
+                  numEpisodes / activeUIConfig.max_ranking_elements
                 ) ?? 1
               }
               currentStep={currentProgressBarStep}
@@ -212,7 +209,7 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
               backgroundColor: theme.palette.background.l1,
             }}
           >
-            {activeSetupConfig.uiComponents.interactiveEpisodeSelect && (
+            {activeUIConfig.uiComponents.interactiveEpisodeSelect && (
               <ScrollableEpisodeList
                 episodeIDs={episodeIDsChronologically}
                 rankeableEpisodeIDs={rankeableEpisodeIDs}
@@ -248,7 +245,7 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
             open={demoModalOpen.open}
             onClose={() => setDemoModalOpen({open: false, seed: 0})}
             onCloseSubmit={onDemoModalSubmit}
-            custom_input={activeSetupConfig.customInput}
+            custom_input={activeUIConfig.customInput}
             activeEnvId={activeEnvId}
             sessionId={sessionId}
             inputProps={{}}

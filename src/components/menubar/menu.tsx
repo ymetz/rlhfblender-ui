@@ -8,7 +8,7 @@ import FormControl from '@mui/material/FormControl';
 import Select, {SelectChangeEvent} from '@mui/material/Select';
 import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
-import {Project, Experiment, SetupConfig} from '../types';
+import {Project, Experiment, UIConfig, BackendConfig} from '../../types';
 import LibraryAddIcon from '@mui/icons-material/LibraryAdd';
 import {useTheme} from '@mui/material/styles';
 import React from 'react';
@@ -21,13 +21,17 @@ interface MenuProps {
   selectedExperimentId: string;
   selectExperiment: (event: SelectChangeEvent) => void;
   experiments: Experiment[];
-  activeSetupConfigId: string;
-  selectSetupConfig: (event: SelectChangeEvent) => void;
-  allSetupConfigs: SetupConfig[];
+  activeUIConfigId: string;
+  activeBackendConfigId: string;
+  selectUIConfig: (event: SelectChangeEvent) => void;
+  selectBackendConfig: (event: SelectChangeEvent) => void;
+  allUIConfigs: UIConfig[];
+  allBackendConfigs: BackendConfig[];
   allThemes: string[];
   selectTheme: (event: SelectChangeEvent) => void;
   activeTheme: string;
-  createCustomConfig: () => void;
+  createCustomUIConfig: () => void;
+  createCustomBackendConfig: () => void;
   resetSampler: () => void;
   sessionId: string;
 }
@@ -40,10 +44,14 @@ const Menu: React.FC<MenuProps> = ({
   selectedExperimentId,
   selectExperiment,
   experiments,
-  activeSetupConfigId,
-  selectSetupConfig,
-  allSetupConfigs,
-  createCustomConfig,
+  activeUIConfigId,
+  selectUIConfig,
+  activeBackendConfigId,
+  selectBackendConfig,
+  allUIConfigs,
+  allBackendConfigs,
+  createCustomUIConfig,
+  createCustomBackendConfig,
   allThemes,
   selectTheme,
   resetSampler,
@@ -98,15 +106,15 @@ const Menu: React.FC<MenuProps> = ({
           </Select>
         </FormControl>
         <FormControl sx={{width: '10vw', marginRight: '2vw'}}>
-          <InputLabel id="config-select-label">Configurations</InputLabel>
+          <InputLabel id="config-select-label">Backend Configurations</InputLabel>
           <Select
             labelId="config-select-label"
             id="config-simple-select"
-            value={activeSetupConfigId}
+            value={activeBackendConfigId}
             label="Configurations"
-            onChange={selectSetupConfig}
+            onChange={selectBackendConfig}
           >
-            {allSetupConfigs.map((config, index) => {
+            {allBackendConfigs.map((config, index) => {
               return (
                 <MenuItem key={index} value={config.id.toString() || "-"}>
                   {config.name}
@@ -114,6 +122,43 @@ const Menu: React.FC<MenuProps> = ({
               );
             })}
           </Select>
+        </FormControl>
+        <FormControl sx={{marginRight: '2vw', marginTop: '1vh'}}>
+          <Tooltip title="Create New Config">
+            <IconButton onClick={createCustomBackendConfig}>
+              <LibraryAddIcon sx={{color: theme.palette.text.secondary}} />
+            </IconButton>
+          </Tooltip>
+        </FormControl>
+        <FormControl sx={{width: '10vw', marginRight: '2vw'}}>
+          <InputLabel id="config-select-label">UI Configuration</InputLabel>
+          <Select
+            labelId="config-select-label"
+            id="config-simple-select"
+            value={activeUIConfigId}
+            label="Configurations"
+            onChange={selectUIConfig}
+          >
+            {allUIConfigs.map((config, index) => {
+              return (
+                <MenuItem key={index} value={config.id.toString() || "-"}>
+                  {config.name}
+                </MenuItem>
+              );
+            })}
+          </Select>
+        </FormControl>
+        <FormControl sx={{marginRight: '2vw', marginTop: '1vh'}}>
+          <Tooltip title="Create New Config">
+            <IconButton onClick={createCustomUIConfig}>
+              <LibraryAddIcon sx={{color: theme.palette.text.secondary}} />
+            </IconButton>
+          </Tooltip>
+        </FormControl>
+        <FormControl sx={{width: '5vw', marginRight: '2vw', marginTop: '1vh'}}>
+          <Button variant="contained" onClick={resetSampler}>
+            Load
+          </Button>
         </FormControl>
         <FormControl sx={{width: '10vw', marginRight: '2vw'}}>
           <InputLabel id="theme-select-label">Theme</InputLabel>
@@ -132,18 +177,6 @@ const Menu: React.FC<MenuProps> = ({
               );
             })}
           </Select>
-        </FormControl>
-        <FormControl sx={{marginRight: '2vw', marginTop: '1vh'}}>
-          <Tooltip title="Create New Config">
-            <IconButton onClick={createCustomConfig}>
-              <LibraryAddIcon sx={{color: theme.palette.text.secondary}} />
-            </IconButton>
-          </Tooltip>
-        </FormControl>
-        <FormControl sx={{width: '5vw', marginRight: '2vw', marginTop: '1vh'}}>
-          <Button variant="contained" onClick={resetSampler}>
-            Load
-          </Button>
         </FormControl>
         <FormControl sx={{width: '25vw', marginRight: '2vw', float: 'right'}}>
           <Typography

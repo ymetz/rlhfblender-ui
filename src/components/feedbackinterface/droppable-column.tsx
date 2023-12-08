@@ -2,9 +2,9 @@ import React, {useContext} from 'react';
 import {Droppable} from 'react-beautiful-dnd';
 import EpisodeItem from './episode-item';
 import Box from '@mui/material/Box';
-import {Feedback} from '../types';
+import {Feedback} from '../../types';
 import Chip from '@mui/material/Chip';
-import {SetupConfigContext} from '../setup-ui-context';
+import {UIConfigContext} from '../../setup-ui-context';
 import {useTheme} from '@mui/material/styles';
 import chroma from 'chroma-js';
 
@@ -35,8 +35,8 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
   setDemoModalOpen,
   actionLabels,
 }) => {
-  const setupConfig = useContext(SetupConfigContext);
-  const horizontalRanking = setupConfig.uiComponents.horizontalRanking;
+  const UIConfig = useContext(UIConfigContext);
+  const horizontalRanking = UIConfig.uiComponents.horizontalRanking;
   const theme = useTheme();
   return (
     // This box lives within a flex container with direction row. So if we put flex: 1, it will distribute the remaining space, even if nothing is contained.

@@ -1,3 +1,3 @@
 import {createContext} from 'react';
-import DefaultSetupConfig from './default-setup-config';
-export const SetupConfigContext = createContext(DefaultSetupConfig);
+import {defaultUIConfig} from './default-setup-configs';
+export const UIConfigContext = createContext(defaultUIConfig);

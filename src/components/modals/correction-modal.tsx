@@ -5,15 +5,15 @@ import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import Grid from '@mui/material/Grid';
 import DialogActions from '@mui/material/DialogActions';
-import {CustomInput} from '../custom_env_inputs/custom_input_mapping';
+import {CustomInput} from '../../custom_env_inputs/custom_input_mapping';
 import {DialogContent, DialogTitle, Typography} from '@mui/material';
 
 // Types
-import {Feedback, FeedbackType} from '../types';
-import {EpisodeFromID} from '../id';
+import {Feedback, FeedbackType} from '../../types';
+import {EpisodeFromID} from '../../id';
 
 // Our components
-import Space from './spaces/space_mapping';
+import Space from '../spaces/space_mapping';
 
 // Axios
 import axios, {AxiosResponse} from 'axios';

@@ -11,9 +11,9 @@ import PlayArrowSharp from '@mui/icons-material/PlayArrowSharp';
 import FastRewind from '@mui/icons-material/FastRewind';
 import PauseSharp from '@mui/icons-material/PauseSharp';
 import FastForwardSharp from '@mui/icons-material/FastForwardSharp';
-import EvalIcon from '../icons/eval-icon';
-import FeatIcon from '../icons/feat-icon';
-import CorrIcon from '../icons/corr-icon';
+import EvalIcon from '../../icons/eval-icon';
+import FeatIcon from '../../icons/feat-icon';
+import CorrIcon from '../../icons/corr-icon';
 import Box from '@mui/material/Box';
 import IconButton from '@mui/material/IconButton';
 import Fade from '@mui/material/Fade';
@@ -26,22 +26,22 @@ import chroma from 'chroma-js';
 import axios from 'axios';
 
 // Types
-import {EpisodeFromID} from '../id';
-import {Feedback, FeedbackType} from '../types';
+import {EpisodeFromID} from '../../id';
+import {Feedback, FeedbackType} from '../../types';
 
 // Our components
 import TimelineChart from './timeline-chart';
 import FeatureHighlightModal from './feature-highlight-modal';
-import CorrectionModal from './correction-modal';
+import CorrectionModal from '../modals/correction-modal';
 
 // Context
-import {SetupConfigContext} from '../setup-ui-context';
-import {useGetter} from '../getter-context';
+import {UIConfigContext} from '../../setup-ui-context';
+import {useGetter} from '../../getter-context';
 import { styled } from '@mui/system';
 import {ParentSize} from '@visx/responsive';
-import {useRatingInfo} from '../rating-info-context';
+import {useRatingInfo} from '../../rating-info-context';
 import Button from '@mui/material/Button';
-import DemoIcon from '../icons/demo-icon';
+import DemoIcon from '../../icons/demo-icon';
 
 interface EpisodeItemContainerProps {
   isDragging?: boolean;
@@ -187,7 +187,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     action_space: {},
   });
   const theme = useTheme();
-  const setupConfig = useContext(SetupConfigContext);
+  const UIConfig = useContext(UIConfigContext);
   const {isOnSubmit, hasFeedback} = useRatingInfo();
 
   // Whether this episode has already received feedback
@@ -258,7 +258,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   }, [episodeID, getRewards]);
 
   useEffect(() => {
-    if (setupConfig.uiComponents.uncertaintyLine) {
+    if (UIConfig.uiComponents.uncertaintyLine) {
       getUncertainty(episodeID).then(uncertainty => {
         setUncertainty(uncertainty ? uncertainty : []);
       });
@@ -266,8 +266,8 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   }, [
     episodeID,
     getUncertainty,
-    setupConfig.uiComponents.showUncertainty,
-    setupConfig.uiComponents.uncertaintyLine,
+    UIConfig.uiComponents.showUncertainty,
+    UIConfig.uiComponents.uncertaintyLine,
   ]);
 
   useEffect(() => {
@@ -294,7 +294,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
 
   const onLoadMetaDataHandler = () => {
     setVideoDuration(videoRef.current.duration);
-    if (setupConfig.uiComponents.showProposedFeedback) {
+    if (UIConfig.uiComponents.showProposedFeedback) {
       setProposedFeedbackMarkers(
         Array.from({length: 4}, (_, i) => ({
           x: Math.floor(Math.random() * rewards.length),
@@ -388,7 +388,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     <Draggable draggableId={episodeID} index={index}>
       {(provided, snapshot) => (
         <EpisodeItemContainer
-          horizontalRanking={setupConfig.uiComponents.horizontalRanking}
+          horizontalRanking={UIConfig.uiComponents.horizontalRanking}
           numItemsInColumn={numItemsInColumn}
           isDragging={snapshot.isDragging}
           ref={provided.innerRef}
@@ -401,7 +401,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
             <DragIndicator
               sx={{
                 transform:
-                  setupConfig.uiComponents.horizontalRanking &&
+                  UIConfig.uiComponents.horizontalRanking &&
                   numItemsInColumn === 1
                     ? 'rotate(90deg)'
                     : 'none',
@@ -458,7 +458,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
                 right: 0,
                 display: 'grid',
                 gridTemplateRows: '1fr',
-                gridTemplateColumns: setupConfig.uiComponents.featureSelection
+                gridTemplateColumns: UIConfig.uiComponents.featureSelection
                   ? '1fr'
                   : '75% auto',
               }}
@@ -498,7 +498,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
                   </IconButton>
                 </Box>
               </Fade>
-              {setupConfig.feedbackComponents.featureSelection && (
+              {UIConfig.feedbackComponents.featureSelection && (
                 <IconButton
                   onClick={() => setHighlightModelOpen(!highlightModelOpen)}
                 >
@@ -518,7 +518,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           <EvaluativeContainer
             hasFeedback={hasEvaluativeFeedback}
             isOnSubmit={isOnSubmit}
-            horizontalRanking={setupConfig.uiComponents.horizontalRanking}
+            horizontalRanking={UIConfig.uiComponents.horizontalRanking}
           >
             <Box
               sx={{
@@ -587,7 +587,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
               gridArea: 'demo',
             }}
           >
-            {setupConfig.feedbackComponents.demonstration && (
+            {UIConfig.feedbackComponents.demonstration && (
               <Box
                 sx={{
                   p: 1,
@@ -656,11 +656,11 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
                 <TimelineChart
                   rewards={rewards}
                   uncertainty={
-                    setupConfig.uiComponents.uncertaintyLine ? uncertainty : []
+                    UIConfig.uiComponents.uncertaintyLine ? uncertainty : []
                   }
                   actions={actions}
                   actionLabels={
-                    setupConfig.uiComponents.actionLabels ? actionLabels : []
+                    UIConfig.uiComponents.actionLabels ? actionLabels : []
                   }
                   width={parent.width - 20}
                   height={100}
@@ -715,7 +715,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
             frame={getSingleFrame(videoRef.current, selectedStep)}
             onClose={() => setCorrectionModalOpen(false)}
             onCloseSubmit={onCorrectionModalSubmit}
-            custom_input={setupConfig?.customInput}
+            custom_input={UIConfig?.customInput}
             sessionId={sessionId}
             inputProps={{}}
           />

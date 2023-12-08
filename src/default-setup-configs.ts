@@ -1,7 +1,7 @@
-import {SetupConfig} from './types';
+import {BackendConfig, UIConfig} from './types';
 
 // Make sure that this config mirrors the format of the UIConfig model in the backend
-const DefaultSetupConfig: SetupConfig = {
+const defaultUIConfig: UIConfig = {
   id: -1,
   name: '',
   description: '',
@@ -25,8 +25,18 @@ const DefaultSetupConfig: SetupConfig = {
     text: false,
   },
   max_ranking_elements: 5,
-  samplingStrategy: 'sequential',
   customInput: '',
 };
 
-export default DefaultSetupConfig;
+const defaultBackendConfig: BackendConfig = {
+  id: -1,
+  name: '',
+  description: '',
+  samplingStrategy: 'sequential',
+  loggerMode: 'local',
+  feedbackModelTrainingEnabled: false,
+  feeedbackModelType: '',
+  feedbackModelConfig: {},
+};
+
+export {defaultUIConfig, defaultBackendConfig};
