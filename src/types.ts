@@ -84,6 +84,13 @@ type BackendConfig = {
   };
 };
 
+type GymSpaceInfo = {
+  "label":  string,
+  "shape": number[],
+  "dtype":  string,
+  "labels": { [key: string]: number },
+};
+
 type AppMode = 'study' | 'configure';
 
 type AppState = {
@@ -143,5 +150,6 @@ export type {
   BackendConfig,
   Feedback,
   Experiment,
+  GymSpaceInfo,
 };
 export {FeedbackType};

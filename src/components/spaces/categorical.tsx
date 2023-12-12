@@ -3,6 +3,7 @@ import {Bar} from '@visx/shape';
 import {Group} from '@visx/group';
 import {scaleBand, scaleLinear} from '@visx/scale';
 import {AxisBottom, AxisLeft} from '@visx/axis';
+import {  GymSpaceInfo } from '../../types';
 
 export type BarsProps = {
   width: number;
@@ -10,7 +11,7 @@ export type BarsProps = {
   events?: boolean;
   action?: number;
   distribution?: number[];
-  actionSpace: object;
+  actionSpace: GymSpaceInfo;
 };
 
 const verticalMargin = 50;
@@ -59,9 +60,9 @@ export default function Categorical({
           return (
             <Bar
               key={
-                Object.hasOwnProperty.call(actionSpace, 'tag_' + i)
-                  ? actionSpace[('tag_' + i) as keyof typeof actionSpace]
-                  : i
+                Object.hasOwnProperty.call(actionSpace?.labels, i.toString())
+                  ? actionSpace?.labels[i]
+                  : i.toString()
               }
               x={xScale(i)}
               y={yMax - barHeight}

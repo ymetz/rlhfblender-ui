@@ -3,9 +3,10 @@ import * as React from 'react';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import SendIcon from '@mui/icons-material/Send';
+import { GymSpaceInfo } from '../types';
 
 type AtariInputProps = {
-  space: any;
+  space: GymSpaceInfo;
   setFeedback: (value: number) => void;
   needsSubmit: boolean;
 };
@@ -40,7 +41,7 @@ export default function AtariInput(props: AtariInputProps) {
                   !props.needsSubmit && props.setFeedback(index);
                 }}
               >
-                {props.space['tag_' + index] || action}
+                {props.space.labels[index.toString()] ?? index}
               </Button>
             );
           }
