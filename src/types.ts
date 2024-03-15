@@ -115,14 +115,6 @@ type AppState = {
   selectedExperiment: Experiment;
   sliderValue: number;
   rankeableEpisodeIDs: string[];
-  ranks: {
-    [key: string]: {
-      rank: number;
-      title: string;
-      episodeItemIDs: string[];
-    };
-  };
-  columnOrder: string[];
   episodeIDsChronologically: Episode[];
   activeEpisodes: Episode[];
   highlightedEpisodes: {value: number}[];

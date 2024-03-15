@@ -27,6 +27,8 @@ import {useTheme} from '@mui/material/styles';
 import Progressbar from './feedbackinterface/progressbar';
 
 import {RatingInfoContext} from '../rating-info-context';
+import { EpisodeFromID, IDfromEpisode } from '../id';
+import axios from 'axios';
 
 interface StyledDroppableColumnContainerProps {
   columnOrder: string[];
@@ -109,8 +111,6 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
   currentProgressBarStep,
   episodeIDsChronologically,
   rankeableEpisodeIDs,
-  columnOrder,
-  ranks,
   scheduleFeedback,
   onDemoModalSubmit,
   activeEnvId,
@@ -120,6 +120,8 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
   hasFeedback,
 }) => {
   const activeUIConfig = useContext(UIConfigContext);
+  const [columnOrder, setColumnOrder] = React.useState<string[]>([]);
+  const [ranks, setRanks] = React.useState({});
   const numEpisodes = episodeIDsChronologically.length;
   const [demoModalOpen, setDemoModalOpen] = React.useState({
     open: false,
@@ -136,6 +138,156 @@ const FeedbackInterface: React.FC<FeedbackInterfaceProps> = ({
       [episodeId]: newRating,
     }));
   };
+
+  // update column order and ranks if rankeableEpisodeIDs change
+  React.useEffect(() => {
+    const new_ranks = Object.fromEntries(
+      Array.from({length: rankeableEpisodeIDs.length}, (_, i) => [
+        `rank-${i}`,
+        {
+          rank: i + 1,
+          title: `Rank ${i + 1}`,
+          episodeItemIDs: [rankeableEpisodeIDs[i]],
+        },
+      ])
+    );
+    setRanks(new_ranks);
+    setColumnOrder(Object.entries(new_ranks).map(([key, _]) => key));
+
+
+  }
+  , [rankeableEpisodeIDs]);
+
+
+    // Create onDragEnd function
+    onDragEnd = (dropResult: DropResult) => {
+      const {destination, source, draggableId} = dropResult;
+  
+      // If there is no destination, return
+      if (!destination) {
+        return;
+      }
+  
+      // If the destination is the same as the source, return
+      if (
+        destination.droppableId === source.droppableId &&
+        destination.index === source.index
+      ) {
+        return;
+      }
+  
+      const destDroppableId = destination.droppableId;
+      const destDroppable = ranks[destDroppableId];
+  
+      const srcDroppableId = source.droppableId;
+      const srcDroppable = ranks[srcDroppableId];
+  
+      let newState: {
+        rankeableEpisodeIDs: string[];
+        ranks: {
+          [key: string]: {rank: number; title: string; episodeItemIDs: string[]};
+        };
+        columnOrder: string[];
+      };
+  
+      const newRankeableEpisodeIDs: string[] = Array.from(
+        rankeableEpisodeIDs
+      );
+      if (srcDroppableId === 'scrollable-episode-list') {
+        // This is a new episode, so we need to add it to rankeableEpisodeIDs.
+        newRankeableEpisodeIDs.push(draggableId);
+      }
+  
+      if (
+        srcDroppable === destDroppable ||
+        srcDroppableId === 'scrollable-episode-list'
+      ) {
+        // We have the same source and destination, so we are reording within
+        // the same rank.
+        const newEpisodeItemIDs = Array.from(destDroppable.episodeItemIDs);
+        newEpisodeItemIDs.splice(source.index, 1);
+        newEpisodeItemIDs.splice(destination.index, 0, draggableId);
+  
+        const newRank = {
+          ...destDroppable,
+          episodeItemIDs: newEpisodeItemIDs,
+        };
+  
+        newState = {
+          rankeableEpisodeIDs: newRankeableEpisodeIDs,
+          ranks: {
+            ...ranks,
+            [destDroppableId]: newRank,
+          },
+          columnOrder: columnOrder,
+        };
+      } else {
+        // We are moving an episode from one rank to another.
+  
+        // Inserting episode into destination rank.
+        const newDestDraggableIDs = Array.from(destDroppable.episodeItemIDs);
+        newDestDraggableIDs.splice(destination.index, 0, draggableId);
+  
+        // Removing episode from source rank.
+        const newSrcDraggableIDs = Array.from(srcDroppable.episodeItemIDs);
+        newSrcDraggableIDs.splice(source.index, 1);
+  
+        const newDestRank = {
+          ...destDroppable,
+          episodeItemIDs: newDestDraggableIDs,
+        };
+  
+        const newSrcRank = {
+          ...srcDroppable,
+          episodeItemIDs: newSrcDraggableIDs,
+        };
+  
+        newState = {
+          ranks: {
+            ...ranks,
+            [destDroppableId]: newDestRank,
+            [srcDroppableId]: newSrcRank,
+          },
+          rankeableEpisodeIDs: newRankeableEpisodeIDs,
+          columnOrder: columnOrder,
+        };
+      }
+  
+      // Get the episodes and associated ranks in the new order
+      const orderedEpisodes: {id: string; reference: Episode}[] = [];
+      const orderedRanks: number[] = [];
+      for (const rank of newState.columnOrder) {
+        const rankObject = newState.ranks[rank];
+  
+        for (const episodeID of rankObject.episodeItemIDs) {
+          orderedEpisodes.push({
+            id: episodeID,
+            reference: EpisodeFromID(episodeID),
+          });
+          orderedRanks.push(rankObject.rank);
+        }
+      }
+  
+      // Log current order as feedback
+      const feedback: Feedback = {
+        feedback_type: FeedbackType.Comparative,
+        timestamp: Date.now(),
+        session_id: sessionId,
+        targets: orderedEpisodes.map(e => ({
+          target_id: e.id,
+          reference: e.reference,
+          origin: 'offline',
+          timestamp: Date.now(),
+        })),
+        preferences: orderedRanks,
+        granularity: 'episode',
+      };
+      axios.post('/data/give_feedback', feedback).catch(error => {
+        console.log(error);
+      });
+
+      
+    };
 
   return (
     <RatingInfoContext.Provider

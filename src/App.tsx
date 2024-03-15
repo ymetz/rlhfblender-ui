@@ -78,13 +78,8 @@ class App extends React.Component<AppProps, AppState> {
       backendConfigModalOpen: false,
       startModalOpen: true,
       endModalOpen: false,
-      sessionId: '-',
-      // Drag and drop
       rankeableEpisodeIDs: [],
-
-      ranks: {},
-      // Facilitate reordering of the columns
-      columnOrder: [],
+      sessionId: '-',
       episodeIDsChronologically: [],
       allUIConfigs: [],
       allBackendConfigs: [],
@@ -102,7 +97,7 @@ class App extends React.Component<AppProps, AppState> {
   componentDidMount() {
     
     const url = new URL(window.location.href);
-    console.log(url, url.searchParams.get('studyMode'))
+    console.log(url, url.pathname);
      // we can switch to 'configure' for the configuration mode, but study is default
     const studyMode = url.searchParams.get('studyMode') || 'study';
     if (studyMode === 'configure') {
@@ -250,7 +245,7 @@ class App extends React.Component<AppProps, AppState> {
         this.setState(
           {
             sessionId: res.data.session_id,
-            startModalOpen: !this.state.app_mode === "study",
+            startModalOpen: this.state.app_mode !== "study",
             currentStep: 0,
             activeEnvId: res.data.environment_id,
           },
@@ -330,162 +325,16 @@ class App extends React.Component<AppProps, AppState> {
       params: {num_episodes: this.state.activeUIConfig.max_ranking_elements},
       url: '/data/sample_episodes',
     }).then(res => {
-      const episodeIDs: string[] = res.data.map((e: Episode) =>
-        IDfromEpisode(e)
-      );
-
-      const new_ranks = Object.fromEntries(
-        Array.from({length: episodeIDs.length}, (_, i) => [
-          `rank-${i}`,
-          {
-            rank: i + 1,
-            title: `Rank ${i + 1}`,
-            episodeItemIDs: [episodeIDs[i]],
-          },
-        ])
-      );
       const old_current_step = this.state.currentStep;
 
       this.setState({
         activeEpisodes: res.data,
         rankeableEpisodeIDs: res.data.map((e: Episode) => IDfromEpisode(e)),
-        ranks: new_ranks,
-        columnOrder: Object.entries(new_ranks).map(([key, _]) => key),
         currentStep: old_current_step + 1,
         endModalOpen: res.data.length === 0,
       });
     });
   }
-
-  // Create onDragEnd function
-  onDragEnd = (dropResult: DropResult) => {
-    const {destination, source, draggableId} = dropResult;
-
-    // If there is no destination, return
-    if (!destination) {
-      return;
-    }
-
-    // If the destination is the same as the source, return
-    if (
-      destination.droppableId === source.droppableId &&
-      destination.index === source.index
-    ) {
-      return;
-    }
-
-    const destDroppableId = destination.droppableId;
-    const destDroppable = this.state.ranks[destDroppableId];
-
-    const srcDroppableId = source.droppableId;
-    const srcDroppable = this.state.ranks[srcDroppableId];
-
-    let newState: {
-      rankeableEpisodeIDs: string[];
-      ranks: {
-        [key: string]: {rank: number; title: string; episodeItemIDs: string[]};
-      };
-      columnOrder: string[];
-    };
-
-    const newRankeableEpisodeIDs: string[] = Array.from(
-      this.state.rankeableEpisodeIDs
-    );
-    if (srcDroppableId === 'scrollable-episode-list') {
-      // This is a new episode, so we need to add it to rankeableEpisodeIDs.
-      newRankeableEpisodeIDs.push(draggableId);
-    }
-
-    if (
-      srcDroppable === destDroppable ||
-      srcDroppableId === 'scrollable-episode-list'
-    ) {
-      // We have the same source and destination, so we are reording within
-      // the same rank.
-      const newEpisodeItemIDs = Array.from(destDroppable.episodeItemIDs);
-      newEpisodeItemIDs.splice(source.index, 1);
-      newEpisodeItemIDs.splice(destination.index, 0, draggableId);
-
-      const newRank = {
-        ...destDroppable,
-        episodeItemIDs: newEpisodeItemIDs,
-      };
-
-      newState = {
-        rankeableEpisodeIDs: newRankeableEpisodeIDs,
-        ranks: {
-          ...this.state.ranks,
-          [destDroppableId]: newRank,
-        },
-        columnOrder: this.state.columnOrder,
-      };
-    } else {
-      // We are moving an episode from one rank to another.
-
-      // Inserting episode into destination rank.
-      const newDestDraggableIDs = Array.from(destDroppable.episodeItemIDs);
-      newDestDraggableIDs.splice(destination.index, 0, draggableId);
-
-      // Removing episode from source rank.
-      const newSrcDraggableIDs = Array.from(srcDroppable.episodeItemIDs);
-      newSrcDraggableIDs.splice(source.index, 1);
-
-      const newDestRank = {
-        ...destDroppable,
-        episodeItemIDs: newDestDraggableIDs,
-      };
-
-      const newSrcRank = {
-        ...srcDroppable,
-        episodeItemIDs: newSrcDraggableIDs,
-      };
-
-      newState = {
-        ranks: {
-          ...this.state.ranks,
-          [destDroppableId]: newDestRank,
-          [srcDroppableId]: newSrcRank,
-        },
-        rankeableEpisodeIDs: newRankeableEpisodeIDs,
-        columnOrder: this.state.columnOrder,
-      };
-    }
-
-    // Get the episodes and associated ranks in the new order
-    const orderedEpisodes: {id: string; reference: Episode}[] = [];
-    const orderedRanks: number[] = [];
-    for (const rank of newState.columnOrder) {
-      const rankObject = newState.ranks[rank];
-
-      for (const episodeID of rankObject.episodeItemIDs) {
-        orderedEpisodes.push({
-          id: episodeID,
-          reference: EpisodeFromID(episodeID),
-        });
-        orderedRanks.push(rankObject.rank);
-      }
-    }
-
-    // Log current order as feedback
-    const feedback: Feedback = {
-      feedback_type: FeedbackType.Comparative,
-      timestamp: Date.now(),
-      session_id: this.state.sessionId,
-      targets: orderedEpisodes.map(e => ({
-        target_id: e.id,
-        reference: e.reference,
-        origin: 'offline',
-        timestamp: Date.now(),
-      })),
-      preferences: orderedRanks,
-      granularity: 'episode',
-    };
-    axios.post('/data/give_feedback', feedback).catch(error => {
-      console.log(error);
-    });
-
-    this.setState(newState);
-  };
 
   getThumbnailURL = async (episodeId: string) => {
     if (this.state.thumbnailURLCache[episodeId]) {
@@ -727,26 +576,20 @@ class App extends React.Component<AppProps, AppState> {
               </Box>
               {this.state.selectedProject.id >= 0 ? (
                 <FeedbackInterface
-                  onDragEnd={this.onDragEnd.bind(this)}
                   currentProgressBarStep={this.state.currentStep}
-                  episodeIDsChronologically={
-                    this.state.episodeIDsChronologically
-                  }
+                  episodeIDsChronologically={this.state.episodeIDsChronologically}
                   activeUIConfig={this.state.activeUIConfig}
-                  parentWidthPx={
-                    this.scrollableListContainerRef.current?.clientWidth
-                  }
+                  parentWidthPx={this.scrollableListContainerRef.current?.clientWidth}
                   rankeableEpisodeIDs={this.state.rankeableEpisodeIDs}
-                  columnOrder={this.state.columnOrder}
-                  ranks={this.state.ranks}
                   activeEnvId={this.state.activeEnvId}
                   scheduleFeedback={this.scheduleFeedback.bind(this)}
                   actionLabels={this.state.actionLabels}
                   sessionId={this.state.sessionId}
                   onDemoModalSubmit={this.submitDemoFeedback.bind(this)}
                   submitFeedback={this.submitFeedback.bind(this)}
-                  hasFeedback={this.hasFeedback.bind(this)}
-                />
+                  hasFeedback={this.hasFeedback.bind(this)} onDragEnd={function (dropResult: DropResult): void {
+                    throw new Error('Function not implemented.');
+                  } } columnOrder={[]} ranks={{}}                />
               ) : null}
               <ConfigModal
                 config={this.state.activeUIConfig}
