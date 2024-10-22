@@ -52,6 +52,7 @@ type Project = {
 type Experiment = {
   id: number;
   exp_name: string;
+  env_id: string;
 };
 
 type UIConfig = {
@@ -107,7 +108,6 @@ type AppState = {
   endModalOpen: boolean;
   projects: Project[];
   experiments: Experiment[];
-  activeEnvId: string;
   actionLabels: any[];
   sessionId: string;
   filtered_experiments: Experiment[];

@@ -63,25 +63,6 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
 
         const save_image_name = ("feature_selection_" + sessionId + "_" + episodeId).replace(/[^a-zA-Z0-9]/g, "_");
 
-        const feedback = {
-          feedback_type: FeedbackType.FeatureSelection,
-          targets: [
-            {
-              target_id: episodeId,
-              reference: EpisodeFromID(episodeId),
-              origin: 'offline',
-              timestamp: Date.now(),
-            },
-          ],
-          granularity: 'entire',
-          timestamp: Date.now(),
-          session_id: sessionId,
-          feature_selection: save_image_name, 
-        } as Feedback;
-        axios.post('/data/give_feedback', feedback).catch(error => {
-          console.log(error);
-        });
-  
         // Send the image data to the backend using Axios (also send the sessionID)
         axios({
           method: 'post',

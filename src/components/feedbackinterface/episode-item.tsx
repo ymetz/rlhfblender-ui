@@ -37,7 +37,7 @@ import CorrectionModal from '../modals/correction-modal';
 // Context
 import {UIConfigContext} from '../../setup-ui-context';
 import {useGetter} from '../../getter-context';
-import { styled } from '@mui/system';
+import {styled} from '@mui/system';
 import {ParentSize} from '@visx/responsive';
 import {useRatingInfo} from '../../rating-info-context';
 import Button from '@mui/material/Button';
@@ -149,7 +149,7 @@ type StepDetails = {
   action_space: object;
 };
 
-const EpisodeItem: React.FC<EpisodeItemProps> = ({
+const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
   episodeID,
   index,
   scheduleFeedback,
@@ -207,11 +207,11 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   const {getThumbnailURL, getVideoURL, getRewards, getUncertainty} =
     useGetter();
 
-  useEffect(() => {
-    getVideoURL(episodeID).then(url => {
-      setVideoURL(url ? url : '');
-    });
-  }, [episodeID, getVideoURL]);
+    useEffect(() => {
+      getVideoURL(episodeID).then(url => {
+        setVideoURL(url || '');
+      });
+    }, [episodeID, getVideoURL]);
 
   // Retreive details for the particular step of the episode by calling "/get_single_step_details" with the episode ID and step number
   useEffect(() => {
@@ -330,10 +330,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
       score: value as number,
     };
 
-    axios.post('/data/give_feedback', feedback).catch(error => {
-      console.log(error);
-    });
-
     setEvaluativeSliderValue(value as number);
     updateEvalFeedback(episodeID, value as number);
     scheduleFeedback(feedback);
@@ -346,9 +342,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
 
   const onFeatureSelectionSubmit = (feedback: Feedback) => {
     if (sessionId !== '-') {
-      axios.post('/data/give_feedback', feedback).catch(error => {
-        console.log(error);
-      });
       scheduleFeedback(feedback);
     }
   };
@@ -360,10 +353,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     ]);
     setCorrectionModalOpen(false);
     if (sessionId !== '-') {
-      console.log(feedback);
-      axios.post('/data/give_feedback', feedback).catch(error => {
-        console.log(error);
-      });
       scheduleFeedback(feedback);
     }
   };
@@ -438,6 +427,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
               <video
                 ref={videoRef}
                 onLoadedMetadata={onLoadMetaDataHandler}
+                controlsList={mouseOnVideo ? 'default' : 'none'}
                 loop
                 onMouseEnter={onVideoMouseEnterHandler}
                 onMouseLeave={onVideoMouseLeaveHandler}
@@ -723,6 +713,16 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
       )}
     </Draggable>
   );
-};
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.episodeID === nextProps.episodeID &&
+    prevProps.index === nextProps.index &&
+    prevProps.numItemsInColumn === nextProps.numItemsInColumn &&
+    prevProps.sessionId === nextProps.sessionId &&
+    prevProps.evalFeedback === nextProps.evalFeedback &&
+    prevProps.actionLabels === nextProps.actionLabels
+  );
+}
+);
 
-export default EpisodeItem;
+export default React.memo(EpisodeItem);
