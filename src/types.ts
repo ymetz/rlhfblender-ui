@@ -29,7 +29,7 @@ enum FeedbackType {
   Corrective = 'corrective',
   Demonstrative = 'demonstrative',
   FeatureSelection = 'featureSelection',
-  Textual = 'textual',
+  Text = 'text',
 }
 
 type Feedback = {

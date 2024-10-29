@@ -25,6 +25,7 @@ type AppAction =
     | { type: 'SET_ACTIVE_EPISODES'; payload: Episode[] }
     | { type: 'SET_EPISODE_IDS_CHRONOLOGICALLY', payload: Episode[] }
     | { type: 'CLEAR_SCHEDULED_FEEDBACK' }
+    | { type: 'SET_END_MODAL_OPEN' }
     | { type: 'SET_FILTERED_EXPERIMENTS'; payload: any[] }
     | { type: 'SET_ACTIVE_UI_CONFIG'; payload: UIConfig }
     | { type: 'SET_ACTIVE_BACKEND_CONFIG'; payload: BackendConfig }
@@ -65,7 +66,7 @@ const initialState: AppState = {
     currentStep: 0,
     startModalContent: undefined,
     allThemes: ['light', 'dark'],
-    theme: 'dark',
+    theme: 'light',
     isOnSubmit: false,
 };
 
@@ -112,6 +113,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
             return { ...state, activeEpisodes: action.payload };
         case 'CLEAR_SCHEDULED_FEEDBACK':
             return { ...state, scheduledFeedback: [] };
+        case 'SET_END_MODAL_OPEN':
+            return { ...state, endModalOpen: !state.endModalOpen };
         case 'SET_EPISODE_IDS_CHRONOLOGICALLY':
             return { ...state, episodeIDsChronologically: action.payload };
         case 'SET_FILTERED_EXPERIMENTS':

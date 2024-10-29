@@ -1,5 +1,5 @@
 import Scrollbar from './scrollbar';
-import SmallEpisodeItem from './small-episode-item';
+import SmallEpisodeItem from './episodeitem/small-episode-item';
 import Box from '@mui/material/Box';
 import {Episode} from '../../types';
 import {IDfromEpisode} from '../../id';

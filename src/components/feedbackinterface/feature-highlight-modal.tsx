@@ -52,6 +52,8 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
     const oldURL = thumbnailURL;
     setThumbnailURL('0');
 
+    const save_image_name = ("feature_selection_" + sessionId + "_" + episodeId).replace(/[^a-zA-Z0-9]/g, "_");
+
     canvasRef.current
       ?.exportImage('png')
       .then(data => {
@@ -60,8 +62,6 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
 
         const formData = new FormData();
         formData.append('image', file);
-
-        const save_image_name = ("feature_selection_" + sessionId + "_" + episodeId).replace(/[^a-zA-Z0-9]/g, "_");
 
         // Send the image data to the backend using Axios (also send the sessionID)
         axios({
@@ -97,6 +97,7 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
       granularity: 'entire',
       timestamp: Date.now(),
       session_id: sessionId,
+      feature_selection: save_image_name
     } as Feedback);
 
     onClose();

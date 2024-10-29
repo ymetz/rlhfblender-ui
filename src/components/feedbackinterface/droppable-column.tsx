@@ -1,6 +1,6 @@
 import React, {useContext} from 'react';
 import {Droppable} from 'react-beautiful-dnd';
-import EpisodeItem from './episode-item';
+import EpisodeItem from './episodeitem/episode-item';
 import Box from '@mui/material/Box';
 import {Feedback} from '../../types';
 import Chip from '@mui/material/Chip';

@@ -25,7 +25,7 @@ import {UIConfig, BackendConfig} from '../../types';
 export type ConfigModalProps = {
   config: UIConfig | BackendConfig;
   open: boolean;
-  onClose: (newConfig: null | UIConfig) => void;
+  onClose: (newConfig: null | UIConfig | BackendConfig) => void;
 };
 
 export default function ConfigModal(props: ConfigModalProps) {
@@ -191,7 +191,7 @@ export default function ConfigModal(props: ConfigModalProps) {
             <Select
               id="customInput"
               labelId="custom-environment-input-label"
-              value={new_config.customInput}
+              value={'customInput' in new_config ? new_config.customInput : ''}
               onChange={formDropdownHandler}
             >
               {availableCustomInputs.map((element: string) => {

@@ -19,6 +19,7 @@ import { GetterContext } from './getter-context';
 import { AppStateProvider, useAppState, useAppDispatch } from './AppStateContext';
 import getDesignTokens from './theme';
 import { EpisodeFromID } from './id';
+import { BackendConfig, UIConfig } from './types';
 
 const App: React.FC = () => {
   const state = useAppState();
@@ -59,11 +60,28 @@ const App: React.FC = () => {
     dispatch({ type: 'TOGGLE_STATUS_BAR' });
   };
 
-  const closeUIConfigModal = () => {
+  const closeUIConfigModal = ( config: UIConfig | null) => {
+
+    if (config) {
+      // update the list of UI configs
+      dispatch({ type: 'SET_ALL_UI_CONFIGS', payload: [...state.allUIConfigs, config] });
+      axios.post('/save_ui_config', config).then(() => {
+        console.log('Config saved for study');
+      }
+      );
+    }
     dispatch({ type: 'SET_UI_CONFIG_MODAL_OPEN', payload: false });
   };
 
-  const closeBackendConfigModal = () => {
+  const closeBackendConfigModal = ( config: BackendConfig | null) => {
+    if (config) {
+      // update the list of Backend configs
+      dispatch({ type: 'SET_ALL_BACKEND_CONFIGS', payload: [...state.allBackendConfigs, config] });
+      // Save the config to the backend
+      axios.post('/save_backend_config', config).then(() => {
+        console.log('Config saved for backend');
+      });
+    }
     dispatch({ type: 'SET_BACKEND_CONFIG_MODAL_OPEN', payload: false });
   };
   
@@ -152,6 +170,7 @@ const App: React.FC = () => {
     getRewards,
     getUncertainty,
   }), [getVideoURL, getThumbnailURL, getRewards, getUncertainty]);
+
 
   return (
     <ThemeProvider theme={createTheme(getDesignTokens(state.theme as 'light' | 'dark'))}>
