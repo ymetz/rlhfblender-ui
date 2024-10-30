@@ -128,6 +128,9 @@ type AppState = {
   allThemes: string[];
   theme: string;
   isOnSubmit: boolean;
+  showStudyCode: boolean;
+  studyCode: string;
+  setupComplete: boolean;
 };
 
 type AppProps = {};

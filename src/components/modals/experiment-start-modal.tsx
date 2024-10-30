@@ -24,7 +24,11 @@ import {
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import CheckIcon from '@mui/icons-material/Check';
 
-const ExperimentStartModal = () => {
+type ExperimentStartModalProps = {
+  onClose: () => void;
+};
+
+const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const [activeTab, setActiveTab] = useState(0);
@@ -33,6 +37,7 @@ const ExperimentStartModal = () => {
 
   const handleClose = () => {
     dispatch({ type: 'SET_START_MODAL_OPEN', payload: false });
+    onClose();
   };
 
   const handleTabChange = (event, newValue) => {

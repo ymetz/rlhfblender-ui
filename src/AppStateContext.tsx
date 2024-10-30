@@ -31,7 +31,10 @@ type AppAction =
     | { type: 'SET_ACTIVE_BACKEND_CONFIG'; payload: BackendConfig }
     | { type: 'SET_THEME'; payload: string }
     | { type: 'SET_ACTION_LABELS'; payload: string[] }
-    | { type: 'SET_RANKEABLE_EPISODE_IDS'; payload: string[] };
+    | { type: 'SET_RANKEABLE_EPISODE_IDS'; payload: string[] }
+    | { type: 'TOGGLE_STUDY_CODE' }
+    | { type: 'SET_STUDY_CODE'; payload: string }
+    | { type: 'SET_SETUP_COMPLETE'; payload: boolean };
 
 
 
@@ -48,8 +51,8 @@ const initialState: AppState = {
     actionLabels: [],
     activeEpisodes: [],
     highlightedEpisodes: [],
-    selectedProject: { id: 0, project_name: '', project_experiments: [] },
-    selectedExperiment: { id: 0, exp_name: '', env_id: '' },
+    selectedProject: { id: -1, project_name: '', project_experiments: [] },
+    selectedExperiment: { id: -1, exp_name: '', env_id: '' },
     sliderValue: 0,
     uiConfigModalOpen: false,
     backendConfigModalOpen: false,
@@ -68,10 +71,15 @@ const initialState: AppState = {
     allThemes: ['light', 'dark'],
     theme: 'light',
     isOnSubmit: false,
+    showStudyCode: false,
+    studyCode: '',
+    setupComplete: false
 };
 
+type AsyncDispatch = (action: AppAction) => Promise<void>;
+
 const AppStateContext = createContext<AppState | undefined>(undefined);
-const AppDispatchContext = createContext<React.Dispatch<AppAction> | undefined>(undefined);
+const AppDispatchContext = createContext<AsyncDispatch | undefined>(undefined);
 
 function appReducer(state: AppState, action: AppAction): AppState {
     switch (action.type) {
@@ -80,6 +88,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'SET_EXPERIMENTS':
             return { ...state, experiments: action.payload };
         case 'SET_SELECTED_PROJECT':
+            console.log('Setting selected project', action.payload);
             return { ...state, selectedProject: action.payload };
         case 'SET_SELECTED_EXPERIMENT':
             return { ...state, selectedExperiment: action.payload };
@@ -129,6 +138,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
             return { ...state, actionLabels: action.payload };
         case 'SET_RANKEABLE_EPISODE_IDS':
             return { ...state, rankeableEpisodeIDs: action.payload };
+        case 'TOGGLE_STUDY_CODE':
+            return { ...state, showStudyCode: !state.showStudyCode };
+        case 'SET_STUDY_CODE':
+            return { ...state, studyCode: action.payload };
+        case 'SET_SETUP_COMPLETE':
+            return { ...state, setupComplete: action.payload };
 
         default:
             throw new Error(`Unhandled action type: ${(action as AppAction).type}`);
@@ -136,29 +151,43 @@ function appReducer(state: AppState, action: AppAction): AppState {
 }
 
 export const AppStateProvider = ({ children }: { children: ReactNode }) => {
-    const [state, dispatch] = useReducer(appReducer, initialState);
+    const [state, baseDispatch] = useReducer(appReducer, initialState);
+
+    // Create an async dispatch wrapper
+    const asyncDispatch: AsyncDispatch = async (action) => {
+        return new Promise((resolve) => {
+            // Use requestAnimationFrame to ensure the dispatch is processed
+            requestAnimationFrame(() => {
+                baseDispatch(action);
+                // Wait for next frame to ensure state update is processed
+                requestAnimationFrame(() => {
+                    resolve();
+                });
+            });
+        });
+    };
 
     return (
         <AppStateContext.Provider value={state}>
-            <AppDispatchContext.Provider value={dispatch}>
+            <AppDispatchContext.Provider value={asyncDispatch}>
                 {children}
             </AppDispatchContext.Provider>
         </AppStateContext.Provider>
     );
 };
 
-export const useAppState = () => {
-    const context = useContext(AppStateContext);
-    if (context === undefined) {
-        throw new Error('useAppState must be used within a AppStateProvider');
-    }
-    return context;
-};
-
 export const useAppDispatch = () => {
     const context = useContext(AppDispatchContext);
     if (context === undefined) {
         throw new Error('useAppDispatch must be used within a AppStateProvider');
+    }
+    return context;
+};
+
+export const useAppState = () => {
+    const context = useContext(AppStateContext);
+    if (context === undefined) {
+        throw new Error('useAppState must be used within a AppStateProvider');
     }
     return context;
 };

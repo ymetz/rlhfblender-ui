@@ -21,7 +21,11 @@ import axios from 'axios';
 import { useAppState, useAppDispatch } from '../../AppStateContext';
 import { IDfromEpisode } from '../../id';
 
-const Menu: React.FC = () => {
+type MenuProps = {
+  resetSampler: () => void;
+};
+
+const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const theme = useTheme();
@@ -84,73 +88,6 @@ const Menu: React.FC = () => {
     dispatch({ type: 'SET_BACKEND_CONFIG_MODAL_OPEN', payload: true });
   };
 
-  // Reset Sampler
-  const resetSampler = () => {
-    if (state.selectedExperiment.id === -1) {
-      return;
-    }
-    axios
-      .post(
-        '/data/reset_sampler?experiment_id=' +
-        state.selectedExperiment.id +
-        '&sampling_strategy=' +
-        state.activeBackendConfig.samplingStrategy
-      )
-      .then((res) => {
-        dispatch({ type: 'SET_SESSION_ID', payload: res.data.session_id });
-        dispatch({ type: 'CLEAR_SCHEDULED_FEEDBACK' });
-
-        // Fetch the episodes and action labels after reset
-        getEpisodeIDsChronologically(() => {
-          sampleEpisodes();
-        });
-        getActionLabels(res.data.environment_id);
-      });
-  };
-
-  // Fetch episodes
-  const getEpisodeIDsChronologically = async (callback?: () => void) => {
-    try {
-      const response = await axios.get('/data/get_all_episodes');
-      dispatch({ type: 'SET_EPISODE_IDS_CHRONOLOGICALLY', payload: response.data });
-      if (callback) callback();
-    } catch (error) {
-      console.error('Error fetching episodes:', error);
-    }
-  };
-
-  // Fetch action labels
-  const getActionLabels = async (envId: string) => {
-    try {
-      const response = await axios.post('/data/get_action_label_urls', { envId });
-      dispatch({ type: 'SET_ACTION_LABELS', payload: response.data });
-    } catch (error) {
-      console.error('Error fetching action labels:', error);
-    }
-  };
-
-
-  const sampleEpisodes = async () => {
-    if (state.selectedExperiment.id === -1) {
-      return;
-    }
-    try {
-      const response = await axios.get('/data/sample_episodes', {
-        params: { num_episodes: state.activeUIConfig.max_ranking_elements },
-      });
-      dispatch({
-        type: 'SET_ACTIVE_EPISODES',
-        payload: response.data.map((e: any) => IDfromEpisode(e)),
-      });
-      dispatch({
-        type: 'SET_RANKEABLE_EPISODE_IDS',
-        payload: response.data.map((e: any) => IDfromEpisode(e)),
-      });
-    } catch (error) {
-      console.error('Error sampling episodes:', error);
-    }
-  };
-
   return (
     <Collapse in={!state.status_bar_collapsed} timeout="auto" sx={{ display: 'flex' }}>
       <Box
@@ -166,7 +103,7 @@ const Menu: React.FC = () => {
           <Select
             labelId="project-select-label"
             id="project-select"
-            value={state.selectedProject.id >= 0 ? state.selectedProject.id.toString() : ''}
+            value={state.selectedProject.id >= -1 ? state.selectedProject.id.toString() : ''}
             label="Project"
             onChange={selectProject}
           >
@@ -183,7 +120,7 @@ const Menu: React.FC = () => {
           <Select
             labelId="experiment-select-label"
             id="experiment-select"
-            value={state.selectedExperiment.id >= 0 ? state.selectedExperiment.id.toString() : ''}
+            value={state.selectedExperiment.id >= -1 ? state.selectedExperiment.id.toString() : ''}
             label="Experiment"
             onChange={selectExperiment}
           >
@@ -277,6 +214,38 @@ const Menu: React.FC = () => {
             Session: {state.sessionId}
           </Typography>
         </FormControl>
+
+        <Button
+          sx={{
+            marginRight: '2vw',
+            marginTop: '1vh',
+            fontSize: '0.8rem',
+            width: '10vw',
+            visibility: state.app_mode === 'configure' ? 'visible' : 'hidden',
+          }}
+          variant="contained"
+          color="success"
+          onClick={() => {
+            //dispatch({ type: 'SET_APP_MODE', payload: 'study' });
+            //dispatch({ type: 'TOGGLE_STATUS_BAR' });
+            // save current configs, project, etc. as setup, return study code and display it
+            axios.post('/save_setup', {
+              project: state.selectedProject,
+              experiment: state.selectedExperiment,
+              ui_config: state.activeUIConfig,
+              backend_config: state.activeBackendConfig,
+            }).then((res) => {
+              if (res.data.error) {
+                console.error(res.data.error);
+                return;
+              }
+              dispatch({ type: 'SET_STUDY_CODE', payload: res.data.study_code });
+              dispatch({ type: 'TOGGLE_STUDY_CODE' });
+            });
+          }}
+        >
+          Save Setup
+        </Button>
       </Box>
     </Collapse>
   );
