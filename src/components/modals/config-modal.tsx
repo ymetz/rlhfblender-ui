@@ -34,7 +34,7 @@ export default function ConfigModal(props: ConfigModalProps) {
 
   const availableCustomInputs = AvailableCustomInputs();
 
-  // Copy the config object, make it mutable and addressable as state
+  // Copy the config object, make it mutable and addressable as state,
   const [new_config, setNewConfig] = React.useState(Object.assign({}, config));
   const [filePath, setFilePath] = React.useState(null as File | null);
 

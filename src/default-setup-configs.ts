@@ -22,9 +22,9 @@ const defaultUIConfig: UIConfig = {
     demonstration: true,
     correction: true,
     featureSelection: true,
-    text: false,
+    text: true,
   },
-  max_ranking_elements: 5,
+  max_ranking_elements: 2,
   customInput: '',
 };
 

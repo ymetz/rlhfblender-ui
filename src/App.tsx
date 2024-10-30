@@ -5,7 +5,6 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { Box, IconButton, Chip, Typography, Button } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import { SelectChangeEvent } from '@mui/material/Select';
 
 import axios from 'axios';
 
@@ -24,11 +23,12 @@ import { BackendConfig, UIConfig } from './types';
 const App: React.FC = () => {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  
 
   useEffect(() => {
     const initializeData = () => {
       const url = new URL(window.location.href);
-      const studyMode = url.searchParams.get('studyMode') || 'study';
+      const studyMode = url.searchParams.get('studyMode') || 'configure';
       if (studyMode === 'configure') {
         dispatch({ type: 'SET_APP_MODE', payload: 'configure' });
         dispatch({ type: 'TOGGLE_STATUS_BAR' });
@@ -63,7 +63,10 @@ const App: React.FC = () => {
   const closeUIConfigModal = ( config: UIConfig | null) => {
 
     if (config) {
-      // update the list of UI configs
+
+      // Set config ID to the next available ID
+      config.id = Math.max(...state.allUIConfigs.map((c) => c.id), 0) + 1;
+      // update the list of UI configs and set the active config 
       dispatch({ type: 'SET_ALL_UI_CONFIGS', payload: [...state.allUIConfigs, config] });
       axios.post('/save_ui_config', config).then(() => {
         console.log('Config saved for study');
@@ -75,6 +78,8 @@ const App: React.FC = () => {
 
   const closeBackendConfigModal = ( config: BackendConfig | null) => {
     if (config) {
+      // Set config ID to the next available ID
+      config.id = Math.max(...state.allBackendConfigs.map((c) => c.id), 0) + 1;
       // update the list of Backend configs
       dispatch({ type: 'SET_ALL_BACKEND_CONFIGS', payload: [...state.allBackendConfigs, config] });
       // Save the config to the backend
@@ -232,6 +237,7 @@ const App: React.FC = () => {
           <ConfigModal
             config={state.activeUIConfig}
             open={state.uiConfigModalOpen}
+
             onClose={closeUIConfigModal}
           />
           <ConfigModal

@@ -5,6 +5,7 @@ import { Feedback, FeedbackType } from '../../../types';
 import { EpisodeFromID } from '../../../id';
 
 interface TextFeedbackProps {
+    showTextFeedback: boolean;
     scheduleFeedback: (feedback: Feedback) => void;
     episodeId: string;
     sessionId: string;
@@ -24,7 +25,7 @@ function debounce(func: (...args: any[]) => void, wait: number) {
 }
   
 
-const TextFeedback: React.FC<TextFeedbackProps> = ({ scheduleFeedback, episodeId, sessionId }) => {
+const TextFeedback: React.FC<TextFeedbackProps> = ({ showTextFeedback, scheduleFeedback, episodeId, sessionId }) => {
   //const [feedback, setFeedback] = useState('');
   const theme = useTheme();
 
@@ -41,16 +42,16 @@ const TextFeedback: React.FC<TextFeedbackProps> = ({ scheduleFeedback, episodeId
         granularity: 'episode' as const,
         timestamp: Date.now(),
         session_id: sessionId,
-        textFeedback: event.target.value,
+        text_feedback: event.target.value,
       };
       scheduleFeedback(feedback);
-    }, 2000), // 2 second delay before adding feedback
+    }, 1500), // 1.5 second delay before adding feedback
     [episodeId, scheduleFeedback, sessionId]
   );
-
   return (
+    <>
     <Box
-      component="form"      
+      component="form"    
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -61,7 +62,7 @@ const TextFeedback: React.FC<TextFeedbackProps> = ({ scheduleFeedback, episodeId
         p: 1,
         overflow: 'hidden',
         gridArea: 'mission',
-        width: '100%'
+        width: '100%',
       }}
     >
       <TextField        
@@ -74,6 +75,7 @@ const TextFeedback: React.FC<TextFeedbackProps> = ({ scheduleFeedback, episodeId
         sx={{ mr: 1 }}
       />
     </Box>
+  </>
   );
 };
 

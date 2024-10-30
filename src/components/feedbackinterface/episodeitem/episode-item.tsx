@@ -23,6 +23,7 @@ import EvaluativeFeedback from './evaluative-feedback';
 import Modals from './modals';
 import DragHandle from './drag-handle';
 import DemoSection from './demo-section';
+import TextFeedback from './text-feedback';
 
 interface EpisodeItemContainerProps {
   isDragging?: boolean;
@@ -371,12 +372,15 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
             isOnSubmit={isOnSubmit}
           />
 
-          <MissionSection
+          {/*<MissionSection
             mission={stepDetails?.info?.mission}
+          />*/}
+
+          <TextFeedback
             showTextFeedback={UIConfig.feedbackComponents.text}
-            scheduleFeedback={scheduleFeedback}
             episodeId={episodeID}
             sessionId={sessionId}
+            scheduleFeedback={scheduleFeedback}
           />
 
           <Modals

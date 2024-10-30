@@ -158,7 +158,7 @@ const Menu: React.FC = () => {
           m: 2,
           display: 'flex',
           justifyContent: 'space-evenly',
-          backgroundColor: theme.palette.background.l1,
+          backgroundColor: theme.palette.background.default,
         }}
       >
         <FormControl sx={{ width: '10vw', marginRight: '2vw' }}>
@@ -205,7 +205,7 @@ const Menu: React.FC = () => {
             onChange={selectBackendConfig}
           >
             {state.allBackendConfigs.map((config) => (
-              <MenuItem key={config.id} value={config.id.toString()}>
+              <MenuItem key={config.id.toString()} value={config.id.toString()}>
                 {config.name}
               </MenuItem>
             ))}
@@ -229,7 +229,7 @@ const Menu: React.FC = () => {
             onChange={selectUIConfig}
           >
             {state.allUIConfigs.map((config) => (
-              <MenuItem key={config.id} value={config.id.toString()}>
+              <MenuItem key={config.id.toString()} value={config.id.toString()}>
                 {config.name}
               </MenuItem>
             ))}

@@ -40,7 +40,7 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
   const theme = useTheme();
   return (
     // This box lives within a flex container with direction row. So if we put flex: 1, it will distribute the remaining space, even if nothing is contained.
-    <Box
+    (<Box
       sx={{
         display: 'flex',
         flexGrow: 1,
@@ -62,7 +62,7 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
       >
         {(provided, snapshot) => (
           // We want this box to fill the remaining space, thus flex: 1
-          <>
+          (<>
             <Chip
               label={title.split(' ').at(-1) + '.'}
               sx={{
@@ -134,11 +134,11 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
               ))}
               {provided.placeholder}
             </Box>
-          </>
+          </>)
         )}
       </Droppable>
       {/* Container of item */}
-    </Box>
+    </Box>)
   );
 };
 
