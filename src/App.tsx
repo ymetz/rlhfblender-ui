@@ -2,13 +2,13 @@
 
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
-import { Box, IconButton, Chip, Typography, Button } from '@mui/material';
+import { Box, IconButton, Chip, Typography } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
 import axios from 'axios';
 
-import Menu from './components/menubar/Menu';
+import Menu from './components/menubar/menu';
 import ConfigModal from './components/modals/config-modal';
 import ExperimentStartModal from './components/modals/experiment-start-modal';
 import ExperimentEndModal from './components/modals/experiment-end-modal';

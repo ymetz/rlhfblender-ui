@@ -16,9 +16,8 @@ import {UIConfigContext} from '../../../setup-ui-context';
 import {useGetter} from '../../../getter-context';
 import {styled} from '@mui/system';
 import {useRatingInfo} from '../../../rating-info-context';
-import VideoPlayer from './video-player';
+import EnvRender from './env-render';
 import TimelineSection from './timeline-section';
-import MissionSection from './mission-section';
 import EvaluativeFeedback from './evaluative-feedback';
 import Modals from './modals';
 import DragHandle from './drag-handle';
@@ -69,15 +68,15 @@ const EpisodeItemContainer = styled('div')<EpisodeItemContainerProps>(
     gridTemplateAreas:
       horizontalRanking && numItemsInColumn === 1
         ? `"drag"
-        "video"
+        "envRender"
         "timelinechart"
         "mission"
         "evaluative"
         "demo"
         `
-        : `"drag video evaluative demo"
-      "drag video timelinechart timelinechart"
-      "drag video mission mission"`,
+        : `"drag envRender evaluative demo"
+      "drag envRender timelinechart timelinechart"
+      "drag envRender mission mission"`,
   })
 );
 
@@ -172,6 +171,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
         step: 0,
       })
       .then((response: any) => {
+        console.log(response.data);
         setStepDetails(response.data);
       })
       .catch((error: any) => {
@@ -329,7 +329,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
         >
           <DragHandle {...provided.dragHandleProps} horizontalRanking={UIConfig.uiComponents.horizontalRanking} />
           
-          <VideoPlayer
+          <EnvRender
             videoRef={videoRef}
             videoURL={videoURL}
             onLoadMetadata={onLoadMetaDataHandler}
@@ -338,6 +338,8 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
             onFeatureSelect={() => setHighlightModelOpen(true)}
             playButtonHandler={playButtonHandler}
             playing={playing}
+            mission={stepDetails?.info?.mission}
+            horizontalRanking={UIConfig.uiComponents.horizontalRanking}
           />
 
           <EvaluativeFeedback

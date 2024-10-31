@@ -19,7 +19,6 @@ import LibraryAddIcon from '@mui/icons-material/LibraryAdd';
 import axios from 'axios';
 
 import { useAppState, useAppDispatch } from '../../AppStateContext';
-import { IDfromEpisode } from '../../id';
 
 type MenuProps = {
   resetSampler: () => void;
