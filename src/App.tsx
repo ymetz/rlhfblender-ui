@@ -187,14 +187,15 @@ const App: React.FC = () => {
 
   useEffect(() => {
     // Register example shortcuts
-    console.log("REGISTERING SHORTCUTS");
     const shortcuts = {
-      save: { key: 's', description: 'Save state' },
-      reset: { key: 'r', description: 'Reset view' },
-      play: { key: 'p', description: 'Play/Pause' },
-      next: { key: 'n', description: 'Next item' },
-      prev: { key: 'b', description: 'Previous item' },
-      zoom: { key: 'z', description: 'Toggle zoom' }
+      save: { key: '↵', description: 'Submit/Next' },
+      reset: { key: '+', description: 'Increase Score' },
+      play: { key: '-', description: 'Decrease Score' },
+      next: { key: 'space', description: 'Play/Pause Video' },
+      prev: { key: 'W', description: 'Move item up' },
+      zoom: { key: 'S', description: 'Move item down' },
+      demo: { key: 'D', description: 'Generate Demo' },
+      feature: { key: 'F', description: 'Feature Annotation' },
     };
 
     Object.entries(shortcuts).forEach(([id, shortcut]) => {
@@ -303,7 +304,6 @@ const App: React.FC = () => {
   return (
     <ThemeProvider theme={createTheme(getDesignTokens(state.theme as 'light' | 'dark'))}>
       <GetterContext.Provider value={getterContextValue}>
-        <ShortcutsProvider>
           <Box
             sx={{
               display: 'flex',
@@ -378,7 +378,6 @@ const App: React.FC = () => {
             <ShortcutsInfoBox />
             <StudyCodeModal open={state.showStudyCode} onClose={() => dispatch({ type: 'TOGGLE_STUDY_CODE' })} studyCode={state.studyCode} />
           </Box>
-        </ShortcutsProvider>
       </GetterContext.Provider>
     </ThemeProvider>
   );
@@ -386,7 +385,9 @@ const App: React.FC = () => {
 
 const AppWrapper = () => (
   <AppStateProvider>
-    <App />
+    <ShortcutsProvider>
+      <App />
+    </ShortcutsProvider>
   </AppStateProvider>
 );
 

@@ -35,7 +35,8 @@ const ShortcutItem = ({ id, shortcut }) => {
             fontSize: '0.75rem',
             backgroundColor: theme.palette.background.l2,
             border: `1px solid ${theme.palette.divider}`,
-            color: theme.palette.text.primary
+            color: theme.palette.text.primary,
+            fontFamily: "sans-serif",
           }}
         >
           {shortcut.key}
