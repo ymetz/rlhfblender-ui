@@ -1,25 +1,26 @@
 import * as React from 'react';
 
 // Material UI
-import Button from '@mui/material/Button';
-import Dialog from '@mui/material/Dialog';
-import Grid from '@mui/material/Grid';
-import Box from '@mui/material/Box';
-import DialogActions from '@mui/material/DialogActions';
-import {CustomInput} from '../../custom_env_inputs/custom_input_mapping';
-import {DialogContent, DialogTitle, Typography} from '@mui/material';
+import {
+  Button,
+  Dialog,
+  Grid,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Typography,
+  Box,
+} from '@mui/material';
+import { useTheme } from '@mui/material/styles';
+
+// Custom Components
+import { CustomInput } from '../../custom_env_inputs/custom_input_mapping';
 
 // Types
-import {Feedback, FeedbackType} from '../../types';
-
-// Our components
-import Space from '../spaces/space_mapping';
+import { Feedback, FeedbackType, GymSpaceInfo } from '../../types';
 
 // Axios
-import axios, {AxiosResponse} from 'axios';
-
-// Styling
-import {useTheme} from '@mui/material/styles';
+import axios from 'axios';
 
 type DemoModalProps = {
   open: boolean;
@@ -35,24 +36,29 @@ type DemoModalProps = {
 type StepDetails = {
   reward: number;
   done: boolean;
-  infos: any;
+  infos: { mission?: string };
 };
 
 export default function DemoModal(props: DemoModalProps) {
-  const [initDemo, setInitDemo] = React.useState<boolean>(false);
-  const [processId, setProcessId] = React.useState<number>(-1);
-  const [demoNumber, setDemoNumber] = React.useState<number>(0);
-  const [renderURL, setRenderURL] = React.useState<string>('');
-  const [episodeDone, setEpisodeDone] = React.useState<boolean>(false);
+  const [initDemo, setInitDemo] = React.useState(false);
+  const [processId, setProcessId] = React.useState(-1);
+  const [demoNumber, setDemoNumber] = React.useState(0);
+  const [renderURL, setRenderURL] = React.useState('');
+  const [episodeDone, setEpisodeDone] = React.useState(false);
   const [stepDetails, setStepDetails] = React.useState<StepDetails>({
     reward: 0,
     done: false,
     infos: {},
   });
-  const [stepCount, setStepCount] = React.useState<number>(0);
-  const [actionSpace, setActionSpace] = React.useState<
-    {shape: number[]; label: string} & {[key: string]: any}
-  >({shape: [], label: ''});
+  const [mission, setMission] = React.useState('');
+  const [stepCount, setStepCount] = React.useState(0);
+  const [actionSpace, setActionSpace] = React.useState( {
+    label: '',
+    dtype: 'int',
+    shape: [0],
+    labels: {},
+    
+  } as GymSpaceInfo);
   const theme = useTheme();
 
   React.useEffect(() => {
@@ -63,27 +69,29 @@ export default function DemoModal(props: DemoModalProps) {
           seed: props.seed,
           session_id: props.sessionId,
         })
-        .then((response: AxiosResponse) => {
+        .then((response) => {
           setProcessId(response.data.pid);
           setStepDetails(response.data.step);
           setDemoNumber(response.data.demo_number);
           setEpisodeDone(false);
           setActionSpace(response.data.action_space);
+          if (response.data.step.infos.mission) {
+            setMission(response.data.step.infos.mission);
+          }
         });
     }
   }, [initDemo, props.activeEnvId, props.sessionId]);
 
-  // Get Render URL from the backend
   React.useEffect(() => {
     if (processId !== -1) {
-      axios({
-        method: 'get',
-        url: 'data/get_demo_image?session_id=' + props.sessionId,
-        responseType: 'blob',
-      }).then(response => {
-        const url = URL.createObjectURL(response.data);
-        setRenderURL(url);
-      });
+      axios
+        .get(`data/get_demo_image?session_id=${props.sessionId}`, {
+          responseType: 'blob',
+        })
+        .then((response) => {
+          const url = URL.createObjectURL(response.data);
+          setRenderURL(url);
+        });
     }
   }, [processId, props.sessionId, stepCount]);
 
@@ -91,18 +99,18 @@ export default function DemoModal(props: DemoModalProps) {
     axios
       .post('/data/demo_step', {
         session_id: props.sessionId,
-        action: action,
+        action,
       })
-      .then((response: AxiosResponse) => {
+      .then((response) => {
         setStepDetails(response.data.step);
         setStepCount(stepCount + 1);
-        if (response.data.step.done) {
-          setEpisodeDone(true);
+        setEpisodeDone(response.data.step.done);
+        if (response.data.step.infos.mission) {
+          setMission(response.data.step.infos.mission);
         }
       });
   };
 
-  // Function to close the demo session in the backend (when the modal is closed)
   React.useEffect(() => {
     if (!props.open && processId !== -1) {
       axios
@@ -110,41 +118,44 @@ export default function DemoModal(props: DemoModalProps) {
           session_id: props.sessionId,
           pid: processId,
         })
-        .then((response: AxiosResponse) => {
+        .then(() => {
           setProcessId(-1);
           setInitDemo(false);
           setRenderURL('');
           setStepCount(0);
+          setMission(''); // Reset mission
         });
     }
   }, [props.open, processId, props.sessionId]);
 
   return (
-    <Dialog open={props.open} onClose={props.onClose}>
-      {/* Draw a cornered region in purple, like a folder corner and add the label Correction"*/}
+    <Dialog open={props.open} onClose={() => {
+      setInitDemo(false);
+      props.onClose();
+    }}>
       <DialogTitle>Demo Generation</DialogTitle>
       <DialogContent>
         {!initDemo && (
           <Button
             onClick={() => setInitDemo(true)}
-            sx={{color: theme.palette.primary.main}}
+            sx={{ color: theme.palette.primary.main }}
           >
             Start Demonstration
           </Button>
         )}
         <Grid container spacing={1}>
           <Grid item xs="auto">
-            {initDemo && renderURL && (
+            {initDemo && renderURL ? (
               <img
                 src={renderURL}
                 alt="render"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                }}
+                style={{ width: '100%', height: '100%' }}
               />
+            ) : (
+              <Typography variant="body2" color="textSecondary">
+                Loading...
+              </Typography>
             )}
-            {initDemo && !renderURL && <p>Loading...</p>}
           </Grid>
           {initDemo && !episodeDone && (
             <Grid item xs>
@@ -153,30 +164,27 @@ export default function DemoModal(props: DemoModalProps) {
                 custom_input={props.custom_input}
                 inputProps={props.inputProps}
                 setFeedback={performAction}
-                needSubmit={false}
-                canNextStep={true}
               />
             </Grid>
           )}
           {initDemo && episodeDone && (
             <Grid item xs={12}>
-              <p>Episode Done</p>
+              <Typography variant="body2">Episode Done</Typography>
             </Grid>
           )}
-          {stepDetails.infos?.mission && (
+          {mission && (
             <Grid
               item
               xs={12}
               sx={{
                 width: '100%',
-                height: '100%',
                 backgroundColor: theme.palette.background.l1,
                 m: 1,
                 borderRadius: 2,
                 border: `1px solid ${theme.palette.divider}`,
               }}
             >
-              <Typography>{`Mission: ${stepDetails.infos.mission}`}</Typography>
+              <Typography>{`Mission: ${mission}`}</Typography>
             </Grid>
           )}
         </Grid>
@@ -184,7 +192,7 @@ export default function DemoModal(props: DemoModalProps) {
       <DialogActions>
         <Button onClick={props.onClose}>Cancel</Button>
         <Button
-          sx={{color: 'green'}}
+          sx={{ color: theme.palette.success.main }}
           disabled={!episodeDone}
           onClick={() => {
             props.onCloseSubmit({
@@ -192,9 +200,7 @@ export default function DemoModal(props: DemoModalProps) {
               targets: [
                 {
                   target_id:
-                    props.activeEnvId +
-                    '_generated_-1-1' +
-                    demoNumber.toString(),
+                    `${props.activeEnvId}_generated_-1-1${demoNumber}`,
                   reference: {
                     env_name: props.activeEnvId,
                     benchmark_type: 'generated',
@@ -209,7 +215,8 @@ export default function DemoModal(props: DemoModalProps) {
               granularity: 'episode',
               timestamp: Date.now(),
               session_id: props.sessionId,
-            } as Feedback);
+            });
+            setInitDemo(false); // Reset demo state
             props.onClose();
           }}
         >

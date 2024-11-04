@@ -1,14 +1,12 @@
+// BabyAIInput.tsx
+
 import * as React from 'react';
-
 import Button from '@mui/material/Button';
-
-import {styled} from '@mui/material/styles';
-
+import { styled } from '@mui/material/styles';
 import chroma from 'chroma-js';
+import { DesignTheme } from '../theme';
 
-import {DesignTheme} from '../theme';
-
-const BabyAIInputContainer = styled('div')(({theme}) => ({
+const BabyAIInputContainer = styled('div')(({ theme }) => ({
   display: 'grid',
   width: '100%',
   height: '100%',
@@ -32,102 +30,85 @@ interface StyledBabyAIInputButtonProps {
 }
 
 const BabyAIInputButton = styled(Button)<StyledBabyAIInputButtonProps>(
-  ({theme, isNextStep, selected}) => ({
-    backgroundColor: isNextStep
-      ? theme.palette.primary.dark
-      : selected
-      ? theme.palette.action.hover
+  ({ theme, isNextStep, selected }) => ({
+    backgroundColor: selected
+      ? chroma.mix(theme.palette.background.l1, theme.palette.primary.main, 0.5).hex()
       : theme.palette.background.l1,
+    color: selected
+      ? theme.palette.primary.contrastText
+      : theme.palette.text.primary,
     border: `1px solid ${theme.palette.divider}`,
-    color: theme.palette.primary.contrastText,
     '&:hover': {
       backgroundColor: chroma
-        .mix(theme.palette.background.l1, theme.palette.primary.main, 0.5)
+        .mix(theme.palette.background.l1, theme.palette.primary.main, 0.7)
         .hex(),
     },
     '&:active': {
       backgroundColor: chroma
-        .mix(theme.palette.background.l1, theme.palette.primary.main, 0.75)
+        .mix(theme.palette.background.l1, theme.palette.primary.main, 0.85)
         .hex(),
     },
   })
 );
 
 export default function BabyAIInput(props: any) {
-  const [selectedAction, setSelectedAction] = React.useState<number>(-1);
+  const [selectedAction, setSelectedAction] = React.useState<number | null>(null);
+
+  const handleAction = (actionIndex: number) => {
+    setSelectedAction(actionIndex);
+    props.setFeedback(actionIndex); // Immediately call the feedback action
+  };
+
   return (
     <BabyAIInputContainer>
       <BabyAIInputButton
-        selected={0 === selectedAction}
-        sx={{gridArea: 'left'}}
-        onClick={() => {
-          setSelectedAction(0);
-        }}
+        selected={selectedAction === 0}
+        sx={{ gridArea: 'left' }}
+        onClick={() => handleAction(0)}
       >
         Turn Left
       </BabyAIInputButton>
       <BabyAIInputButton
-        selected={2 === selectedAction}
-        sx={{gridArea: 'forward'}}
-        onClick={() => {
-          setSelectedAction(2);
-        }}
+        selected={selectedAction === 2}
+        sx={{ gridArea: 'forward' }}
+        onClick={() => handleAction(2)}
       >
         Go Forward
       </BabyAIInputButton>
       <BabyAIInputButton
-        selected={1 === selectedAction}
-        sx={{gridArea: 'right'}}
-        onClick={() => {
-          setSelectedAction(1);
-        }}
+        selected={selectedAction === 1}
+        sx={{ gridArea: 'right' }}
+        onClick={() => handleAction(1)}
       >
         Turn Right
       </BabyAIInputButton>
       <BabyAIInputButton
-        selected={3 === selectedAction}
-        sx={{gridArea: 'pickup'}}
-        onClick={() => {
-          setSelectedAction(3);
-        }}
+        selected={selectedAction === 3}
+        sx={{ gridArea: 'pickup' }}
+        onClick={() => handleAction(3)}
       >
         Pickup
       </BabyAIInputButton>
       <BabyAIInputButton
-        selected={4 === selectedAction}
-        sx={{gridArea: 'drop'}}
-        onClick={() => {
-          setSelectedAction(4);
-        }}
+        selected={selectedAction === 4}
+        sx={{ gridArea: 'drop' }}
+        onClick={() => handleAction(4)}
       >
         Drop
       </BabyAIInputButton>
       <BabyAIInputButton
-        selected={5 === selectedAction}
-        sx={{gridArea: 'toggle'}}
-        onClick={() => {
-          setSelectedAction(5);
-        }}
+        selected={selectedAction === 5}
+        sx={{ gridArea: 'toggle' }}
+        onClick={() => handleAction(5)}
       >
         Toggle
       </BabyAIInputButton>
       <BabyAIInputButton
-        selected={6 === selectedAction}
-        sx={{gridArea: 'done'}}
-        onClick={() => {
-          setSelectedAction(6);
-        }}
+        selected={selectedAction === 6}
+        sx={{ gridArea: 'done' }}
+        onClick={() => handleAction(6)}
       >
         Done
-      </BabyAIInputButton>
-      <BabyAIInputButton
-        isNextStep={true}
-        sx={{gridArea: 'submit'}}
-        onClick={() => {
-          props.setFeedback(selectedAction);
-        }}
-      >
-        {props.canNextStep ? 'Next Step' : 'Confirm Action'}
       </BabyAIInputButton>
     </BabyAIInputContainer>
   );

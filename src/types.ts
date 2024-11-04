@@ -86,10 +86,12 @@ type BackendConfig = {
 };
 
 type GymSpaceInfo = {
-  "label":  string,
-  "shape": number[],
-  "dtype":  string,
-  "labels": { [key: string]: number },
+  label:  string,
+  shape: number[],
+  dtype:  string,
+  labels: { [key: string]: number },
+  low?: number | number[],
+  high?: number | number[],
 };
 
 type AppMode = 'study' | 'configure';

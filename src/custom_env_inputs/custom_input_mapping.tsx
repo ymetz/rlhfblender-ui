@@ -1,12 +1,11 @@
 import * as React from 'react';
 import * as customInputs from '.';
+import { GymSpaceInfo } from '../types';
 
 type CustomInputProps = {
   custom_input: string;
-  space: any;
+  space: GymSpaceInfo;
   action?: any;
-  needSubmit: boolean;
-  canNextStep: boolean;
   inputProps: any;
   setFeedback: (feedback: any) => void;
 };
@@ -29,8 +28,6 @@ export function CustomInput(props: CustomInputProps) {
       {...props.inputProps}
       space={props.space}
       setFeedback={props.setFeedback}
-      needsSubmit={props.needSubmit}
-      canNextStep={props.canNextStep}
     />
   );
 }

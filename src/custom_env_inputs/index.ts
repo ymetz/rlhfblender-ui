@@ -3,3 +3,4 @@
 */
 export {default as Atari} from './atari_input';
 export {default as BabyAI} from './babyai_input';
+export {default as ContinuousAction} from './continuous_input';
