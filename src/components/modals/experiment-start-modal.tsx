@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAppState, useAppDispatch } from '../../AppStateContext';
+import { useSetupConfigState } from '../../SetupConfigContext';
 
 // MUI Components
 import { 
@@ -31,9 +32,11 @@ type ExperimentStartModalProps = {
 const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const setupConfigState = useSetupConfigState();
+  const { activeUIConfig } = setupConfigState;
   const [activeTab, setActiveTab] = useState(0);
 
-  const { startModalOpen, startModalContent, activeUIConfig } = state;
+  const { startModalOpen, startModalContent } = state;
 
   const handleClose = () => {
     dispatch({ type: 'SET_START_MODAL_OPEN', payload: false });

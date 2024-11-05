@@ -3,16 +3,15 @@ import React, {
   useEffect,
   useRef,
   useCallback,
-  useContext,
 } from 'react';
 import IconButton from '@mui/material/IconButton';
 import KeyboardArrowUp from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDown from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowLeft from '@mui/icons-material/KeyboardArrowLeft';
 import KeyboardArrowRight from '@mui/icons-material/KeyboardArrowRight';
-import {UIConfigContext} from '../../setup-ui-context';
 import {useTheme} from '@mui/material/styles';
 import { styled } from '@mui/system';
+import { useSetupConfigState } from '../../SetupConfigContext';
 
 // Custom styles
 interface ScrollbarStyledProps extends React.ComponentPropsWithoutRef<'div'> {
@@ -103,8 +102,8 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
   const [thumbWidth, setThumbWidth] = useState(20);
   const [scrollStartPositionY, setScrollStartPositionY] = useState<number>(0);
   const [scrollStartPositionX, setScrollStartPositionX] = useState<number>(0);
-  const UIConfig = useContext(UIConfigContext);
-  const horizontalRanking = UIConfig.uiComponents.horizontalRanking;
+  const setupConfigState = useSetupConfigState();
+  const horizontalRanking = setupConfigState.activeUIConfig.uiComponents.horizontalRanking;
   const theme = useTheme();
 
   // Number of pixels that an element's content is scrolled vertically.

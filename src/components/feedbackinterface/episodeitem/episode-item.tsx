@@ -1,4 +1,4 @@
-import React, {useRef, useEffect, useState, useContext} from 'react';
+import React, {useRef, useEffect, useState} from 'react';
 
 import {Draggable} from 'react-beautiful-dnd';
 
@@ -12,7 +12,7 @@ import {EpisodeFromID} from '../../../id';
 import {Feedback, FeedbackType} from '../../../types';
 
 // Context
-import {UIConfigContext} from '../../../setup-ui-context';
+import { useSetupConfigState } from '../../../SetupConfigContext';
 import {useGetter} from '../../../getter-context';
 import {styled} from '@mui/system';
 import {useRatingInfo} from '../../../rating-info-context';
@@ -137,7 +137,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
     info: {},
     action_space: {},
   });
-  const UIConfig = useContext(UIConfigContext);
+  const UIConfig = useSetupConfigState().activeUIConfig;
   const {isOnSubmit, hasFeedback} = useRatingInfo();
 
   // Whether this episode has already received feedback
@@ -171,7 +171,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
         step: 0,
       })
       .then((response: any) => {
-        console.log(response.data);
         setStepDetails(response.data);
       })
       .catch((error: any) => {
@@ -373,10 +372,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
             hasCorrectiveFeedback={hasCorrectiveFeedback}
             isOnSubmit={isOnSubmit}
           />
-
-          {/*<MissionSection
-            mission={stepDetails?.info?.mission}
-          />*/}
 
           <TextFeedback
             showTextFeedback={UIConfig.feedbackComponents.text}

@@ -106,11 +106,6 @@ const AlternativeScrollbar = ({
           scrollHeight: contentScrollHeight,
           offsetHeight: contentOffsetHeight,
         } = contentRef.current;
-        console.log('contentScrollHeight', contentScrollHeight);
-        console.log('contentOffsetHeight', contentOffsetHeight);
-        console.log('scrollStartPosition', scrollStartPosition);
-        console.log('thumbHeight', thumbHeight);
-        console.log('distance', event.clientY - scrollStartPosition);
         const deltaY =
           (event.clientY - scrollStartPosition) *
           (contentOffsetHeight / thumbHeight);

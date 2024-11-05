@@ -11,8 +11,6 @@ type AppAction =
     | { type: 'SET_SELECTED_EXPERIMENT'; payload: any }
     | { type: 'SET_UI_CONFIG_MODAL_OPEN'; payload: boolean }
     | { type: 'SET_BACKEND_CONFIG_MODAL_OPEN'; payload: boolean }
-    | { type: 'SET_ALL_UI_CONFIGS'; payload: UIConfig[] }
-    | { type: 'SET_ALL_BACKEND_CONFIGS'; payload: BackendConfig[] }
     | { type: 'SET_SESSION_ID'; payload: string }
     | { type: 'SCHEDULE_FEEDBACK'; payload: Feedback }
     | { type: 'SET_APP_MODE'; payload: 'study' | 'configure' }
@@ -27,8 +25,6 @@ type AppAction =
     | { type: 'CLEAR_SCHEDULED_FEEDBACK' }
     | { type: 'SET_END_MODAL_OPEN' }
     | { type: 'SET_FILTERED_EXPERIMENTS'; payload: any[] }
-    | { type: 'SET_ACTIVE_UI_CONFIG'; payload: UIConfig }
-    | { type: 'SET_ACTIVE_BACKEND_CONFIG'; payload: BackendConfig }
     | { type: 'SET_THEME'; payload: string }
     | { type: 'SET_ACTION_LABELS'; payload: string[] }
     | { type: 'SET_RANKEABLE_EPISODE_IDS'; payload: string[] }
@@ -38,43 +34,39 @@ type AppAction =
 
 
 
-const initialState: AppState = {
-    app_mode: 'study',
-    videoURLCache: {},
-    rewardsCache: {},
-    uncertaintyCache: {},
-    thumbnailURLCache: {},
-    status_bar_collapsed: true,
-    projects: [],
-    experiments: [],
-    filtered_experiments: [],
-    actionLabels: [],
-    activeEpisodes: [],
-    highlightedEpisodes: [],
-    selectedProject: { id: -1, project_name: '', project_experiments: [] },
-    selectedExperiment: { id: -1, exp_name: '', env_id: '' },
-    sliderValue: 0,
-    uiConfigModalOpen: false,
-    backendConfigModalOpen: false,
-    startModalOpen: true,
-    endModalOpen: false,
-    rankeableEpisodeIDs: [],
-    sessionId: '-',
-    episodeIDsChronologically: [],
-    allUIConfigs: [],
-    allBackendConfigs: [],
-    activeUIConfig: defaultUIConfig,
-    activeBackendConfig: defaultBackendConfig,
-    scheduledFeedback: [],
-    currentStep: 0,
-    startModalContent: undefined,
-    allThemes: ['light', 'dark'],
-    theme: 'light',
-    isOnSubmit: false,
-    showStudyCode: false,
-    studyCode: '',
-    setupComplete: false
-};
+    const initialState: AppState = {
+        app_mode: 'study',
+        videoURLCache: {},
+        rewardsCache: {},
+        uncertaintyCache: {},
+        thumbnailURLCache: {},
+        status_bar_collapsed: true,
+        projects: [],
+        experiments: [],
+        filtered_experiments: [],
+        actionLabels: [],
+        activeEpisodes: [],
+        highlightedEpisodes: [],
+        selectedProject: { id: -1, project_name: '', project_experiments: [] },
+        selectedExperiment: { id: -1, exp_name: '', env_id: '' },
+        sliderValue: 0,
+        uiConfigModalOpen: false,
+        backendConfigModalOpen: false,
+        startModalOpen: true,
+        endModalOpen: false,
+        rankeableEpisodeIDs: [],
+        sessionId: '-',
+        episodeIDsChronologically: [],
+        scheduledFeedback: [],
+        currentStep: 0,
+        startModalContent: undefined,
+        allThemes: ['light', 'dark'],
+        theme: 'light',
+        isOnSubmit: false,
+        showStudyCode: false,
+        studyCode: '',
+        setupComplete: false
+    };
 
 type AsyncDispatch = (action: AppAction) => Promise<void>;
 
@@ -88,7 +80,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'SET_EXPERIMENTS':
             return { ...state, experiments: action.payload };
         case 'SET_SELECTED_PROJECT':
-            console.log('Setting selected project', action.payload);
             return { ...state, selectedProject: action.payload };
         case 'SET_SELECTED_EXPERIMENT':
             return { ...state, selectedExperiment: action.payload };
@@ -96,10 +87,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
             return { ...state, uiConfigModalOpen: action.payload };
         case 'SET_BACKEND_CONFIG_MODAL_OPEN':
             return { ...state, backendConfigModalOpen: action.payload };
-        case 'SET_ALL_UI_CONFIGS':
-            return { ...state, allUIConfigs: action.payload };
-        case 'SET_ALL_BACKEND_CONFIGS':
-            return { ...state, allBackendConfigs: action.payload };
         case 'SET_SESSION_ID':
             return { ...state, sessionId: action.payload };
         case 'SCHEDULE_FEEDBACK':
@@ -128,10 +115,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
             return { ...state, episodeIDsChronologically: action.payload };
         case 'SET_FILTERED_EXPERIMENTS':
             return { ...state, filtered_experiments: action.payload };
-        case 'SET_ACTIVE_UI_CONFIG':
-            return { ...state, activeUIConfig: action.payload };
-        case 'SET_ACTIVE_BACKEND_CONFIG':
-            return { ...state, activeBackendConfig: action.payload };
         case 'SET_THEME':
             return { ...state, theme: action.payload };
         case 'SET_ACTION_LABELS':

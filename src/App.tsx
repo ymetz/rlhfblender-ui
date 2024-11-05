@@ -16,6 +16,7 @@ import FeedbackInterface from './components/FeedbackInterface';
 import { GetterContext } from './getter-context';
 
 import { AppStateProvider, useAppState, useAppDispatch } from './AppStateContext';
+import { SetupConfigProvider, useSetupConfigState, useSetupConfigDispatch } from './SetupConfigContext';
 import getDesignTokens from './theme';
 import { EpisodeFromID, IDfromEpisode } from './id';
 import { BackendConfig, UIConfig } from './types';
@@ -26,6 +27,8 @@ import StudyCodeModal from './components/modals/study-code-modal';
 const App: React.FC = () => {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const configState = useSetupConfigState();
+  const configDispatch = useSetupConfigDispatch();
   const { registerShortcut } = useShortcuts();
 
   useEffect(() => {
@@ -33,7 +36,6 @@ const App: React.FC = () => {
       const url = new URL(window.location.href);
       const study_code = url.searchParams.get('study') || '';
       if (study_code !== '') {
-        console.log('Study code:', study_code);
         dispatch({ type: 'SET_STUDY_CODE', payload: study_code });
         //dispatch({ type: 'TOGGLE_STATUS_BAR' });
         dispatch({ type: 'SET_APP_MODE', payload: 'study' });
@@ -53,11 +55,11 @@ const App: React.FC = () => {
       });
 
       axios.get('/ui_configs').then((res) => {
-        dispatch({ type: 'SET_ALL_UI_CONFIGS', payload: res.data });
+        configDispatch({ type: 'SET_ALL_UI_CONFIGS', payload: res.data });
       });
 
       axios.get('/backend_configs').then((res) => {
-        dispatch({ type: 'SET_ALL_BACKEND_CONFIGS', payload: res.data });
+        configDispatch({ type: 'SET_ALL_BACKEND_CONFIGS', payload: res.data });
       });
     };
 
@@ -74,9 +76,9 @@ const App: React.FC = () => {
     if (config) {
 
       // Set config ID to the next available ID
-      config.id = Math.max(...state.allUIConfigs.map((c) => c.id), 0) + 1;
+      config.id = Math.max(...configState.allUIConfigs.map((c) => c.id), 0) + 1;
       // update the list of UI configs and set the active config 
-      dispatch({ type: 'SET_ALL_UI_CONFIGS', payload: [...state.allUIConfigs, config] });
+      configDispatch({ type: 'SET_ALL_UI_CONFIGS', payload: [...configState.allUIConfigs, config] });
       axios.post('/save_ui_config', config).then(() => {
         console.log('Config saved for study');
       }
@@ -88,9 +90,9 @@ const App: React.FC = () => {
   const closeBackendConfigModal = (config: BackendConfig | null) => {
     if (config) {
       // Set config ID to the next available ID
-      config.id = Math.max(...state.allBackendConfigs.map((c) => c.id), 0) + 1;
+      config.id = Math.max(...configState.allBackendConfigs.map((c) => c.id), 0) + 1;
       // update the list of Backend configs
-      dispatch({ type: 'SET_ALL_BACKEND_CONFIGS', payload: [...state.allBackendConfigs, config] });
+      configDispatch({ type: 'SET_ALL_BACKEND_CONFIGS', payload: [...configState.allBackendConfigs, config] });
       // Save the config to the backend
       axios.post('/save_backend_config', config).then(() => {
         console.log('Config saved for backend');
@@ -223,7 +225,7 @@ const App: React.FC = () => {
       }
       try {
         const response = await axios.get('/data/sample_episodes', {
-          params: { num_episodes: state.activeUIConfig.max_ranking_elements },
+          params: { num_episodes: configState.activeUIConfig.max_ranking_elements },
         });
         dispatch({
           type: 'SET_ACTIVE_EPISODES',
@@ -249,7 +251,7 @@ const App: React.FC = () => {
           '/data/reset_sampler?experiment_id=' +
           state.selectedExperiment.id +
           '&sampling_strategy=' +
-          state.activeBackendConfig.samplingStrategy
+          configState.activeBackendConfig.samplingStrategy
         )
         .then((res) => {
           dispatch({ type: 'SET_SESSION_ID', payload: res.data.session_id });
@@ -282,8 +284,8 @@ const App: React.FC = () => {
   
           await dispatch({ type: 'SET_SELECTED_PROJECT', payload: res.data.project });
           await dispatch({ type: 'SET_SELECTED_EXPERIMENT', payload: res.data.experiment });
-          await dispatch({ type: 'SET_ACTIVE_UI_CONFIG', payload: res.data.ui_config });
-          await dispatch({ type: 'SET_ACTIVE_BACKEND_CONFIG', payload: res.data.backend_config });
+          await configDispatch({ type: 'SET_ACTIVE_UI_CONFIG', payload: res.data.ui_config });
+          await configDispatch({ type: 'SET_ACTIVE_BACKEND_CONFIG', payload: res.data.backend_config });
   
           // Set the flag to true
           await dispatch({ type: 'SET_SETUP_COMPLETE', payload: true });
@@ -361,13 +363,13 @@ const App: React.FC = () => {
               <FeedbackInterface />
             ) : null}
             <ConfigModal
-              config={state.activeUIConfig}
+              config={configState.activeUIConfig}
               open={state.uiConfigModalOpen}
 
               onClose={closeUIConfigModal}
             />
             <ConfigModal
-              config={state.activeBackendConfig}
+              config={configState.activeBackendConfig}
               open={state.backendConfigModalOpen}
               onClose={closeBackendConfigModal}
             />
@@ -385,9 +387,11 @@ const App: React.FC = () => {
 
 const AppWrapper = () => (
   <AppStateProvider>
-    <ShortcutsProvider>
-      <App />
-    </ShortcutsProvider>
+    <SetupConfigProvider>
+      <ShortcutsProvider>
+        <App />
+      </ShortcutsProvider>
+    </SetupConfigProvider>
   </AppStateProvider>
 );
 

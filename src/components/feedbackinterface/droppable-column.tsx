@@ -4,9 +4,10 @@ import EpisodeItem from './episodeitem/episode-item';
 import Box from '@mui/material/Box';
 import {Feedback} from '../../types';
 import Chip from '@mui/material/Chip';
-import {UIConfigContext} from '../../setup-ui-context';
+import { SetupConfigState } from '../../types';
 import {useTheme} from '@mui/material/styles';
 import chroma from 'chroma-js';
+import { useSetupConfigState } from '../../SetupConfigContext';
 
 type DroppableColumnProps = {
   droppableID: string;
@@ -35,7 +36,7 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
   setDemoModalOpen,
   actionLabels,
 }) => {
-  const UIConfig = useContext(UIConfigContext);
+  const UIConfig = useSetupConfigState().activeUIConfig;
   const horizontalRanking = UIConfig.uiComponents.horizontalRanking;
   const theme = useTheme();
   return (

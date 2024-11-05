@@ -5,6 +5,7 @@ import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { RatingInfoContext } from '../rating-info-context';
 import { useAppState } from '../AppStateContext';
+import { useSetupConfigState } from '../SetupConfigContext';
 import { EpisodeFromID, IDfromEpisode } from '../id';
 import { Episode, Feedback, FeedbackType } from '../types';
 
@@ -22,7 +23,6 @@ const FeedbackInterface: React.FC = () => {
   const theme = useTheme();
 
   const {
-    activeUIConfig,
     currentStep,
     episodeIDsChronologically,
     rankeableEpisodeIDs,
@@ -31,6 +31,7 @@ const FeedbackInterface: React.FC = () => {
     sessionId,
     scheduledFeedback,
   } = state;
+  const { activeUIConfig } = useSetupConfigState();
 
   const [demoModalOpen, setDemoModalOpen] = useState({ open: false, seed: 0 });
   const [isOnSubmit, setIsOnSubmit] = useState(false);

@@ -19,6 +19,7 @@ import LibraryAddIcon from '@mui/icons-material/LibraryAdd';
 import axios from 'axios';
 
 import { useAppState, useAppDispatch } from '../../AppStateContext';
+import { useSetupConfigState, useSetupConfigDispatch } from '../../SetupConfigContext';
 
 type MenuProps = {
   resetSampler: () => void;
@@ -27,6 +28,8 @@ type MenuProps = {
 const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const setupConfigState = useSetupConfigState();
+  const configDispatch = useSetupConfigDispatch();
   const theme = useTheme();
 
   // Handle project selection
@@ -56,20 +59,20 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
 
   // Handle UI config selection
   const selectUIConfig = (event: SelectChangeEvent) => {
-    const selectedUIConfig = state.allUIConfigs.find(
+    const selectedUIConfig = setupConfigState.allUIConfigs.find(
       (config) => config.id === Number(event.target.value)
-    ) || state.activeUIConfig;
+    ) || setupConfigState.activeUIConfig;
 
-    dispatch({ type: 'SET_ACTIVE_UI_CONFIG', payload: selectedUIConfig });
+    configDispatch({ type: 'SET_ACTIVE_UI_CONFIG', payload: selectedUIConfig });
   };
 
   // Handle Backend config selection
   const selectBackendConfig = (event: SelectChangeEvent) => {
-    const selectedBackendConfig = state.allBackendConfigs.find(
+    const selectedBackendConfig = setupConfigState.allBackendConfigs.find(
       (config) => config.id === Number(event.target.value)
-    ) || state.activeBackendConfig;
+    ) || setupConfigState.activeBackendConfig;
 
-    dispatch({ type: 'SET_ACTIVE_BACKEND_CONFIG', payload: selectedBackendConfig });
+    configDispatch({ type: 'SET_ACTIVE_BACKEND_CONFIG', payload: selectedBackendConfig });
   };
 
   // Handle theme selection
@@ -136,11 +139,11 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
           <Select
             labelId="backend-config-select-label"
             id="backend-config-select"
-            value={state.activeBackendConfig.id.toString()}
+            value={setupConfigState.activeBackendConfig.id.toString()}
             label="Backend Config"
             onChange={selectBackendConfig}
           >
-            {state.allBackendConfigs.map((config) => (
+            {setupConfigState.allBackendConfigs.map((config) => (
               <MenuItem key={config.id.toString()} value={config.id.toString()}>
                 {config.name}
               </MenuItem>
@@ -160,11 +163,11 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
           <Select
             labelId="ui-config-select-label"
             id="ui-config-select"
-            value={state.activeUIConfig.id.toString()}
+            value={setupConfigState.activeUIConfig.id.toString()}
             label="UI Config"
             onChange={selectUIConfig}
           >
-            {state.allUIConfigs.map((config) => (
+            {setupConfigState.allUIConfigs.map((config) => (
               <MenuItem key={config.id.toString()} value={config.id.toString()}>
                 {config.name}
               </MenuItem>
@@ -231,8 +234,8 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
             axios.post('/save_setup', {
               project: state.selectedProject,
               experiment: state.selectedExperiment,
-              ui_config: state.activeUIConfig,
-              backend_config: state.activeBackendConfig,
+              ui_config: setupConfigState.activeUIConfig,
+              backend_config: setupConfigState.activeBackendConfig,
             }).then((res) => {
               if (res.data.error) {
                 console.error(res.data.error);

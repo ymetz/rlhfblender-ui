@@ -120,10 +120,6 @@ type AppState = {
   episodeIDsChronologically: Episode[];
   activeEpisodes: Episode[];
   highlightedEpisodes: {value: number}[];
-  allUIConfigs: UIConfig[];
-  allBackendConfigs: BackendConfig[];
-  activeUIConfig: UIConfig;
-  activeBackendConfig: BackendConfig;
   scheduledFeedback: Feedback[];
   currentStep: number;
   startModalContent: React.ReactNode | string | undefined;
@@ -135,6 +131,12 @@ type AppState = {
   setupComplete: boolean;
 };
 
+type SetupConfigState = {
+  activeUIConfig: UIConfig;
+  activeBackendConfig: BackendConfig;
+  allUIConfigs: UIConfig[];
+  allBackendConfigs: BackendConfig[];
+};
 type AppProps = {};
 
 export type {
@@ -148,5 +150,6 @@ export type {
   Feedback,
   Experiment,
   GymSpaceInfo,
+  SetupConfigState,
 };
 export {FeedbackType};

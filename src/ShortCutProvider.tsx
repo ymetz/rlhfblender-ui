@@ -21,7 +21,6 @@ export const ShortcutsProvider = ({ children }) => {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
   const registerShortcut = useCallback((id, shortcut) => {
-    console.log('registering shortcut', id, shortcut);
     setShortcuts(prev => ({
       ...prev,
       [id]: shortcut
@@ -33,7 +32,6 @@ export const ShortcutsProvider = ({ children }) => {
     Object.values(shortcuts).forEach((shortcut: Shortcut) => {
       if (shortcut.key.toLowerCase() === key) {
         //shortcut.action();
-        console.log(shortcut.description);
       }
     });
   }, [shortcuts]);
