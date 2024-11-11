@@ -12,25 +12,23 @@ interface EvaluativeFeedbackProps {
     onChange: (value: number) => void;
     onCommit: (event: Event | React.SyntheticEvent, value: number) => void;
     hasEvaluativeFeedback: boolean;
-    isOnSubmit: boolean;
     horizontalRanking: boolean;
   }
 
   interface EvaluativeContainerProps {
     hasFeedback: boolean;
-    isOnSubmit: boolean;
     horizontalRanking: boolean;
   }
 
   const EvaluativeContainer = styled('div')<EvaluativeContainerProps>(
-    ({ theme, hasFeedback, isOnSubmit, horizontalRanking }) => ({
+    ({ theme, hasFeedback, horizontalRanking }) => ({
       gridArea: 'evaluative',
       display: 'grid',
       gridTemplateColumns: 'auto auto 1fr auto',
       gridTemplateRows: '1fr',
       borderRadius: '10px',
       boxShadow:
-        isOnSubmit && hasFeedback
+        hasFeedback
           ? `0px 0px 20px 0px ${theme.palette.primary.main}`
           : 'none',
       transition: 'box-shadow 0.2s ease-in-out',
@@ -49,7 +47,6 @@ interface EvaluativeFeedbackProps {
     onChange,
     onCommit,
     hasEvaluativeFeedback,
-    isOnSubmit,
     horizontalRanking,
   }) => {
     const theme = useTheme();
@@ -57,7 +54,6 @@ interface EvaluativeFeedbackProps {
     return (
       <EvaluativeContainer
         hasFeedback={hasEvaluativeFeedback}
-        isOnSubmit={isOnSubmit}
         horizontalRanking={horizontalRanking}
       >
         <Box

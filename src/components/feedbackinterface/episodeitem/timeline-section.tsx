@@ -17,7 +17,7 @@ interface TimelineSectionProps {
     onSliderChange: (value: number) => void;
     onCorrectionClick: (step: number) => void;
     hasCorrectiveFeedback: boolean;
-    isOnSubmit: boolean;
+    useCorrectiveFeedback: boolean;
   }
   
   const TimelineSection: React.FC<TimelineSectionProps> = ({
@@ -32,7 +32,7 @@ interface TimelineSectionProps {
     onSliderChange,
     onCorrectionClick,
     hasCorrectiveFeedback,
-    isOnSubmit,
+    useCorrectiveFeedback,
   }) => {
     const theme = useTheme();
   
@@ -48,7 +48,7 @@ interface TimelineSectionProps {
             : `1px solid ${theme.palette.divider}`,
           backgroundColor: theme.palette.background.l0,
           boxShadow:
-            isOnSubmit && hasCorrectiveFeedback
+            hasCorrectiveFeedback
               ? `0px 0px 20px 0px ${theme.palette.primary.main}`
               : 'none',
           gridArea: 'timelinechart',
@@ -65,6 +65,7 @@ interface TimelineSectionProps {
             height: '100%',
           }}
         >
+          {useCorrectiveFeedback && (
           <Tooltip title="Double Click to Correct">
             <CorrIcon
               color={
@@ -73,7 +74,7 @@ interface TimelineSectionProps {
                   : theme.palette.text.secondary
               }
             />
-          </Tooltip>
+          </Tooltip>)}
         </Box>
         <ParentSize>
           {parent => (
@@ -90,6 +91,7 @@ interface TimelineSectionProps {
               proposedFeedbackMarkers={proposedFeedbackMarkers}
               onChange={onSliderChange}
               onCorrectionClick={onCorrectionClick}
+              useCorrectiveFeedback={useCorrectiveFeedback}
             />
           )}
         </ParentSize>

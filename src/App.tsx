@@ -318,7 +318,7 @@ const App: React.FC = () => {
               id="menu"
               sx={{
                 flexDirection: 'column',
-                bgcolor: createTheme(getDesignTokens(state.theme as 'light' | 'dark')).palette.background.l1,
+                bgcolor: createTheme(getDesignTokens(state.theme as 'light' | 'dark')).palette.background.l0,
               }}
             >
               <Menu
@@ -352,9 +352,10 @@ const App: React.FC = () => {
                       margin: 'auto',
                       marginTop: '0.6vh',
                       float: 'right',
+                      color: createTheme(getDesignTokens(state.theme as 'light' | 'dark')).palette.text.primary,
                     }}
                   >
-                    RLHF-Blender v0.3
+                    RLHF-Blender v0.3.1
                   </Typography>
                 )}
               </Box>

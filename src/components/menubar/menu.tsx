@@ -91,13 +91,13 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
   };
 
   return (
-    <Collapse in={!state.status_bar_collapsed} timeout="auto" sx={{ display: 'flex' }}>
+    <Collapse in={!state.status_bar_collapsed} timeout="auto" sx={{ display: 'flex', backgroundColor: theme.palette.background.l0 }}>
       <Box
         sx={{
           m: 2,
           display: 'flex',
           justifyContent: 'space-evenly',
-          backgroundColor: theme.palette.background.default,
+          backgroundColor: theme.palette.background.l0,
         }}
       >
         <FormControl sx={{ width: '10vw', marginRight: '2vw' }}>
@@ -206,15 +206,19 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
         </FormControl>
 
         <FormControl sx={{ width: '25vw', marginRight: '2vw', float: 'right' }}>
-          <Typography
+            <Typography
             sx={{
               marginRight: '2vw',
               marginTop: '1vh',
               color: theme.palette.text.primary,
+              maxWidth: '30ch',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
-          >
+            >
             Session: {state.sessionId}
-          </Typography>
+            </Typography>
         </FormControl>
 
         <Button

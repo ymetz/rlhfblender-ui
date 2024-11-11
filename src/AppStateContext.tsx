@@ -62,7 +62,6 @@ type AppAction =
         startModalContent: undefined,
         allThemes: ['light', 'dark'],
         theme: 'light',
-        isOnSubmit: false,
         showStudyCode: false,
         studyCode: '',
         setupComplete: false

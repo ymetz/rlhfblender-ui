@@ -24,7 +24,7 @@ export const ProgressHeader: React.FC<ProgressHeaderProps> = ({
   const theme = useTheme();
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'row' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'row', backgroundColor: theme.palette.background.l1 }}>
       {showProgressBar && (
         <Box
           id="progress-bar"

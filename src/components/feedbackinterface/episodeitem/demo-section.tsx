@@ -6,9 +6,10 @@ import DemoIcon from '../../../icons/demo-icon';
 interface DemoSectionProps {
   showDemo: boolean;
   onDemoClick: () => void;
+  hasDemoFeedback: boolean;
 }
 
-const DemoSection: React.FC<DemoSectionProps> = ({ showDemo, onDemoClick }) => {
+const DemoSection: React.FC<DemoSectionProps> = ({ showDemo, onDemoClick, hasDemoFeedback }) => {
   const theme = useTheme();
 
   if (!showDemo) {
@@ -33,6 +34,11 @@ const DemoSection: React.FC<DemoSectionProps> = ({ showDemo, onDemoClick }) => {
         <Button
           variant="contained"
           onClick={onDemoClick}
+          sx={{
+            boxShadow: hasDemoFeedback
+              ? `0px 0px 20px 0px ${theme.palette.primary.main}`
+              : 'none',
+          }}
           endIcon={<DemoIcon color={theme.palette.primary.contrastText} />}
         >
           Demo

@@ -125,7 +125,6 @@ type AppState = {
   startModalContent: React.ReactNode | string | undefined;
   allThemes: string[];
   theme: string;
-  isOnSubmit: boolean;
   showStudyCode: boolean;
   studyCode: string;
   setupComplete: boolean;

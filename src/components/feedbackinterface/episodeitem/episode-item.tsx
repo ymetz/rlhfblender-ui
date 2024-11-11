@@ -29,7 +29,6 @@ interface EpisodeItemContainerProps {
   horizontalRanking?: boolean;
   numItemsInColumn?: number;
   hasFeedback?: boolean;
-  isOnSubmit?: boolean;
 }
 
 const EpisodeItemContainer = styled('div')<EpisodeItemContainerProps>(
@@ -38,7 +37,6 @@ const EpisodeItemContainer = styled('div')<EpisodeItemContainerProps>(
     isDragging,
     horizontalRanking,
     numItemsInColumn,
-    isOnSubmit,
     hasFeedback,
   }) => ({
     backgroundColor: isDragging
@@ -53,7 +51,7 @@ const EpisodeItemContainer = styled('div')<EpisodeItemContainerProps>(
     border: `1px solid ${theme.palette.divider}`,
     justifyItems: 'stretch',
     boxShadow:
-      isOnSubmit && hasFeedback
+      hasFeedback
         ? `0px 0px 20px 0px ${theme.palette.primary.main}`
         : 'none',
     transition: 'box-shadow 0.2s ease-in-out',
@@ -138,7 +136,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
     action_space: {},
   });
   const UIConfig = useSetupConfigState().activeUIConfig;
-  const {isOnSubmit, hasFeedback} = useRatingInfo();
+  const {hasFeedback} = useRatingInfo();
 
   // Whether this episode has already received feedback
   const hasEvaluativeFeedback = hasFeedback(
@@ -152,6 +150,15 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
   const hasFeatureSelectionFeedback = hasFeedback(
     EpisodeFromID(episodeID),
     FeedbackType.FeatureSelection
+  );
+  const hasTextFeedback = hasFeedback(
+    EpisodeFromID(episodeID),
+    FeedbackType.Text
+  );
+
+  const hasDemoFeedback = hasFeedback(
+    EpisodeFromID(episodeID),
+    FeedbackType.Demonstrative
   );
 
   const {getThumbnailURL, getVideoURL, getRewards, getUncertainty} =
@@ -278,6 +285,9 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
   };
 
   const onCorrectionModalOpenHandler = (step: number) => {
+    if (!UIConfig.feedbackComponents.correction) {
+      return
+    }
     setSelectedStep(step);
     setCorrectionModalOpen(true);
   };
@@ -322,7 +332,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
           numItemsInColumn={numItemsInColumn}
           isDragging={snapshot.isDragging}
           ref={provided.innerRef}
-          isOnSubmit={isOnSubmit}
           hasFeedback={false}
           {...provided.draggableProps}
         >
@@ -341,14 +350,15 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
             horizontalRanking={UIConfig.uiComponents.horizontalRanking}
           />
 
+          { UIConfig.feedbackComponents.rating && (
           <EvaluativeFeedback
             value={evaluativeSliderValue}
             onChange={setEvaluativeSliderValue}
             onCommit={evaluativeFeedbackHandler}
             hasEvaluativeFeedback={hasEvaluativeFeedback}
-            isOnSubmit={isOnSubmit}
             horizontalRanking={UIConfig.uiComponents.horizontalRanking}
           />
+          )}
 
           <DemoSection
             showDemo={UIConfig.feedbackComponents.demonstration}
@@ -356,6 +366,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
               open: true,
               seed: stepDetails.info?.seed || 0,
             })}
+            hasDemoFeedback={hasDemoFeedback}
           />
 
           <TimelineSection
@@ -370,15 +381,18 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
             onSliderChange={videoSliderHandler}
             onCorrectionClick={onCorrectionModalOpenHandler}
             hasCorrectiveFeedback={hasCorrectiveFeedback}
-            isOnSubmit={isOnSubmit}
+            useCorrectiveFeedback={UIConfig.feedbackComponents.correction}
           />
 
+        { UIConfig.feedbackComponents.text && (
           <TextFeedback
             showTextFeedback={UIConfig.feedbackComponents.text}
             episodeId={episodeID}
             sessionId={sessionId}
             scheduleFeedback={scheduleFeedback}
+            hasTextFeedback={hasTextFeedback}
           />
+        )}
 
           <Modals
             highlightModalOpen={highlightModelOpen}

@@ -9,6 +9,7 @@ interface TextFeedbackProps {
     scheduleFeedback: (feedback: Feedback) => void;
     episodeId: string;
     sessionId: string;
+    hasTextFeedback?: boolean;
   // value: string;
 }
 
@@ -25,7 +26,7 @@ function debounce(func: (...args: any[]) => void, wait: number) {
 }
   
 
-const TextFeedback: React.FC<TextFeedbackProps> = ({ showTextFeedback, scheduleFeedback, episodeId, sessionId }) => {
+const TextFeedback: React.FC<TextFeedbackProps> = ({ showTextFeedback, scheduleFeedback, episodeId, sessionId, hasTextFeedback }) => {
   //const [feedback, setFeedback] = useState('');
   const theme = useTheme();
 
@@ -57,12 +58,16 @@ const TextFeedback: React.FC<TextFeedbackProps> = ({ showTextFeedback, scheduleF
         alignItems: 'center',
         borderRadius: '10px',
         backgroundColor: theme.palette.background.l0,
-        border: `1px solid ${theme.palette.divider}`,
-        m: 1,
-        p: 1,
+        border: hasTextFeedback
+        ? `1px solid ${theme.palette.primary.main}`
+        : `1px solid ${theme.palette.divider}`,
+        boxShadow: hasTextFeedback
+          ? `0px 0px 20px 0px ${theme.palette.primary.main}`
+          : 'none',
         overflow: 'hidden',
         gridArea: 'mission',
-        width: '100%',
+        margin: '10px',
+        width: 'auto',
       }}
     >
       <TextField        
@@ -72,7 +77,6 @@ const TextFeedback: React.FC<TextFeedbackProps> = ({ showTextFeedback, scheduleF
         rows={4}
         fullWidth
         variant="outlined"
-        sx={{ mr: 1 }}
       />
     </Box>
   </>

@@ -61,7 +61,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
         correction: 'Select a specific step. You can open the correction window by clicking.',
         featureSelection: 'Open the feature selection window by clicking the pen in the rendering window. You can select relevant features via brushing.',
         demonstration: 'Demonstrate a sequence of steps by selecting an action and wait for the next step',
-        text: 'Provide textual feedback for the current step. You can also use this to ask questions.'
+        text: 'Provide textual feedback for the given segment. Hover over the info icon for suggestions.'
       }[key]
     }));
 
