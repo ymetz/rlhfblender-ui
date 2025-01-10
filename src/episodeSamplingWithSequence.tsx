@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import axios from 'axios';
 import { useAppDispatch, useAppState } from './AppStateContext';
 import { useSetupConfigDispatch, useSetupConfigState } from './SetupConfigContext';
 import { Episode, SequenceElement, UIConfig } from './types';
@@ -62,13 +63,21 @@ export const useConfigBasedSampling = () => {
     
     // Check if we've reached the end of the sequence
     if (nextStep >= configState.uiConfigSequence.length) {
+      dispatch({ type: 'SET_CURRENT_STEP', payload: nextStep });
       dispatch({ type: 'SET_END_MODAL_OPEN' });
+
+      axios.post('/data/submit_session', { sessionId: state.sessionId }).then(() => {
+        console.log('Session submitted');
+      }).catch((error) => {
+        console.error('Error submitting session', error);
+      });
+
       return false;
     }
 
     dispatch({ type: 'SET_CURRENT_STEP', payload: nextStep });
     return true;
-  }, [state.currentStep, dispatch]);
+  }, [state.currentStep, dispatch, configState.uiConfigSequence.length, state.sessionId]);
 
   const sampleEpisodes = useCallback(async () => {
     if (state.selectedExperiment.id === -1) {

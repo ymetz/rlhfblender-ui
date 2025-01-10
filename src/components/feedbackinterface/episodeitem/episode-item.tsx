@@ -345,6 +345,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
             showFeatureSelection={UIConfig.feedbackComponents.featureSelection}
             onFeatureSelect={() => setHighlightModelOpen(true)}
             playButtonHandler={playButtonHandler}
+            videoSliderHandler={videoSliderHandler}
             playing={playing}
             mission={stepDetails?.info?.mission}
             horizontalRanking={UIConfig.uiComponents.horizontalRanking}

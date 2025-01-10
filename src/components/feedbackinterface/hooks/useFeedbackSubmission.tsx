@@ -13,6 +13,7 @@ export const useFeedbackSubmission = (sampleEpisodes: () => Promise<void>, advan
 
   const submitFeedback = useCallback(async (scheduledFeedback: Feedback[]) => {
     try {
+      console.log('Submitting feedback:', scheduledFeedback);
       axios.post('/data/give_feedback', scheduledFeedback);
 
       // Clear scheduled feedback

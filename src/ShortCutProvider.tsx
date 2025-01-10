@@ -42,10 +42,10 @@ export const ShortcutsProvider = ({ children }) => {
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyPress);
-    window.addEventListener('mousemove', handleMouseMove);
+    //window.addEventListener('mousemove', handleMouseMove);
     return () => {
       window.removeEventListener('keydown', handleKeyPress);
-      window.removeEventListener('mousemove', handleMouseMove);
+      //window.removeEventListener('mousemove', handleMouseMove);
     };
   }, [handleKeyPress, handleMouseMove]);
 
