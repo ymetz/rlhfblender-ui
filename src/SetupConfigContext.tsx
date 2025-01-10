@@ -3,19 +3,21 @@
 import React, { createContext, useReducer, useContext, ReactNode } from 'react';
 import { UIConfig, BackendConfig } from './types';
 import { defaultUIConfig, defaultBackendConfig } from './default-setup-configs';
-import { SetupConfigState } from './types';
+import { SetupConfigState, SequenceElement } from './types';
 
 type SetupConfigAction =
     | { type: 'SET_ACTIVE_UI_CONFIG'; payload: UIConfig }
     | { type: 'SET_ACTIVE_BACKEND_CONFIG'; payload: BackendConfig }
     | { type: 'SET_ALL_UI_CONFIGS'; payload: UIConfig[] }
-    | { type: 'SET_ALL_BACKEND_CONFIGS'; payload: BackendConfig[] };
+    | { type: 'SET_ALL_BACKEND_CONFIGS'; payload: BackendConfig[] }
+    | { type: 'SET_UI_CONFIG_SEQUENCE'; payload: SequenceElement[] };
 
 const initialState: SetupConfigState = {
     activeUIConfig: defaultUIConfig,
     activeBackendConfig: defaultBackendConfig,
     allUIConfigs: [],
-    allBackendConfigs: []
+    allBackendConfigs: [],
+    uiConfigSequence: [],
 };
 
 const SetupConfigContext = createContext<SetupConfigState | undefined>(undefined);
@@ -31,6 +33,8 @@ function setupConfigReducer(state: SetupConfigState, action: SetupConfigAction):
             return { ...state, allUIConfigs: action.payload };
         case 'SET_ALL_BACKEND_CONFIGS':
             return { ...state, allBackendConfigs: action.payload };
+        case 'SET_UI_CONFIG_SEQUENCE':
+            return { ...state, uiConfigSequence: action.payload };
         default:
             throw new Error(`Unhandled action type: ${action}`);
     }

@@ -8,16 +8,15 @@ interface ProgressHeaderProps {
   showProgressBar: boolean;
   numEpisodes: number;
   currentStep: number;
-  maxRankingElements: number;
+  progressSteps: number;
   onSubmit: () => void;
   onSubmitHover: (isHovering: boolean) => void;
 }
 
 export const ProgressHeader: React.FC<ProgressHeaderProps> = ({
   showProgressBar,
-  numEpisodes,
   currentStep,
-  maxRankingElements,
+  progressSteps,
   onSubmit,
   onSubmitHover,
 }) => {
@@ -46,7 +45,7 @@ export const ProgressHeader: React.FC<ProgressHeaderProps> = ({
             Experiment Progress:
           </Typography>
           <Progressbar
-            maxSteps={Math.ceil(numEpisodes / maxRankingElements) ?? 1}
+            maxSteps={progressSteps ?? 1}
             currentStep={currentStep}
           />
         </Box>

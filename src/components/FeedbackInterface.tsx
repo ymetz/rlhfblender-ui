@@ -1,5 +1,5 @@
 // FeedbackInterface.tsx
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { DragDropContext, DropResult } from 'react-beautiful-dnd';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -11,7 +11,7 @@ import { Episode, Feedback, FeedbackType } from '../types';
 
 import { DroppableColumnContainer } from './feedbackinterface/styles';
 import { useFeedbackState } from './feedbackinterface/hooks/useFeedbackState';
-import { useEpisodeSampling } from './feedbackinterface/hooks/useEpisodeSampling';
+import { useConfigBasedSampling } from '../episodeSamplingWithSequence';
 import { useFeedbackSubmission } from './feedbackinterface/hooks/useFeedbackSubmission';
 import { ProgressHeader } from './feedbackinterface/progress-header';
 import DroppableColumn from './feedbackinterface/droppable-column';
@@ -20,6 +20,7 @@ import DemoModal from './modals/demo-modal';
 
 const FeedbackInterface: React.FC = () => {
   const state = useAppState();
+  const configState = useSetupConfigState();
   const theme = useTheme();
 
   const {
@@ -39,8 +40,8 @@ const FeedbackInterface: React.FC = () => {
   const horizontalDrag = activeUIConfig.uiComponents.horizontalRanking;
 
   const { columnOrder, setColumnOrder, ranks, setRanks } = useFeedbackState(rankeableEpisodeIDs);
-  const { sampleEpisodes } = useEpisodeSampling(selectedExperiment, activeUIConfig, sessionId);
-  const { scheduleFeedback, submitFeedback } = useFeedbackSubmission(sampleEpisodes);
+  const { sampleEpisodes, advanceToNextStep } = useConfigBasedSampling();
+  const { scheduleFeedback, submitFeedback } = useFeedbackSubmission(sampleEpisodes, advanceToNextStep);
 
   const updateEvalFeedback = (episodeId: string, newRating: number) => {
     setEvalFeedback(prevRatings => ({
@@ -49,7 +50,6 @@ const FeedbackInterface: React.FC = () => {
     }));
   };
 
-// Update column order and ranks when rankeableEpisodeIDs change
 useEffect(() => {
   const new_ranks = Object.fromEntries(
     Array.from({ length: rankeableEpisodeIDs.length }, (_, i) => [
@@ -193,13 +193,13 @@ const onDragEnd = (dropResult: DropResult) => {
   scheduleFeedback(feedback);
 };
 
-  const hasFeedback = (episode: Episode, feedbackType: FeedbackType) => {
+  const hasFeedback = useCallback((episode: Episode, feedbackType: FeedbackType) => {
     return scheduledFeedback.some(
       feedback =>
         feedback.feedback_type === feedbackType &&
         feedback.targets?.some(target => target.target_id === IDfromEpisode(episode))
     );
-  };
+  }, [scheduledFeedback]);
 
   const ratingInfoValue = useMemo(() => ({
     isOnSubmit,
@@ -212,7 +212,7 @@ const onDragEnd = (dropResult: DropResult) => {
         showProgressBar={activeUIConfig.uiComponents.progressBar}
         numEpisodes={episodeIDsChronologically.length}
         currentStep={currentStep}
-        maxRankingElements={activeUIConfig.max_ranking_elements}
+        progressSteps={configState.uiConfigSequence.length}
         onSubmit={() => submitFeedback(scheduledFeedback)}
         onSubmitHover={setIsOnSubmit}
       />

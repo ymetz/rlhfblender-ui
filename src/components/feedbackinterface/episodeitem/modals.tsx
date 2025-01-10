@@ -50,8 +50,6 @@ const Modals: React.FC<ModalsProps> = ({
     return '';
   };
 
-  console.log("CORRECTION correction", customInput);
-
   return (
     <>
       <Dialog open={highlightModalOpen}>

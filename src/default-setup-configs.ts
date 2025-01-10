@@ -29,11 +29,15 @@ const defaultUIConfig: UIConfig = {
 };
 
 const defaultBackendConfig: BackendConfig = {
-  id: -1,
+  id: 0,
   name: '',
   description: '',
   samplingStrategy: 'sequential',
   loggerMode: 'local',
+
+  selectedUiConfigs: [],
+  uiConfigMode: 'sequential',
+
   feedbackModelTrainingEnabled: false,
   feeedbackModelType: '',
   feedbackModelConfig: {},

@@ -20,17 +20,17 @@ import UploadIcon from '@mui/icons-material/Upload';
 import {AvailableCustomInputs} from '../../custom_env_inputs/custom_input_mapping';
 
 // Our types
-import {UIConfig, BackendConfig} from '../../types';
+import {UIConfig} from '../../types';
 
 export type ConfigModalProps = {
-  config: UIConfig | BackendConfig;
+  config: UIConfig;
   open: boolean;
-  onClose: (newConfig: null | UIConfig | BackendConfig) => void;
+  onClose: (newConfig: null | UIConfig) => void;
 };
 
 export default function ConfigModal(props: ConfigModalProps) {
   /* Dynamically create a form based on the config object */
-  const config: UIConfig | BackendConfig = props.config;
+  const config: UIConfig = props.config;
 
   const availableCustomInputs = AvailableCustomInputs();
 
@@ -90,10 +90,10 @@ export default function ConfigModal(props: ConfigModalProps) {
         minHeight: '50%',
         maxHeight: '50%',
       }}} >
-        <DialogTitle>RLHF-Blender: Experiment Setup</DialogTitle>
+        <DialogTitle>RLHF-Blender: UI Configuration</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Create a new experiment configuration.
+            Create a new UI experiment configuration.
           </DialogContentText>
           <hr />
           <DialogContentText>

@@ -77,6 +77,10 @@ type BackendConfig = {
   samplingStrategy: string;
   loggerMode: string;
 
+  // Configs for scheduling of UI-configs
+  selectedUiConfigs: { id: number; name: string }[];
+  uiConfigMode: 'sequential' | 'alternating' | 'random';
+
   // Configs for feedback model training
   feedbackModelTrainingEnabled: boolean;
   feeedbackModelType: string;
@@ -118,7 +122,6 @@ type AppState = {
   sliderValue: number;
   rankeableEpisodeIDs: string[];
   episodeIDsChronologically: Episode[];
-  activeEpisodes: Episode[];
   highlightedEpisodes: {value: number}[];
   scheduledFeedback: Feedback[];
   currentStep: number;
@@ -130,11 +133,17 @@ type AppState = {
   setupComplete: boolean;
 };
 
+type SequenceElement = {
+  uiConfig: { id: number; name: string };
+  batch: number;
+};
+
 type SetupConfigState = {
   activeUIConfig: UIConfig;
   activeBackendConfig: BackendConfig;
   allUIConfigs: UIConfig[];
   allBackendConfigs: BackendConfig[];
+  uiConfigSequence: SequenceElement[];
 };
 type AppProps = {};
 
@@ -150,5 +159,6 @@ export type {
   Experiment,
   GymSpaceInfo,
   SetupConfigState,
+  SequenceElement,
 };
 export {FeedbackType};

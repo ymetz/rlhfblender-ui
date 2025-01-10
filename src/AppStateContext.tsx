@@ -1,8 +1,7 @@
 // AppStateContext.tsx
 
 import React, { createContext, useReducer, useContext, ReactNode } from 'react';
-import { AppState, UIConfig, BackendConfig, Feedback, Episode } from './types';
-import { defaultUIConfig, defaultBackendConfig } from './default-setup-configs';
+import { AppState, Feedback, Episode } from './types';
 
 type AppAction =
     | { type: 'SET_PROJECTS'; payload: any[] }
@@ -20,7 +19,6 @@ type AppAction =
     | { type: 'SET_VIDEO_URL_CACHE'; payload: any }
     | { type: 'SET_REWARDS_CACHE'; payload: any }
     | { type: 'SET_THUMBNAIL_URL_CACHE'; payload: any }
-    | { type: 'SET_ACTIVE_EPISODES'; payload: Episode[] }
     | { type: 'SET_EPISODE_IDS_CHRONOLOGICALLY', payload: Episode[] }
     | { type: 'CLEAR_SCHEDULED_FEEDBACK' }
     | { type: 'SET_END_MODAL_OPEN' }
@@ -30,9 +28,9 @@ type AppAction =
     | { type: 'SET_RANKEABLE_EPISODE_IDS'; payload: string[] }
     | { type: 'TOGGLE_STUDY_CODE' }
     | { type: 'SET_STUDY_CODE'; payload: string }
-    | { type: 'SET_SETUP_COMPLETE'; payload: boolean };
-
-
+    | { type: 'SET_SETUP_COMPLETE'; payload: boolean }
+    | { type: 'SET_CURRENT_STEP'; payload: number }
+    | { type: 'SET_MAX_STEPS'; payload: number };
 
     const initialState: AppState = {
         app_mode: 'study',
@@ -45,7 +43,6 @@ type AppAction =
         experiments: [],
         filtered_experiments: [],
         actionLabels: [],
-        activeEpisodes: [],
         highlightedEpisodes: [],
         selectedProject: { id: -1, project_name: '', project_experiments: [] },
         selectedExperiment: { id: -1, exp_name: '', env_id: '' },
@@ -73,6 +70,9 @@ const AppStateContext = createContext<AppState | undefined>(undefined);
 const AppDispatchContext = createContext<AsyncDispatch | undefined>(undefined);
 
 function appReducer(state: AppState, action: AppAction): AppState {
+
+    console.log('action', action);
+
     switch (action.type) {
         case 'SET_PROJECTS':
             return { ...state, projects: action.payload };
@@ -94,6 +94,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
             return { ...state, app_mode: action.payload };
         case 'SET_START_MODAL_OPEN':
             return { ...state, startModalOpen: action.payload };
+        case 'SET_CURRENT_STEP':
+            return { ...state, currentStep: action.payload };
         case 'TOGGLE_STATUS_BAR':
             return { ...state, status_bar_collapsed: !state.status_bar_collapsed };
         case 'SET_VIDEO_URL_CACHE':
@@ -104,8 +106,6 @@ function appReducer(state: AppState, action: AppAction): AppState {
             return { ...state, rewardsCache: { ...state.rewardsCache, ...action.payload } };
         case 'SET_THUMBNAIL_URL_CACHE':
             return { ...state, thumbnailURLCache: { ...state.thumbnailURLCache, ...action.payload } };
-        case 'SET_ACTIVE_EPISODES':
-            return { ...state, activeEpisodes: action.payload };
         case 'CLEAR_SCHEDULED_FEEDBACK':
             return { ...state, scheduledFeedback: [] };
         case 'SET_END_MODAL_OPEN':

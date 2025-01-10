@@ -5,11 +5,13 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { Box, IconButton, Chip, Typography } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import HelpIcon from '@mui/icons-material/Help';
 
 import axios from 'axios';
 
 import Menu from './components/menubar/menu';
-import ConfigModal from './components/modals/config-modal';
+import ConfigModal from './components/modals/ui-config-modal';
+import BackendConfigModal from './components/modals/backend-config-modal';
 import ExperimentStartModal from './components/modals/experiment-start-modal';
 import ExperimentEndModal from './components/modals/experiment-end-modal';
 import FeedbackInterface from './components/FeedbackInterface';
@@ -20,6 +22,7 @@ import { SetupConfigProvider, useSetupConfigState, useSetupConfigDispatch } from
 import getDesignTokens from './theme';
 import { EpisodeFromID, IDfromEpisode } from './id';
 import { BackendConfig, UIConfig } from './types';
+import { getConfigSequence, SequenceElement } from './components/modals/backend-config-sequence-generator';
 import { ShortcutsProvider, useShortcuts } from './ShortCutProvider';
 import { ShortcutsInfoBox } from './components/shortcut-info-box';
 import StudyCodeModal from './components/modals/study-code-modal';
@@ -228,10 +231,6 @@ const App: React.FC = () => {
           params: { num_episodes: configState.activeUIConfig.max_ranking_elements },
         });
         dispatch({
-          type: 'SET_ACTIVE_EPISODES',
-          payload: response.data.map((e: any) => IDfromEpisode(e)),
-        });
-        dispatch({
           type: 'SET_RANKEABLE_EPISODE_IDS',
           payload: response.data.map((e: any) => IDfromEpisode(e)),
         });
@@ -239,6 +238,27 @@ const App: React.FC = () => {
         console.error('Error sampling episodes:', error);
       }
     };
+
+
+    const generateUiConfigSequence = () => {
+
+      const selectedUiConfigs = configState.activeBackendConfig.selectedUiConfigs;
+      let uiConfigSequence: SequenceElement[] = [];
+
+      console.log('Selected UI Configs:', selectedUiConfigs);
+      if (selectedUiConfigs.length === 0) {
+        const relevantUiConfigs = configState.allUIConfigs.filter((c) => c.id === configState.activeUIConfig.id);
+        const nrOfEpisodes = state.episodeIDsChronologically.length || 1;
+        uiConfigSequence = getConfigSequence(relevantUiConfigs, nrOfEpisodes, "sequential");
+      } else {
+        const relevantUiConfigs = configState.allUIConfigs.filter((c) => selectedUiConfigs.map((c) => c.id).includes(c.id));
+        const nrOfEpisodes = state.episodeIDsChronologically.length || 1;
+        const mode = configState.activeBackendConfig.uiConfigMode;
+
+        uiConfigSequence = getConfigSequence(relevantUiConfigs, nrOfEpisodes, mode);
+      }
+      configDispatch({ type: 'SET_UI_CONFIG_SEQUENCE', payload: uiConfigSequence });
+    }
 
     // Reset Sampler
     const resetSampler = () => {
@@ -259,6 +279,7 @@ const App: React.FC = () => {
   
           // Fetch the episodes and action labels after reset
           getEpisodeIDsChronologically(() => {
+            generateUiConfigSequence();
             sampleEpisodes();
           });
           getActionLabels(res.data.environment_id);
@@ -270,6 +291,7 @@ const App: React.FC = () => {
       try {
         const response = await axios.get('/data/get_all_episodes');
         dispatch({ type: 'SET_EPISODE_IDS_CHRONOLOGICALLY', payload: response.data });
+        dispatch({ type: 'SET_CURRENT_STEP', payload: 0 });
         if (callback) callback();
       } catch (error) {
         console.error('Error fetching episodes:', error);
@@ -345,6 +367,7 @@ const App: React.FC = () => {
                   }}
                 />
                 {state.status_bar_collapsed && (
+                  <>
                   <Typography
                     sx={{
                       width: '45vw',
@@ -355,8 +378,15 @@ const App: React.FC = () => {
                       color: createTheme(getDesignTokens(state.theme as 'light' | 'dark')).palette.text.primary,
                     }}
                   >
-                    RLHF-Blender v0.3.1
+                    RLHF-Blender v0.3.2
                   </Typography>
+                  <IconButton
+                    onClick={() => dispatch({ type: 'SET_START_MODAL_OPEN', payload: true })}
+                    sx={{ marginTop: '0.2vh', float: 'right' }}
+                  >
+                    <HelpIcon />
+                  </IconButton>
+                  </>
                 )}
               </Box>
             </Box>
@@ -369,8 +399,9 @@ const App: React.FC = () => {
 
               onClose={closeUIConfigModal}
             />
-            <ConfigModal
+            <BackendConfigModal
               config={configState.activeBackendConfig}
+              uiConfigList={configState.allUIConfigs}
               open={state.backendConfigModalOpen}
               onClose={closeBackendConfigModal}
             />

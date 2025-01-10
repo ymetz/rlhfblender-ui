@@ -40,6 +40,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
 
   const handleClose = () => {
     dispatch({ type: 'SET_START_MODAL_OPEN', payload: false });
+    setActiveTab(0);
     onClose();
   };
 
