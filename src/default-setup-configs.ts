@@ -2,7 +2,7 @@ import {BackendConfig, UIConfig} from './types';
 
 // Make sure that this config mirrors the format of the UIConfig model in the backend
 const defaultUIConfig: UIConfig = {
-  id: -1,
+  id: 'default',
   name: '',
   description: '',
   uiComponents: {
@@ -29,7 +29,7 @@ const defaultUIConfig: UIConfig = {
 };
 
 const defaultBackendConfig: BackendConfig = {
-  id: 0,
+  id: 'default',
   name: '',
   description: '',
   samplingStrategy: 'sequential',

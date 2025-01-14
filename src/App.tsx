@@ -20,9 +20,9 @@ import { GetterContext } from './getter-context';
 import { AppStateProvider, useAppState, useAppDispatch } from './AppStateContext';
 import { SetupConfigProvider, useSetupConfigState, useSetupConfigDispatch } from './SetupConfigContext';
 import getDesignTokens from './theme';
-import { EpisodeFromID, IDfromEpisode } from './id';
-import { BackendConfig, UIConfig } from './types';
-import { getConfigSequence, SequenceElement } from './components/modals/backend-config-sequence-generator';
+import { EpisodeFromID } from './id';
+import { BackendConfig, UIConfig, SequenceElement } from './types';
+import { getConfigSequence } from './components/modals/backend-config-sequence-generator';
 import { ShortcutsProvider, useShortcuts } from './ShortCutProvider';
 import { ShortcutsInfoBox } from './components/shortcut-info-box';
 import StudyCodeModal from './components/modals/study-code-modal';
@@ -78,8 +78,8 @@ const App: React.FC = () => {
 
     if (config) {
 
-      // Set config ID to the next available ID
-      config.id = Math.max(...configState.allUIConfigs.map((c) => c.id), 0) + 1;
+      // Set config ID to a random placeholder ID (will be updated on the backend)
+      config.id = "ui" + Date.now().toString();
       // update the list of UI configs and set the active config 
       configDispatch({ type: 'SET_ALL_UI_CONFIGS', payload: [...configState.allUIConfigs, config] });
       axios.post('/save_ui_config', config).then(() => {
@@ -93,7 +93,7 @@ const App: React.FC = () => {
   const closeBackendConfigModal = (config: BackendConfig | null) => {
     if (config) {
       // Set config ID to the next available ID
-      config.id = Math.max(...configState.allBackendConfigs.map((c) => c.id), 0) + 1;
+      config.id = "backend" + Date.now().toString();
       // update the list of Backend configs
       configDispatch({ type: 'SET_ALL_BACKEND_CONFIGS', payload: [...configState.allBackendConfigs, config] });
       // Save the config to the backend
@@ -221,80 +221,85 @@ const App: React.FC = () => {
       }
     };
   
-  
-    const sampleEpisodes = async () => {
-      if (state.selectedExperiment.id === -1) {
-        return;
-      }
-      try {
-        const response = await axios.get('/data/sample_episodes', {
-          params: { num_episodes: configState.activeUIConfig.max_ranking_elements },
-        });
-        dispatch({
-          type: 'SET_RANKEABLE_EPISODE_IDS',
-          payload: response.data.map((e: any) => IDfromEpisode(e)),
-        });
-      } catch (error) {
-        console.error('Error sampling episodes:', error);
-      }
-    };
-
-
-    const generateUiConfigSequence = () => {
-
+    const generateUiConfigSequence = async (episodes: any[]) => {
       const selectedUiConfigs = configState.activeBackendConfig.selectedUiConfigs;
       let uiConfigSequence: SequenceElement[] = [];
-
-      console.log('Selected UI Configs:', selectedUiConfigs);
+    
       if (selectedUiConfigs.length === 0) {
-        const relevantUiConfigs = configState.allUIConfigs.filter((c) => c.id === configState.activeUIConfig.id);
-        const nrOfEpisodes = state.episodeIDsChronologically.length || 1;
+        const relevantUiConfigs = configState.allUIConfigs.filter(
+          (c) => c.id === configState.activeUIConfig.id
+        );
+        const nrOfEpisodes = episodes.length || 1;
         uiConfigSequence = getConfigSequence(relevantUiConfigs, nrOfEpisodes, "sequential");
       } else {
-        const relevantUiConfigs = configState.allUIConfigs.filter((c) => selectedUiConfigs.map((c) => c.id).includes(c.id));
-        const nrOfEpisodes = state.episodeIDsChronologically.length || 1;
+        const relevantUiConfigs = configState.allUIConfigs.filter(
+          (c) => selectedUiConfigs.map((c) => c.id).includes(c.id)
+        );
+        const nrOfEpisodes = episodes.length || 1;
         const mode = configState.activeBackendConfig.uiConfigMode;
-
         uiConfigSequence = getConfigSequence(relevantUiConfigs, nrOfEpisodes, mode);
       }
-      configDispatch({ type: 'SET_UI_CONFIG_SEQUENCE', payload: uiConfigSequence });
-    }
 
-    // Reset Sampler
-    const resetSampler = () => {
+      console.log('UI Config Sequence:', uiConfigSequence);
       
+      await configDispatch({ 
+        type: 'SET_UI_CONFIG_SEQUENCE', 
+        payload: uiConfigSequence 
+      });
+    };
+
+    const resetSampler = async () => {
       if (state.selectedExperiment.id === -1) {
         return;
       }
-      axios
-        .post(
+    
+      // First reset the FeedbackInterface initialization if reset function exists
+      if (state.feedbackInterfaceReset) {
+        state.feedbackInterfaceReset();
+      }
+    
+      try {
+        const resetResponse = await axios.post(
           '/data/reset_sampler?experiment_id=' +
           state.selectedExperiment.id +
           '&sampling_strategy=' +
           configState.activeBackendConfig.samplingStrategy
-        )
-        .then((res) => {
-          dispatch({ type: 'SET_SESSION_ID', payload: res.data.session_id });
-          dispatch({ type: 'CLEAR_SCHEDULED_FEEDBACK' });
-  
-          // Fetch the episodes and action labels after reset
-          getEpisodeIDsChronologically(() => {
-            generateUiConfigSequence();
-            sampleEpisodes();
-          });
-          getActionLabels(res.data.environment_id);
-        });
+        );
+    
+        await dispatch({ type: 'SET_SESSION_ID', payload: resetResponse.data.session_id });
+        await dispatch({ type: 'CLEAR_SCHEDULED_FEEDBACK' });
+    
+        // Get episodes first and store the result
+        const episodes = await getEpisodeIDsChronologically();
+        
+        // Generate UI config sequence with the fetched episodes
+        await generateUiConfigSequence(episodes);
+        
+        // Fetch action labels
+        await getActionLabels(resetResponse.data.environment_id);
+    
+      } catch (error) {
+        console.error('Error in resetSampler:', error);
+      }
     };
   
     // Fetch episodes
-    const getEpisodeIDsChronologically = async (callback?: () => void) => {
+    const getEpisodeIDsChronologically = async () => {
       try {
+        // Fetch episodes
         const response = await axios.get('/data/get_all_episodes');
-        dispatch({ type: 'SET_EPISODE_IDS_CHRONOLOGICALLY', payload: response.data });
-        dispatch({ type: 'SET_CURRENT_STEP', payload: 0 });
-        if (callback) callback();
+        const episodes = response.data;
+    
+        // Update state with the fetched episodes
+        await Promise.all([
+          dispatch({ type: 'SET_EPISODE_IDS_CHRONOLOGICALLY', payload: episodes }),
+          dispatch({ type: 'SET_CURRENT_STEP', payload: 0 })
+        ]);
+    
+        return episodes;
       } catch (error) {
         console.error('Error fetching episodes:', error);
+        throw error; // Re-throw the error so the caller can handle it
       }
     };
 

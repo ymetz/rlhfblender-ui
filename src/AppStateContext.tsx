@@ -30,7 +30,8 @@ type AppAction =
     | { type: 'SET_STUDY_CODE'; payload: string }
     | { type: 'SET_SETUP_COMPLETE'; payload: boolean }
     | { type: 'SET_CURRENT_STEP'; payload: number }
-    | { type: 'SET_MAX_STEPS'; payload: number };
+    | { type: 'SET_MAX_STEPS'; payload: number }
+    | { type: 'SET_FEEDBACK_INTERFACE_RESET'; payload: () => void };
 
     const initialState: AppState = {
         app_mode: 'study',
@@ -61,7 +62,8 @@ type AppAction =
         theme: 'light',
         showStudyCode: false,
         studyCode: '',
-        setupComplete: false
+        setupComplete: false,
+        feedbackInterfaceReset: null,
     };
 
 type AsyncDispatch = (action: AppAction) => Promise<void>;
@@ -70,8 +72,6 @@ const AppStateContext = createContext<AppState | undefined>(undefined);
 const AppDispatchContext = createContext<AsyncDispatch | undefined>(undefined);
 
 function appReducer(state: AppState, action: AppAction): AppState {
-
-    console.log('action', action);
 
     switch (action.type) {
         case 'SET_PROJECTS':
@@ -125,7 +125,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
         case 'SET_STUDY_CODE':
             return { ...state, studyCode: action.payload };
         case 'SET_SETUP_COMPLETE':
-            return { ...state, setupComplete: action.payload };
+            return { ...state, setupComplete: action.payload }
+        case 'SET_FEEDBACK_INTERFACE_RESET':
+            return { ...state, feedbackInterfaceReset: action.payload };
 
         default:
             throw new Error(`Unhandled action type: ${(action as AppAction).type}`);

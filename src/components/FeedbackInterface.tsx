@@ -1,10 +1,10 @@
 // FeedbackInterface.tsx
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { DragDropContext, DropResult } from 'react-beautiful-dnd';
 import { Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { RatingInfoContext } from '../rating-info-context';
-import { useAppState } from '../AppStateContext';
+import { useAppDispatch, useAppState } from '../AppStateContext';
 import { useSetupConfigState } from '../SetupConfigContext';
 import { EpisodeFromID, IDfromEpisode } from '../id';
 import { Episode, Feedback, FeedbackType } from '../types';
@@ -20,6 +20,7 @@ import DemoModal from './modals/demo-modal';
 
 const FeedbackInterface: React.FC = () => {
   const state = useAppState();
+  const dispatch = useAppDispatch();
   const configState = useSetupConfigState();
   const theme = useTheme();
 
@@ -32,7 +33,7 @@ const FeedbackInterface: React.FC = () => {
     sessionId,
     scheduledFeedback,
   } = state;
-  const { activeUIConfig } = useSetupConfigState();
+  const { activeUIConfig, uiConfigSequence } = useSetupConfigState();
 
   const [demoModalOpen, setDemoModalOpen] = useState({ open: false, seed: 0 });
   const [isOnSubmit, setIsOnSubmit] = useState(false);
@@ -50,20 +51,35 @@ const FeedbackInterface: React.FC = () => {
     }));
   };
 
-useEffect(() => {
-  const new_ranks = Object.fromEntries(
-    Array.from({ length: rankeableEpisodeIDs.length }, (_, i) => [
-      `rank-${i}`,
-      {
-        rank: i + 1,
-        title: `Rank ${i + 1}`,
-        episodeItemIDs: [rankeableEpisodeIDs[i]],
-      },
-    ])
-  );
-  setRanks(new_ranks);
-  setColumnOrder(Object.entries(new_ranks).map(([key, _]) => key));
-}, [rankeableEpisodeIDs]);
+  const isInitialized = useRef(false);
+  const resetDispatchRef = useRef(false);
+
+  const resetInitialization = useMemo(() => {
+    return () => {
+      isInitialized.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!resetDispatchRef.current) {
+      dispatch({ 
+        type: 'SET_FEEDBACK_INTERFACE_RESET', 
+        payload: resetInitialization 
+      });
+      resetDispatchRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    // Only run initial sampling once when conditions are met
+    if (!isInitialized.current && 
+        episodeIDsChronologically.length > 0 &&
+        uiConfigSequence.length > 0
+      ) {
+      isInitialized.current = true;
+      sampleEpisodes();
+    }
+  }, [episodeIDsChronologically, sampleEpisodes, uiConfigSequence]);
 
 // Define onDragEnd function
 const onDragEnd = (dropResult: DropResult) => {

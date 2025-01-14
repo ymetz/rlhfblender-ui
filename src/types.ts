@@ -57,7 +57,7 @@ type Experiment = {
 
 type UIConfig = {
   // A map of enabled/disabled UI components
-  id: number;
+  id: string,
   name: string;
   description: string;
   uiComponents: {
@@ -71,14 +71,14 @@ type UIConfig = {
 };
 
 type BackendConfig = {
-  id: number;
+  id: string;
   name: string;
   description: string;
   samplingStrategy: string;
   loggerMode: string;
 
   // Configs for scheduling of UI-configs
-  selectedUiConfigs: { id: number; name: string }[];
+  selectedUiConfigs: { id: string; name: string }[];
   uiConfigMode: 'sequential' | 'alternating' | 'random';
 
   // Configs for feedback model training
@@ -131,11 +131,12 @@ type AppState = {
   showStudyCode: boolean;
   studyCode: string;
   setupComplete: boolean;
+  feedbackInterfaceReset: (() => void) | null;
 };
 
 type SequenceElement = {
-  uiConfig: { id: number; name: string };
-  batch: number;
+  uiConfig: { id: string; name: string };
+  batch: number[];
 };
 
 type SetupConfigState = {

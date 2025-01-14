@@ -60,7 +60,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
   // Handle UI config selection
   const selectUIConfig = (event: SelectChangeEvent) => {
     const selectedUIConfig = setupConfigState.allUIConfigs.find(
-      (config) => config.id === Number(event.target.value)
+      (config) => config.id === event.target.value
     ) || setupConfigState.activeUIConfig;
 
     configDispatch({ type: 'SET_ACTIVE_UI_CONFIG', payload: selectedUIConfig });
@@ -69,7 +69,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
   // Handle Backend config selection
   const selectBackendConfig = (event: SelectChangeEvent) => {
     const selectedBackendConfig = setupConfigState.allBackendConfigs.find(
-      (config) => config.id === Number(event.target.value)
+      (config) => config.id === event.target.value
     ) || setupConfigState.activeBackendConfig;
 
     configDispatch({ type: 'SET_ACTIVE_BACKEND_CONFIG', payload: selectedBackendConfig });
@@ -139,12 +139,12 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
           <Select
             labelId="backend-config-select-label"
             id="backend-config-select"
-            value={setupConfigState.activeBackendConfig.id.toString()}
+            value={setupConfigState.activeBackendConfig.id}
             label="Backend Config"
             onChange={selectBackendConfig}
           >
             {setupConfigState.allBackendConfigs.map((config) => (
-              <MenuItem key={config.id.toString()} value={config.id.toString()}>
+              <MenuItem key={config.id} value={config.id}>
                 {config.name}
               </MenuItem>
             ))}

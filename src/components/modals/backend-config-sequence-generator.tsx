@@ -1,6 +1,6 @@
 import React from 'react';
 import { Typography, Box } from '@mui/material';
-import { UIConfig } from '../../types';
+import { UIConfig, SequenceElement } from '../../types';
 
 type BackendConfigSequenceVisualizerProps = {
     uiCOnfigIds: string[];
@@ -46,11 +46,6 @@ export function BackendConfigSequenceVisualizer(props: BackendConfigSequenceVisu
     );
 }
 
-export type SequenceElement = {
-    uiConfig: { id: number; name: string };
-    batch: number;
-};
-
 export function getConfigSequence(uiConfigs: UIConfig[], nrOfElements: number, mode: string): SequenceElement[] {
     const sequences: SequenceElement[] = [];
 
@@ -61,12 +56,12 @@ export function getConfigSequence(uiConfigs: UIConfig[], nrOfElements: number, m
     if (uiConfigs.length === 1) {
         // If there is only one uiConfig, we can just return the sequence for this one
         let remainingElements = nrOfElements;
-        let batch_counter = 0;
+        let episode_counter = 0;
         while (remainingElements > 0) {
             const uiConfig = uiConfigs[0];
-            sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: batch_counter } as SequenceElement);
+            sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: [episode_counter] } as SequenceElement);
             remainingElements -= uiConfig.max_ranking_elements;
-            batch_counter++;
+            episode_counter++;
         }
         return sequences;
     }
@@ -74,38 +69,44 @@ export function getConfigSequence(uiConfigs: UIConfig[], nrOfElements: number, m
     if (mode === 'sequential') {
         // Sequential means, we first do all elements for the first uiConfig, then for the second, etc.
         for (let i = 0; i < uiConfigs.length; i++) {
-            let remainingElements = nrOfElements;
-            let batch_counter = 0;
-            while (remainingElements > 0) {
+            let episode_counter = 0;
+            while (episode_counter >= nrOfElements) {
                 const uiConfig = uiConfigs[i];
-                sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: batch_counter } as SequenceElement);
-                remainingElements -= uiConfig.max_ranking_elements;
-                batch_counter++;
+                const batchSize = uiConfig.max_ranking_elements;
+                const currentEpisodeCounter = episode_counter;
+                let elementsInBatch = Array.from({ length: batchSize }, (_, k) => currentEpisodeCounter + k).filter((e) => e < nrOfElements);
+                sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: elementsInBatch } as SequenceElement);
+                episode_counter += batchSize;
             }
         }
     } else if (mode === 'alternating') {
         // Alternating means, we do one element for each uiConfig, then the next, etc.
-
-        // start by initializing independent counters for each uiConfig
-        let remainingElements = Array.from(uiConfigs, (uiConfig) => uiConfig.max_ranking_elements);
-        let batch_counter = 0;
-        while (remainingElements.some((e) => e > 0)) {
+        let episode_counters = Array.from(uiConfigs, () => 0);
+        while (episode_counters.some((e) => e < nrOfElements)) {
             for (let j = 0; j < uiConfigs.length; j++) {
+                if (episode_counters[j] >= nrOfElements) {
+                    continue;
+                }
                 const uiConfig = uiConfigs[j];
-                sequences.push({ uiConfig: {id: uiConfig.id, name: uiConfig.name}, batch: batch_counter } as SequenceElement);
-                remainingElements[j] -= uiConfig.max_ranking_elements;
+                const batchSize: number = parseInt(String(uiConfig?.max_ranking_elements) || '0') as number;
+                const currentEpisodeCounter = episode_counters[j];
+                let elementsInBatch = Array.from({ length: batchSize }, (_, k) => currentEpisodeCounter + k).filter((e) => e < nrOfElements);
+                sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: elementsInBatch } as SequenceElement);
+                episode_counters[j] += batchSize;
             }
-            batch_counter++;
         }
     } else if (mode === 'random') {
         // Random means, we randomly shuffle the uiConfigs and then do the same as in sequential mode
         const shuffledConfigs = uiConfigs.sort(() => Math.random() - 0.5);
         for (let i = 0; i < shuffledConfigs.length; i++) {
-            let remainingElements = nrOfElements;
-            while (remainingElements > 0) {
+            let episode_counter = 0;
+            while (episode_counter < nrOfElements) {
                 const uiConfig = shuffledConfigs[i];
-                sequences.push({ uiConfig: {id: uiConfig.id, name: uiConfig.name}, batch: i } as SequenceElement);
-                remainingElements -= uiConfig.max_ranking_elements;
+                const batchSize = uiConfig.max_ranking_elements;
+                const currentEpisodeCounter = episode_counter;
+                let elementsInBatch = Array.from({ length: batchSize }, (_, k) => currentEpisodeCounter + k).filter((e) => e < nrOfElements);
+                sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: elementsInBatch } as SequenceElement);
+                episode_counter += batchSize;
             }
         }
     }
