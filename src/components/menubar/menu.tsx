@@ -59,10 +59,10 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
 
   // Handle UI config selection
   const selectUIConfig = (event: SelectChangeEvent) => {
+    console.log(setupConfigState.allUIConfigs);
     const selectedUIConfig = setupConfigState.allUIConfigs.find(
       (config) => config.id === event.target.value
     ) || setupConfigState.activeUIConfig;
-
     configDispatch({ type: 'SET_ACTIVE_UI_CONFIG', payload: selectedUIConfig });
   };
 

@@ -53,26 +53,13 @@ export function getConfigSequence(uiConfigs: UIConfig[], nrOfElements: number, m
         return sequences;
     }
 
-    if (uiConfigs.length === 1) {
-        // If there is only one uiConfig, we can just return the sequence for this one
-        let remainingElements = nrOfElements;
-        let episode_counter = 0;
-        while (remainingElements > 0) {
-            const uiConfig = uiConfigs[0];
-            sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: [episode_counter] } as SequenceElement);
-            remainingElements -= uiConfig.max_ranking_elements;
-            episode_counter++;
-        }
-        return sequences;
-    }
-
     if (mode === 'sequential') {
         // Sequential means, we first do all elements for the first uiConfig, then for the second, etc.
         for (let i = 0; i < uiConfigs.length; i++) {
             let episode_counter = 0;
-            while (episode_counter >= nrOfElements) {
+            while (episode_counter < nrOfElements) {
                 const uiConfig = uiConfigs[i];
-                const batchSize = uiConfig.max_ranking_elements;
+                const batchSize = parseInt(String(uiConfig?.max_ranking_elements) || '0') as number;
                 const currentEpisodeCounter = episode_counter;
                 let elementsInBatch = Array.from({ length: batchSize }, (_, k) => currentEpisodeCounter + k).filter((e) => e < nrOfElements);
                 sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: elementsInBatch } as SequenceElement);
@@ -102,7 +89,7 @@ export function getConfigSequence(uiConfigs: UIConfig[], nrOfElements: number, m
             let episode_counter = 0;
             while (episode_counter < nrOfElements) {
                 const uiConfig = shuffledConfigs[i];
-                const batchSize = uiConfig.max_ranking_elements;
+                const batchSize = parseInt(String(uiConfig?.max_ranking_elements) || '0') as number;
                 const currentEpisodeCounter = episode_counter;
                 let elementsInBatch = Array.from({ length: batchSize }, (_, k) => currentEpisodeCounter + k).filter((e) => e < nrOfElements);
                 sequences.push({ uiConfig: { id: uiConfig.id, name: uiConfig.name }, batch: elementsInBatch } as SequenceElement);

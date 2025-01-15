@@ -224,6 +224,8 @@ const App: React.FC = () => {
     const generateUiConfigSequence = async (episodes: any[]) => {
       const selectedUiConfigs = configState.activeBackendConfig.selectedUiConfigs;
       let uiConfigSequence: SequenceElement[] = [];
+
+      console.log("Selected UI Configs:", configState.activeUIConfig.id);
     
       if (selectedUiConfigs.length === 0) {
         const relevantUiConfigs = configState.allUIConfigs.filter(
@@ -239,9 +241,8 @@ const App: React.FC = () => {
         const mode = configState.activeBackendConfig.uiConfigMode;
         uiConfigSequence = getConfigSequence(relevantUiConfigs, nrOfEpisodes, mode);
       }
-
-      console.log('UI Config Sequence:', uiConfigSequence);
       
+      console.log("UI Config Sequence:", uiConfigSequence);
       await configDispatch({ 
         type: 'SET_UI_CONFIG_SEQUENCE', 
         payload: uiConfigSequence 

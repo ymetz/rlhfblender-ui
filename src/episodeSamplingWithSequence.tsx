@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAppDispatch, useAppState } from './AppStateContext';
 import { useSetupConfigDispatch, useSetupConfigState } from './SetupConfigContext';
-import { Episode, SequenceElement, UIConfig } from './types';
+import { SequenceElement, UIConfig } from './types';
 import { IDfromEpisode } from './id';
 import _ from 'lodash';
 
