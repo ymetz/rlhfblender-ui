@@ -125,6 +125,8 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
                   episodeID={episodeID}
                   index={index}
                   scheduleFeedback={scheduleFeedback}
+                  selectBest={() => {}}
+                  isSelectedAsBest={false}
                   numItemsInColumn={episodeIDs.length}
                   sessionId={sessionId}
                   evalFeedback={evalFeedback[episodeID]}
@@ -138,7 +140,6 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
           </>)
         )}
       </Droppable>
-      {/* Container of item */}
     </Box>)
   );
 };

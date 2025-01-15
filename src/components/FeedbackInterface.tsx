@@ -15,8 +15,12 @@ import { useConfigBasedSampling } from '../episodeSamplingWithSequence';
 import { useFeedbackSubmission } from './feedbackinterface/hooks/useFeedbackSubmission';
 import { ProgressHeader } from './feedbackinterface/progress-header';
 import DroppableColumn from './feedbackinterface/droppable-column';
+import BestOfKColumn from './feedbackinterface/best-of-k-column';
 import ScrollableEpisodeList from './feedbackinterface/scrollable-episode-list';
 import DemoModal from './modals/demo-modal';
+
+// Add new type for feedback mode
+type FeedbackMode = 'ranking' | 'bestOfK';
 
 const FeedbackInterface: React.FC = () => {
   const state = useAppState();
@@ -38,11 +42,38 @@ const FeedbackInterface: React.FC = () => {
   const [demoModalOpen, setDemoModalOpen] = useState({ open: false, seed: 0 });
   const [isOnSubmit, setIsOnSubmit] = useState(false);
   const [evalFeedback, setEvalFeedback] = useState({});
-  const horizontalDrag = activeUIConfig.uiComponents.horizontalRanking;
+  
+  // Determine feedback mode based on UI config
+  const feedbackMode: FeedbackMode = activeUIConfig.uiComponents.bestOfK ? 'bestOfK' : 'ranking';
+  const horizontalDrag = activeUIConfig.uiComponents.horizontalRanking && feedbackMode === 'ranking';
 
   const { columnOrder, setColumnOrder, ranks, setRanks } = useFeedbackState(rankeableEpisodeIDs);
   const { sampleEpisodes, advanceToNextStep } = useConfigBasedSampling();
   const { scheduleFeedback, submitFeedback } = useFeedbackSubmission(sampleEpisodes, advanceToNextStep);
+  const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
+
+  // Handle best-of-k selection
+  const handleBestOfKSelection = (selectedEpisodeId: string) => {
+    const feedback: Feedback = {
+      feedback_type: FeedbackType.Comparative,
+      timestamp: Date.now(),
+      session_id: sessionId,
+      targets: rankeableEpisodeIDs.map(episodeId => ({
+        target_id: episodeId,
+        reference: EpisodeFromID(episodeId),
+        origin: 'offline',
+        timestamp: Date.now(),
+      })),
+      preferences: rankeableEpisodeIDs.map(episodeId => 
+        episodeId === selectedEpisodeId ? 1 : 0
+      ),
+      granularity: 'episode',
+    };
+
+    setSelectedColumn(selectedEpisodeId);
+    scheduleFeedback(feedback);
+  };
+
 
   const updateEvalFeedback = (episodeId: string, newRating: number) => {
     setEvalFeedback(prevRatings => ({
@@ -78,6 +109,7 @@ const FeedbackInterface: React.FC = () => {
       ) {
       isInitialized.current = true;
       sampleEpisodes();
+      setSelectedColumn(null);
     }
   }, [episodeIDsChronologically, sampleEpisodes, uiConfigSequence]);
 
@@ -242,10 +274,55 @@ const onDragEnd = (dropResult: DropResult) => {
           boxSizing: 'border-box',
         }}
       >
-        <DragDropContext onDragEnd={onDragEnd}>
+        {feedbackMode === 'ranking' ? (
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Box
+              id="ranking-panel"
+              flexDirection={horizontalDrag ? 'column' : 'row'}
+              sx={{
+                display: 'flex',
+                height: '100%',
+                width: '100%',
+                boxSizing: 'border-box',
+                backgroundColor: theme.palette.background.l1,
+              }}
+            >
+              {activeUIConfig.uiComponents.interactiveEpisodeSelect && (
+                <ScrollableEpisodeList
+                  episodeIDs={episodeIDsChronologically}
+                  rankeableEpisodeIDs={rankeableEpisodeIDs}
+                />
+              )}
+              <DroppableColumnContainer
+                horizontalRanking={horizontalDrag}
+                ranks={ranks}
+                columnOrder={columnOrder}
+              >
+                {columnOrder.map(columnId => {
+                  const rank = ranks[columnId];
+                  return (
+                    <DroppableColumn
+                      key={columnId}
+                      droppableID={columnId}
+                      episodeIDs={rank.episodeItemIDs}
+                      title={rank.title}
+                      scheduleFeedback={scheduleFeedback}
+                      sessionId={sessionId}
+                      actionLabels={actionLabels}
+                      rank={rank.rank}
+                      maxRank={columnOrder.length}
+                      evalFeedback={evalFeedback}
+                      updateEvalFeedback={updateEvalFeedback}
+                      setDemoModalOpen={setDemoModalOpen}
+                    />
+                  );
+                })}
+              </DroppableColumnContainer>
+            </Box>
+          </DragDropContext>
+        ) : (
           <Box
-            id="ranking-panel"
-            flexDirection={horizontalDrag ? 'column' : 'row'}
+            id="best-of-k-panel"
             sx={{
               display: 'flex',
               height: '100%',
@@ -254,52 +331,32 @@ const onDragEnd = (dropResult: DropResult) => {
               backgroundColor: theme.palette.background.l1,
             }}
           >
-            {activeUIConfig.uiComponents.interactiveEpisodeSelect && (
-              <ScrollableEpisodeList
-                episodeIDs={episodeIDsChronologically}
-                rankeableEpisodeIDs={rankeableEpisodeIDs}
-              />
-            )}
-            <DroppableColumnContainer
-              horizontalRanking={horizontalDrag}
-              ranks={ranks}
-              columnOrder={columnOrder}
-            >
-              {columnOrder.map(columnId => {
-                const rank = ranks[columnId];
-                return (
-                  <DroppableColumn
-                    key={columnId}
-                    droppableID={columnId}
-                    episodeIDs={rank.episodeItemIDs}
-                    title={rank.title}
-                    scheduleFeedback={scheduleFeedback}
-                    sessionId={sessionId}
-                    actionLabels={actionLabels}
-                    rank={rank.rank}
-                    maxRank={columnOrder.length}
-                    evalFeedback={evalFeedback}
-                    updateEvalFeedback={updateEvalFeedback}
-                    setDemoModalOpen={setDemoModalOpen}
-                  />
-                );
-              })}
-            </DroppableColumnContainer>
+            <BestOfKColumn
+              episodeIDs={rankeableEpisodeIDs}
+              onSelectBest={handleBestOfKSelection}
+              selectedColumn={selectedColumn}
+              scheduleFeedback={scheduleFeedback}
+              sessionId={sessionId}
+              actionLabels={actionLabels}
+              evalFeedback={evalFeedback}
+              updateEvalFeedback={updateEvalFeedback}
+              setDemoModalOpen={setDemoModalOpen}
+            />
           </Box>
-          <DemoModal
-            open={demoModalOpen.open}
-            onClose={() => setDemoModalOpen({ open: false, seed: 0 })}
-            onCloseSubmit={feedback => {
-              scheduleFeedback(feedback);
-              setDemoModalOpen({ open: false, seed: 0 });
-            }}
-            custom_input={activeUIConfig.customInput}
-            activeEnvId={selectedExperiment?.env_id ?? ''}
-            sessionId={sessionId}
-            inputProps={{}}
-            seed={demoModalOpen.seed}
-          />
-        </DragDropContext>
+        )}
+        <DemoModal
+          open={demoModalOpen.open}
+          onClose={() => setDemoModalOpen({ open: false, seed: 0 })}
+          onCloseSubmit={feedback => {
+            scheduleFeedback(feedback);
+            setDemoModalOpen({ open: false, seed: 0 });
+          }}
+          custom_input={activeUIConfig.customInput}
+          activeEnvId={selectedExperiment?.env_id ?? ''}
+          sessionId={sessionId}
+          inputProps={{}}
+          seed={demoModalOpen.seed}
+        />
       </Box>
     </RatingInfoContext.Provider>
   );
