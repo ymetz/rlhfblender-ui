@@ -4,7 +4,6 @@ import EpisodeItem from './episodeitem/episode-item';
 import Box from '@mui/material/Box';
 import {Feedback} from '../../types';
 import Chip from '@mui/material/Chip';
-import { SetupConfigState } from '../../types';
 import {useTheme} from '@mui/material/styles';
 import chroma from 'chroma-js';
 import { useSetupConfigState } from '../../SetupConfigContext';
@@ -127,7 +126,6 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
                   scheduleFeedback={scheduleFeedback}
                   selectBest={() => {}}
                   isSelectedAsBest={false}
-                  numItemsInColumn={episodeIDs.length}
                   sessionId={sessionId}
                   evalFeedback={evalFeedback[episodeID]}
                   updateEvalFeedback={updateEvalFeedback}

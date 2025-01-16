@@ -48,13 +48,18 @@ const EnvRender: React.FC<EnvRenderProps> = ({
         display: 'flex',
         flexDirection: 'column',
         gridArea: 'envRender',
-        width: '20vw',
         maxWidth: '25vh',
         justifySelf: 'center',
+        marginTop: '1rem',
         alignSelf: 'center',
         border: theme => `1px solid ${theme.palette.divider}`,
         borderRadius: '10px',
         overflow: 'hidden', // Ensures nothing breaks out of the container
+        ...(hasFeatureSelectionFeedback && {
+          outline: theme => `2px solid ${theme.palette.primary.main}`,
+          boxShadow: theme => `0px 0px 20px 0px ${theme.palette.primary.main}`,
+          outlineOffset: '-1px',
+        }),
       }}
     >
       {/* Mission Text */}
@@ -81,17 +86,7 @@ const EnvRender: React.FC<EnvRenderProps> = ({
 
       {/* Video Container */}
       <Box
-        sx={{
-          //position: 'relative',
-          //aspectRatio: '1',
-          //height: '100%',
-          //width: '100%', instead center vertically
-          display: 'flex',
-          ...(hasFeatureSelectionFeedback && {
-            outline: theme => `1px solid ${theme.palette.primary.main}`,
-            outlineOffset: '-1px',
-          }),
-        }}
+        sx={{display: 'flex'}}
       >
         <VideoPlayer
           videoRef={videoRef}
@@ -109,8 +104,8 @@ const EnvRender: React.FC<EnvRenderProps> = ({
             onClick={onFeatureSelect}
             sx={{
               position: 'absolute',
-              bottom: 4,
-              right: 4,
+              marginTop: '4px',
+              marginLeft: '4px',
               backgroundColor: 'rgba(0, 0, 0, 0.5)',
               padding: '8px',
               color: theme =>

@@ -27,7 +27,7 @@ const DragHandle: React.FC<DragHandleProps & React.HTMLAttributes<HTMLDivElement
     <DragHandleContainer {...dragHandleProps}>
       <DragIndicator
         sx={{
-          transform: horizontalRanking && numItemsInColumn === 1
+          transform: horizontalRanking
             ? 'rotate(90deg)'
             : 'none',
           m: 1,

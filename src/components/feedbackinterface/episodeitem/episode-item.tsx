@@ -23,13 +23,12 @@ import Modals from './modals';
 import DragHandle from './drag-handle';
 import DemoSection from './demo-section';
 import TextFeedback from './text-feedback';
-import { Button, IconButton } from '@mui/material';
+import { IconButton } from '@mui/material';
 import { Check } from '@mui/icons-material';
 
 interface EpisodeItemContainerProps {
   isDragging?: boolean;
   horizontalRanking?: boolean;
-  numItemsInColumn?: number;
   hasFeedback?: boolean;
   isBestOfK?: boolean;
 }
@@ -39,7 +38,6 @@ const EpisodeItemContainer = styled('div')<EpisodeItemContainerProps>(
     theme,
     isDragging,
     horizontalRanking,
-    numItemsInColumn,
     hasFeedback,
     isBestOfK,
   }) => ({
@@ -101,13 +99,13 @@ const SelectButton = styled(IconButton)(({ theme }) => ({
   height: '40px',
 }));
 
+
 interface EpisodeItemProps {
   episodeID: string;
   index: number;
   scheduleFeedback: (pendingFeedback: Feedback) => void;
   selectBest: (episodeId: string) => void;
   isSelectedAsBest?: boolean;
-  numItemsInColumn: number;
   sessionId: string;
   evalFeedback: number | undefined;
   updateEvalFeedback: (episodeId: string, rating: number) => void;
@@ -131,7 +129,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
   selectBest,
   isSelectedAsBest,
   sessionId,
-  numItemsInColumn,
   evalFeedback,
   updateEvalFeedback,
   setDemoModalOpen,
@@ -357,7 +354,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
   const EpisodeContent = (
     <EpisodeItemContainer
       horizontalRanking={UIConfig.uiComponents.horizontalRanking}
-      numItemsInColumn={numItemsInColumn}
       isDragging={false}
       hasFeedback={false}
       isBestOfK={isBestOfK}
@@ -377,7 +373,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
         videoSliderHandler={videoSliderHandler}
         playing={playing}
         mission={stepDetails?.info?.mission}
-        horizontalRanking={UIConfig.uiComponents.horizontalRanking}
       />
 
       {UIConfig.feedbackComponents.rating && (

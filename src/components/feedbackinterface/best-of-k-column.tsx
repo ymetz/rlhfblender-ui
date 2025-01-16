@@ -2,6 +2,7 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import { useTheme } from '@mui/material/styles';
+import { useSetupConfigState } from '../../SetupConfigContext';
 import EpisodeItem from './episodeitem/episode-item';
 import { Feedback } from '../../types';
 
@@ -29,6 +30,8 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
   setDemoModalOpen,
 }) => {
   const theme = useTheme();
+  const UIConfig = useSetupConfigState().activeUIConfig;
+  const horizontalRanking = UIConfig.uiComponents.horizontalRanking;
 
   const isSelectedAsBest = (episodeId: string) => {
     return selectedColumn === episodeId;
@@ -38,12 +41,17 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
     <Box
       sx={{
         display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
-        padding: 2,
-        flex: 1,
-        backgroundColor: theme.palette.background.l0,
-        overflowY: 'auto',
+        flexGrow: 1,
+        flexShrink: 1,
+        flexBasis: 'auto',
+        flexDirection: horizontalRanking ? 'column' : 'row',
+        borderLeft: horizontalRanking
+          ? `1px solid ${theme.palette.divider}`
+          : 'none',
+        borderTop: horizontalRanking
+          ? 'none'
+          : `1px solid ${theme.palette.divider}`,
+        backgroundColor: theme.palette.background.l1,
       }}
     >
       {episodeIDs.map((episodeID, index) => (
@@ -51,8 +59,17 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
           key={episodeID}
           sx={{
             display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
+            flexDirection: horizontalRanking ? 'column' : 'row',
+            margin: 1,
+
+            // Here I have to put flex 1 because I want to fill out the white with the grey
+            flex: 1,
+            marginLeft: horizontalRanking ? 'none' : 0,
+            marginTop: horizontalRanking ? 0 : 'none',
+            borderRadius: horizontalRanking ? '0 0 5px 5px' : '0 5px 5px 0',
+            minHeight: horizontalRanking ? 'none' : '4vh', // To match chip if collapsed,
+            minWidth: horizontalRanking ? '4vh' : 'none', // To match chip if collapsed,
+            border: `1px solid ${theme.palette.divider}`,
           }}
         >
           <EpisodeItem
@@ -61,7 +78,6 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
             scheduleFeedback={scheduleFeedback}
             selectBest={onSelectBest}
             isSelectedAsBest={isSelectedAsBest(episodeID)}
-            numItemsInColumn={episodeIDs.length}
             sessionId={sessionId}
             evalFeedback={evalFeedback[episodeID]}
             updateEvalFeedback={updateEvalFeedback}

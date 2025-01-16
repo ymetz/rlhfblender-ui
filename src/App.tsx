@@ -367,8 +367,7 @@ const App: React.FC = () => {
                   label={state.sessionId !== '-' ? 'Status: Active' : 'Status: Waiting'}
                   color={state.sessionId !== '-' ? 'success' : 'info'}
                   sx={{
-                    marginRight: '2vw',
-                    marginTop: '0.2vh',
+                    marginTop: '0.5vh',
                     float: 'right',
                   }}
                 />
@@ -376,15 +375,13 @@ const App: React.FC = () => {
                   <>
                   <Typography
                     sx={{
-                      width: '45vw',
                       fontWeight: 'bold',
                       margin: 'auto',
-                      marginTop: '0.6vh',
                       float: 'right',
                       color: createTheme(getDesignTokens(state.theme as 'light' | 'dark')).palette.text.primary,
                     }}
                   >
-                    RLHF-Blender v0.3.2
+                    RLHF-Blender
                   </Typography>
                   <IconButton
                     onClick={() => dispatch({ type: 'SET_START_MODAL_OPEN', payload: true })}

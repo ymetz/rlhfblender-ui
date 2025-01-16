@@ -18,6 +18,7 @@ import DroppableColumn from './feedbackinterface/droppable-column';
 import BestOfKColumn from './feedbackinterface/best-of-k-column';
 import ScrollableEpisodeList from './feedbackinterface/scrollable-episode-list';
 import DemoModal from './modals/demo-modal';
+import UserInstruction from './feedbackinterface/user-instruction';
 
 // Add new type for feedback mode
 type FeedbackMode = 'ranking' | 'bestOfK';
@@ -264,6 +265,7 @@ const onDragEnd = (dropResult: DropResult) => {
         onSubmit={() => submitFeedback(scheduledFeedback)}
         onSubmitHover={setIsOnSubmit}
       />
+      <UserInstruction />
       <Box
         id="feedback-interface"
         sx={{
