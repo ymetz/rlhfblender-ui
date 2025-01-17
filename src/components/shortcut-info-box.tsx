@@ -39,7 +39,7 @@ const ShortcutItem = ({ id, shortcut }) => {
             fontFamily: "sans-serif",
           }}
         >
-          {shortcut.key}
+          {shortcut.key.toUpperCase()}
         </Box>
       </Box>
     );

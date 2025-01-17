@@ -7,20 +7,20 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import FormGroup from '@mui/material/FormGroup';
 import FormControlLabel from '@mui/material/FormControlLabel';
-import Select, {SelectChangeEvent} from '@mui/material/Select';
+import Select, { SelectChangeEvent } from '@mui/material/Select';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Checkbox from '@mui/material/Checkbox';
-import {MuiFileInput} from 'mui-file-input';
-import {FormControl, InputLabel, MenuItem, Stack} from '@mui/material';
+import { MuiFileInput } from 'mui-file-input';
+import { FormControl, InputLabel, MenuItem, Stack } from '@mui/material';
 import UploadIcon from '@mui/icons-material/Upload';
 
 // A list of all available custom inputs
-import {AvailableCustomInputs} from '../../custom_env_inputs/custom_input_mapping';
+import { AvailableCustomInputs } from '../../custom_env_inputs/custom_input_mapping';
 
 // Our types
-import {UIConfig} from '../../types';
+import { UIConfig } from '../../types';
 
 export type ConfigModalProps = {
   config: UIConfig;
@@ -86,10 +86,12 @@ export default function ConfigModal(props: ConfigModalProps) {
   return (
     <div>
       <Dialog open={props.open} onClose={() => props.onClose(null)}
-      PaperProps={{ style: {
-        minHeight: '50%',
-        maxHeight: '50%',
-      }}} >
+        PaperProps={{
+          style: {
+            minHeight: '50%',
+            maxHeight: '50%',
+          }
+        }} >
         <DialogTitle>RLHF-Blender: UI Configuration</DialogTitle>
         <DialogContent>
           <DialogContentText>
@@ -104,7 +106,7 @@ export default function ConfigModal(props: ConfigModalProps) {
             <MuiFileInput
               value={filePath}
               onChange={handleChange}
-              sx={{width: '80%', marginRight: '10px'}}
+              sx={{ width: '80%', marginRight: '10px' }}
             />
             <Button
               variant="outlined"
@@ -119,7 +121,7 @@ export default function ConfigModal(props: ConfigModalProps) {
           </DialogContentText>
           {Object.keys(new_config).map((key: string, index: number) => {
             if (key === 'id' || key === 'customInput') {
-              return <div></div>;
+              return <div key={`empty-${key}`}></div>;
             } else if (key === 'uiComponents' || key === 'feedbackComponents') {
               return (
                 <div key={index}>
@@ -131,10 +133,10 @@ export default function ConfigModal(props: ConfigModalProps) {
                       (component: string) => {
                         const element =
                           new_config[key][
-                            component as keyof UIConfig[typeof key]
+                          component as keyof UIConfig[typeof key]
                           ];
                         return (
-                          <div>
+                          <div key={`${key}-${component}`}>
                             <FormControlLabel
                               control={
                                 <Checkbox
@@ -158,6 +160,7 @@ export default function ConfigModal(props: ConfigModalProps) {
               return (
                 <TextField
                   margin="dense"
+                  key={key}
                   id={key}
                   label={key}
                   type="text"
@@ -172,6 +175,7 @@ export default function ConfigModal(props: ConfigModalProps) {
               return (
                 <TextField
                   margin="dense"
+                  key={key}
                   id={key}
                   label={key}
                   type="number"
@@ -181,7 +185,7 @@ export default function ConfigModal(props: ConfigModalProps) {
                 />
               );
             } else {
-              return <div></div>;
+              return <div key={`empty-${key}-${index}`}></div>;
             }
           })}
           <FormControl fullWidth margin="dense">
@@ -195,7 +199,7 @@ export default function ConfigModal(props: ConfigModalProps) {
               onChange={formDropdownHandler}
             >
               {availableCustomInputs.map((element: string) => {
-                return <MenuItem value={element}>{element}</MenuItem>;
+                return <MenuItem key={"customInput" + element} value={element}>{element}</MenuItem>;
               })}
             </Select>
           </FormControl>

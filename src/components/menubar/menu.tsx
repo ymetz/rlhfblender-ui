@@ -198,7 +198,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
             onChange={selectTheme}
           >
             {state.allThemes.map((themeOption, index) => (
-              <MenuItem key={index} value={themeOption}>
+              <MenuItem key={"theme"+index} value={themeOption}>
                 {themeOption}
               </MenuItem>
             ))}

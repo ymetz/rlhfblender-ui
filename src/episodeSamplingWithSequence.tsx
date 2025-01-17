@@ -34,6 +34,7 @@ export const useConfigBasedSampling = () => {
 
   const advanceToNextStep = useCallback(async () => {
     // Prevent concurrent processing
+    console.log('Advancing to next step', isProcessing.current);
     if (isProcessing.current) {
       console.log('Already processing step advancement');
       return false;

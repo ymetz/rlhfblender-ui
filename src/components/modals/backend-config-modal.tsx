@@ -172,9 +172,9 @@ export default function BackendConfigModal(props: ConfigModalProps) {
               value={new_config.uiConfigMode}
               onChange={formDropdownHandler}
             >
-              <MenuItem value="sequential">Sequential</MenuItem>
-              <MenuItem value="alternating">Alternating</MenuItem>
-              <MenuItem value="random">Random</MenuItem>
+              <MenuItem key="seq_mode_sequential" value="sequential">Sequential</MenuItem>
+              <MenuItem key="seq_mode_alternating" value="alternating">Alternating</MenuItem>
+              <MenuItem key="seq_mode_random" value="random">Random</MenuItem>
             </Select>
           </FormControl>
           <Box sx={{ marginTop: '1vh' }}>
@@ -189,12 +189,11 @@ export default function BackendConfigModal(props: ConfigModalProps) {
           </Typography>
           {Object.keys(new_config).map((key: string, index: number) => {
             if (key === 'id' || key === 'customInput' || key === 'uiConfigMode') {
-              return <div></div>;
-            } else if (
-              typeof new_config[key as keyof BackendConfig] === 'string'
-            ) {
+              return <div key={`empty-${key}`}></div>;
+            } else if (typeof new_config[key as keyof BackendConfig] === 'string') {
               return (
                 <TextField
+                  key={key}
                   margin="dense"
                   id={key}
                   label={key}
@@ -204,11 +203,10 @@ export default function BackendConfigModal(props: ConfigModalProps) {
                   onChange={formChangeHandler}
                 />
               );
-            } else if (
-              typeof new_config[key as keyof BackendConfig] === 'number'
-            ) {
+            } else if (typeof new_config[key as keyof BackendConfig] === 'number') {
               return (
                 <TextField
+                  key={key}
                   margin="dense"
                   id={key}
                   label={key}
@@ -219,7 +217,7 @@ export default function BackendConfigModal(props: ConfigModalProps) {
                 />
               );
             } else {
-              return <div></div>;
+              return <div key={`empty-${key}`}></div>;
             }
           })}
         </DialogContent>

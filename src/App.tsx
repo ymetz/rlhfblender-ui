@@ -32,7 +32,6 @@ const App: React.FC = () => {
   const dispatch = useAppDispatch();
   const configState = useSetupConfigState();
   const configDispatch = useSetupConfigDispatch();
-  const { registerShortcut } = useShortcuts();
 
   useEffect(() => {
     const initializeData = () => {
@@ -189,27 +188,6 @@ const App: React.FC = () => {
     getRewards,
     getUncertainty,
   }), [getVideoURL, getThumbnailURL, getRewards, getUncertainty]);
-
-  useEffect(() => {
-    // Register example shortcuts
-    const shortcuts = {
-      save: { key: '↵', description: 'Submit/Next' },
-      reset: { key: '+', description: 'Increase Score' },
-      play: { key: '-', description: 'Decrease Score' },
-      next: { key: 'space', description: 'Play/Pause Video' },
-      prev: { key: 'W', description: 'Move item up' },
-      zoom: { key: 'S', description: 'Move item down' },
-      demo: { key: 'D', description: 'Generate Demo' },
-      feature: { key: 'F', description: 'Feature Annotation' },
-    };
-
-    Object.entries(shortcuts).forEach(([id, shortcut]) => {
-      registerShortcut(id, {
-        ...shortcut,
-        action: () => console.log(`${shortcut.description}...`)
-      });
-    });
-  }, [registerShortcut]);
 
     // Fetch action labels
     const getActionLabels = async (envId: string) => {

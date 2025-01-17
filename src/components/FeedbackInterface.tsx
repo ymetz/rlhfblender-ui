@@ -18,7 +18,7 @@ import DroppableColumn from './feedbackinterface/droppable-column';
 import BestOfKColumn from './feedbackinterface/best-of-k-column';
 import ScrollableEpisodeList from './feedbackinterface/scrollable-episode-list';
 import DemoModal from './modals/demo-modal';
-import UserInstruction from './feedbackinterface/user-instruction';
+import { useFeedbackShortcuts } from './feedbackinterface/hooks/useShortcuts';
 
 // Add new type for feedback mode
 type FeedbackMode = 'ranking' | 'bestOfK';
@@ -255,6 +255,28 @@ const onDragEnd = (dropResult: DropResult) => {
     hasFeedback,
   }), [isOnSubmit, hasFeedback]);
 
+  // Feedback shortcuts
+
+  const handleDemoRequest = useCallback(() => {
+    setDemoModalOpen({ open: true, seed: Math.random() });
+  }, []);
+
+  const handleFeatureAnnotation = useCallback((episodeId: string) => {
+    console.log('Feature annotation for episode', episodeId);
+  }, []);
+
+  const { handleEpisodeHover, hoveredEpisodeId } = useFeedbackShortcuts({
+    episodeIDs: rankeableEpisodeIDs,
+    feedbackMode,
+    onEvalFeedback: updateEvalFeedback,
+    onBestOfKSelection: handleBestOfKSelection,
+    onDemoRequest: handleDemoRequest,
+    onFeatureAnnotation: handleFeatureAnnotation,
+    uiConfigFeedbackComponents: activeUIConfig.feedbackComponents,
+    scheduleFeedback,
+    sessionId,
+  });
+
   return (
     <RatingInfoContext.Provider value={ratingInfoValue}>
       <ProgressHeader
@@ -265,14 +287,13 @@ const onDragEnd = (dropResult: DropResult) => {
         onSubmit={() => submitFeedback(scheduledFeedback)}
         onSubmitHover={setIsOnSubmit}
       />
-      <UserInstruction />
       <Box
         id="feedback-interface"
         sx={{
           display: 'flex',
           flex: 1,
           width: '100%',
-          overflow: 'hidden',
+          overflow: 'scroll',
           boxSizing: 'border-box',
         }}
       >
@@ -316,6 +337,9 @@ const onDragEnd = (dropResult: DropResult) => {
                       evalFeedback={evalFeedback}
                       updateEvalFeedback={updateEvalFeedback}
                       setDemoModalOpen={setDemoModalOpen}
+                      onMouseEnter={handleEpisodeHover}
+                      onMouseLeave={() => handleEpisodeHover(null)}
+                      isHovered={hoveredEpisodeId === columnId}
                     />
                   );
                 })}
@@ -343,6 +367,9 @@ const onDragEnd = (dropResult: DropResult) => {
               evalFeedback={evalFeedback}
               updateEvalFeedback={updateEvalFeedback}
               setDemoModalOpen={setDemoModalOpen}
+              onMouseEnter={handleEpisodeHover}
+              onMouseLeave={() => handleEpisodeHover(null)}
+              isHovered={hoveredEpisodeId === selectedColumn}
             />
           </Box>
         )}

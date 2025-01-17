@@ -112,6 +112,9 @@ interface EpisodeItemProps {
   setDemoModalOpen: ({open, seed}: {open: boolean; seed: number}) => void;
   actionLabels?: any[];
   isBestOfK?: boolean;
+  onMouseEnter: (episodeId: string) => void;
+  onMouseLeave: () => void;
+  isHovered: boolean;
 }
 
 type StepDetails = {
@@ -134,6 +137,9 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
   setDemoModalOpen,
   actionLabels = [],
   isBestOfK = false,
+  onMouseEnter,
+  onMouseLeave,
+  isHovered,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(document.createElement('video'));
   const [videoURL, setVideoURL] = useState('');
@@ -357,6 +363,11 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
       isDragging={false}
       hasFeedback={false}
       isBestOfK={isBestOfK}
+      onMouseEnter={() => onMouseEnter(episodeID)}
+      onMouseLeave={onMouseLeave}
+      sx={{
+        /*outline: isHovered ? `2px solid ${theme.palette.primary.main}` : 'none'*/
+      }}
     >
       {!isBestOfK && (
         <DragHandle horizontalRanking={UIConfig.uiComponents.horizontalRanking} />

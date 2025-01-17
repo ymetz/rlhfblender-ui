@@ -16,6 +16,9 @@ interface BestOfKColumnProps {
   evalFeedback: {[episodeId: string]: number};
   updateEvalFeedback: (episodeId: string, rating: number) => void;
   setDemoModalOpen: ({open, seed}: {open: boolean; seed: number}) => void;
+  onMouseEnter: (episodeId: string) => void;
+  onMouseLeave: () => void;
+  isHovered: boolean;
 }
 
 const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
@@ -28,6 +31,9 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
   evalFeedback,
   updateEvalFeedback,
   setDemoModalOpen,
+  onMouseEnter,
+  onMouseLeave,
+  isHovered,
 }) => {
   const theme = useTheme();
   const UIConfig = useSetupConfigState().activeUIConfig;
@@ -39,27 +45,26 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
 
   return (
     <Box
-      sx={{
-        display: 'flex',
-        flexGrow: 1,
-        flexShrink: 1,
-        flexBasis: 'auto',
-        flexDirection: horizontalRanking ? 'column' : 'row',
-        borderLeft: horizontalRanking
-          ? `1px solid ${theme.palette.divider}`
-          : 'none',
-        borderTop: horizontalRanking
-          ? 'none'
-          : `1px solid ${theme.palette.divider}`,
-        backgroundColor: theme.palette.background.l1,
-      }}
+    sx={{
+      display: 'flex',
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 'auto',
+      flexDirection: horizontalRanking ? 'row': 'column',
+      borderLeft: horizontalRanking
+        ? `1px solid ${theme.palette.divider}`
+        : 'none',
+      borderTop: horizontalRanking
+        ? 'none'
+        : `1px solid ${theme.palette.divider}`,
+      backgroundColor: theme.palette.background.l1,
+    }}
     >
       {episodeIDs.map((episodeID, index) => (
         <Box
           key={episodeID}
           sx={{
             display: 'flex',
-            flexDirection: horizontalRanking ? 'column' : 'row',
             margin: 1,
 
             // Here I have to put flex 1 because I want to fill out the white with the grey
@@ -67,8 +72,6 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
             marginLeft: horizontalRanking ? 'none' : 0,
             marginTop: horizontalRanking ? 0 : 'none',
             borderRadius: horizontalRanking ? '0 0 5px 5px' : '0 5px 5px 0',
-            minHeight: horizontalRanking ? 'none' : '4vh', // To match chip if collapsed,
-            minWidth: horizontalRanking ? '4vh' : 'none', // To match chip if collapsed,
             border: `1px solid ${theme.palette.divider}`,
           }}
         >
@@ -84,6 +87,9 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
             setDemoModalOpen={setDemoModalOpen}
             actionLabels={actionLabels}
             isBestOfK={true}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+            isHovered={isHovered}
           />
         </Box>
       ))}

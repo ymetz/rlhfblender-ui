@@ -3,6 +3,7 @@ import { Box, Typography, Button } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import Send from '@mui/icons-material/Send';
 import Progressbar from './progressbar';
+import UserInstruction from './user-instruction';
 
 interface ProgressHeaderProps {
   showProgressBar: boolean;
@@ -23,43 +24,68 @@ export const ProgressHeader: React.FC<ProgressHeaderProps> = ({
   const theme = useTheme();
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'row', backgroundColor: theme.palette.background.l1 }}>
-      {showProgressBar && (
-        <Box
-          id="progress-bar"
-          sx={{
-            display: 'flex',
-            flex: 1,
-            boxSizing: 'border-box',
-            backgroundColor: theme.palette.background.l1,
-            padding: 0.5,
-          }}
-        >
-          <Typography
+    <Box 
+      sx={{ 
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: theme.palette.background.l1,
+        padding: 2,
+        gap: 1
+      }}
+    >
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        width: '100%'
+      }}>
+        {showProgressBar && (
+          <Box
+            id="progress-section"
             sx={{
-              color: theme.palette.text.secondary,
-              m: 0.5,
-              minWidth: '10vw',
+              display: 'flex',
+              flex: 1,
+              alignItems: 'center',
+              marginRight: 2
             }}
           >
-            Experiment Progress:
-          </Typography>
-          <Progressbar
-            maxSteps={progressSteps ?? 1}
-            currentStep={currentStep}
-          />
+            <Typography
+              sx={{
+                color: theme.palette.text.secondary,
+                marginRight: 2,
+                minWidth: 'fit-content'
+              }}
+            >
+              Experiment Progress:
+            </Typography>
+            <Box sx={{ flex: 1 }}>
+              <Progressbar
+                maxSteps={progressSteps ?? 1}
+                currentStep={currentStep}
+              />
+            </Box>
+          </Box>
+        )}
+        <Box>
+          <Button
+            variant="contained"
+            endIcon={<Send />}
+            onClick={onSubmit}
+            onMouseEnter={() => onSubmitHover(true)}
+            onMouseLeave={() => onSubmitHover(false)}
+          >
+            Submit Feedback
+          </Button>
         </Box>
-      )}
-      <Box sx={{ p: 1, backgroundColor: theme.palette.background.l1 }}>
-        <Button
-          variant="contained"
-          endIcon={<Send />}
-          onClick={onSubmit}
-          onMouseEnter={() => onSubmitHover(true)}
-          onMouseLeave={() => onSubmitHover(false)}
-        >
-          Submit Feedback
-        </Button>
+      </Box>
+      <Box sx={{ 
+        borderTop: `1px solid ${theme.palette.divider}`,
+        paddingTop: 1,
+        display: 'flex',
+        justifyContent: 'center'
+
+      }}>
+        <UserInstruction />
       </Box>
     </Box>
   );
