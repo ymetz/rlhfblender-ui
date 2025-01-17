@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 
 type Shortcut = {
   key: string;
@@ -12,7 +19,7 @@ const ShortcutsContext = createContext({
   registerShortcut: (id: string, shortcut: Shortcut) => {},
   unregisterShortcut: (id: string) => {},
   handleKeyPress: (e: KeyboardEvent) => {},
-  mousePosition: { x: 0, y: 0 }
+  mousePosition: { x: 0, y: 0 },
 });
 
 // Provider component
@@ -22,47 +29,59 @@ export const ShortcutsProvider = ({ children }) => {
 
   // Memoize these callbacks to prevent unnecessary re-renders
   const registerShortcut = useCallback((id: string, shortcut: Shortcut) => {
-    setShortcuts(prev => ({
+    setShortcuts((prev) => ({
       ...prev,
-      [id]: shortcut
+      [id]: shortcut,
     }));
   }, []);
 
   const unregisterShortcut = useCallback((id: string) => {
-    setShortcuts(prev => {
+    setShortcuts((prev) => {
       const newShortcuts = { ...prev };
       delete newShortcuts[id];
       return newShortcuts;
     });
   }, []);
 
-  const handleKeyPress = useCallback((e: KeyboardEvent) => {
-    const key = e.key.toLowerCase();
-    Object.values(shortcuts).forEach((shortcut: Shortcut) => {
-      if (shortcut.key.toLowerCase() === key) {
-        shortcut.action();
-      }
-    });
-  }, [shortcuts]);
+  const handleKeyPress = useCallback(
+    (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      Object.values(shortcuts).forEach((shortcut: Shortcut) => {
+        if (shortcut.key.toLowerCase() === key) {
+          shortcut.action();
+        }
+      });
+    },
+    [shortcuts],
+  );
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     setMousePosition({ x: e.clientX, y: e.clientY });
   }, []);
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyPress);
+    window.addEventListener("keydown", handleKeyPress);
     return () => {
-      window.removeEventListener('keydown', handleKeyPress);
+      window.removeEventListener("keydown", handleKeyPress);
     };
   }, [handleKeyPress]);
 
-  const contextValue = useMemo(() => ({
-    shortcuts,
-    registerShortcut,
-    unregisterShortcut,
-    handleKeyPress,
-    mousePosition
-  }), [shortcuts, registerShortcut, unregisterShortcut, handleKeyPress, mousePosition]);
+  const contextValue = useMemo(
+    () => ({
+      shortcuts,
+      registerShortcut,
+      unregisterShortcut,
+      handleKeyPress,
+      mousePosition,
+    }),
+    [
+      shortcuts,
+      registerShortcut,
+      unregisterShortcut,
+      handleKeyPress,
+      mousePosition,
+    ],
+  );
 
   return (
     <ShortcutsContext.Provider value={contextValue}>

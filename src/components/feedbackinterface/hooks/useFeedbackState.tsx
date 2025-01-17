@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Ranks } from '../types';
+import { useState, useEffect } from "react";
+import { Ranks } from "../types";
 
 export const useFeedbackState = (rankeableEpisodeIDs: string[]) => {
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -14,7 +14,7 @@ export const useFeedbackState = (rankeableEpisodeIDs: string[]) => {
           title: `Rank ${i + 1}`,
           episodeItemIDs: [rankeableEpisodeIDs[i]],
         },
-      ])
+      ]),
     );
     setRanks(new_ranks);
     setColumnOrder(Object.entries(new_ranks).map(([key, _]) => key));

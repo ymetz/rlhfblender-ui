@@ -1,5 +1,5 @@
-import {useTheme} from '@mui/material/styles';
-import IconProps from './icon-props';
+import { useTheme } from "@mui/material/styles";
+import IconProps from "./icon-props";
 
 function FeatIcon(props: IconProps) {
   const theme = useTheme();

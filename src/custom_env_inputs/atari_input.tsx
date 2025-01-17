@@ -1,9 +1,9 @@
-import * as React from 'react';
+import * as React from "react";
 
-import Button from '@mui/material/Button';
-import Stack from '@mui/material/Stack';
-import SendIcon from '@mui/icons-material/Send';
-import { GymSpaceInfo } from '../types';
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import SendIcon from "@mui/icons-material/Send";
+import { GymSpaceInfo } from "../types";
 
 type AtariInputProps = {
   space: GymSpaceInfo;
@@ -25,7 +25,7 @@ export default function AtariInput(props: AtariInputProps) {
         spacing={2}
         alignItems="center"
         justifyContent="center"
-        sx={{m: 2}}
+        sx={{ m: 2 }}
       >
         {Array.from(Array(num_actions).keys()).map(
           (action: number, index: number) => {
@@ -34,7 +34,7 @@ export default function AtariInput(props: AtariInputProps) {
                 key={action}
                 variant="contained"
                 sx={{
-                  backgroundColor: index === selectedAction ? 'red' : 'blue',
+                  backgroundColor: index === selectedAction ? "red" : "blue",
                 }}
                 onClick={() => {
                   setSelectedAction(index);
@@ -44,7 +44,7 @@ export default function AtariInput(props: AtariInputProps) {
                 {props.space.labels[index.toString()] ?? index}
               </Button>
             );
-          }
+          },
         )}
       </Stack>
       {props.needsSubmit && (

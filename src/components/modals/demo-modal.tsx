@@ -1,4 +1,4 @@
-import * as React from 'react';
+import * as React from "react";
 
 // Material UI
 import {
@@ -10,17 +10,17 @@ import {
   DialogTitle,
   Typography,
   Box,
-} from '@mui/material';
-import { useTheme } from '@mui/material/styles';
+} from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 // Custom Components
-import { CustomInput } from '../../custom_env_inputs/custom_input_mapping';
+import { CustomInput } from "../../custom_env_inputs/custom_input_mapping";
 
 // Types
-import { Feedback, FeedbackType, GymSpaceInfo } from '../../types';
+import { Feedback, FeedbackType, GymSpaceInfo } from "../../types";
 
 // Axios
-import axios from 'axios';
+import axios from "axios";
 
 type DemoModalProps = {
   open: boolean;
@@ -43,28 +43,27 @@ export default function DemoModal(props: DemoModalProps) {
   const [initDemo, setInitDemo] = React.useState(false);
   const [processId, setProcessId] = React.useState(-1);
   const [demoNumber, setDemoNumber] = React.useState(0);
-  const [renderURL, setRenderURL] = React.useState('');
+  const [renderURL, setRenderURL] = React.useState("");
   const [episodeDone, setEpisodeDone] = React.useState(false);
   const [stepDetails, setStepDetails] = React.useState<StepDetails>({
     reward: 0,
     done: false,
     infos: {},
   });
-  const [mission, setMission] = React.useState('');
+  const [mission, setMission] = React.useState("");
   const [stepCount, setStepCount] = React.useState(0);
-  const [actionSpace, setActionSpace] = React.useState( {
-    label: '',
-    dtype: 'int',
+  const [actionSpace, setActionSpace] = React.useState({
+    label: "",
+    dtype: "int",
     shape: [0],
     labels: {},
-    
   } as GymSpaceInfo);
   const theme = useTheme();
 
   React.useEffect(() => {
     if (initDemo) {
       axios
-        .post('/data/initialize_demo_session', {
+        .post("/data/initialize_demo_session", {
           env_id: props.activeEnvId,
           seed: props.seed,
           session_id: props.sessionId,
@@ -86,7 +85,7 @@ export default function DemoModal(props: DemoModalProps) {
     if (processId !== -1) {
       axios
         .get(`data/get_demo_image?session_id=${props.sessionId}`, {
-          responseType: 'blob',
+          responseType: "blob",
         })
         .then((response) => {
           const url = URL.createObjectURL(response.data);
@@ -97,7 +96,7 @@ export default function DemoModal(props: DemoModalProps) {
 
   const performAction = (action: number | number[]) => {
     axios
-      .post('/data/demo_step', {
+      .post("/data/demo_step", {
         session_id: props.sessionId,
         action,
       })
@@ -114,25 +113,28 @@ export default function DemoModal(props: DemoModalProps) {
   React.useEffect(() => {
     if (!props.open && processId !== -1) {
       axios
-        .post('/data/end_demo_session', {
+        .post("/data/end_demo_session", {
           session_id: props.sessionId,
           pid: processId,
         })
         .then(() => {
           setProcessId(-1);
           setInitDemo(false);
-          setRenderURL('');
+          setRenderURL("");
           setStepCount(0);
-          setMission(''); // Reset mission
+          setMission(""); // Reset mission
         });
     }
   }, [props.open, processId, props.sessionId]);
 
   return (
-    <Dialog open={props.open} onClose={() => {
-      setInitDemo(false);
-      props.onClose();
-    }}>
+    <Dialog
+      open={props.open}
+      onClose={() => {
+        setInitDemo(false);
+        props.onClose();
+      }}
+    >
       <DialogTitle>Demo Generation</DialogTitle>
       <DialogContent>
         {!initDemo && (
@@ -149,7 +151,7 @@ export default function DemoModal(props: DemoModalProps) {
               <img
                 src={renderURL}
                 alt="render"
-                style={{ width: '100%', height: '100%' }}
+                style={{ width: "100%", height: "100%" }}
               />
             ) : (
               <Typography variant="body2" color="textSecondary">
@@ -177,7 +179,7 @@ export default function DemoModal(props: DemoModalProps) {
               item
               xs={12}
               sx={{
-                width: '100%',
+                width: "100%",
                 backgroundColor: theme.palette.background.l1,
                 m: 1,
                 borderRadius: 2,
@@ -199,20 +201,19 @@ export default function DemoModal(props: DemoModalProps) {
               feedback_type: FeedbackType.Demonstrative,
               targets: [
                 {
-                  target_id:
-                    `${props.activeEnvId}_generated_-1-1${demoNumber}`,
+                  target_id: `${props.activeEnvId}_generated_-1-1${demoNumber}`,
                   reference: {
                     env_name: props.activeEnvId,
-                    benchmark_type: 'generated',
+                    benchmark_type: "generated",
                     benchmark_id: -1,
                     checkpoint_step: -1,
                     episode_num: demoNumber,
                   },
-                  origin: 'generated',
+                  origin: "generated",
                   timestamp: Date.now(),
                 },
               ],
-              granularity: 'episode',
+              granularity: "episode",
               timestamp: Date.now(),
               session_id: props.sessionId,
             });

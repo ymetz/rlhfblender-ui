@@ -38,30 +38,30 @@ class Interactor {
   async: boolean;
   debug: boolean;
   records: any[];
-  session: {[key: string]: any};
+  session: { [key: string]: any };
   loadTime: Date;
 
   constructor(n: any) {
-    this.interactions = typeof n.interactions !== 'boolean' || n.interactions;
+    this.interactions = typeof n.interactions !== "boolean" || n.interactions;
     this.interactionElement =
-      typeof n.interactionElement === 'string'
+      typeof n.interactionElement === "string"
         ? n.interactionElement
-        : 'interaction';
+        : "interaction";
     this.interactionEvents = Array.isArray(n.interactionEvents)
       ? n.interactionEvents
-      : ['mouseup', 'touchend'];
-    this.conversions = typeof n.conversions !== 'boolean' || n.conversions;
+      : ["mouseup", "touchend"];
+    this.conversions = typeof n.conversions !== "boolean" || n.conversions;
     this.conversionElement =
-      typeof n.conversionElement === 'string'
+      typeof n.conversionElement === "string"
         ? n.conversionElement
-        : 'conversion';
+        : "conversion";
     this.conversionEvents = Array.isArray(n.conversionEvents)
       ? n.conversionEvents
-      : ['mouseup', 'touchend'];
+      : ["mouseup", "touchend"];
     this.endpoint =
-      typeof n.endpoint === 'string' ? n.endpoint : '/interactions';
-    this.async = typeof n.async !== 'boolean' || n.async;
-    this.debug = typeof n.debug !== 'boolean' || n.debug;
+      typeof n.endpoint === "string" ? n.endpoint : "/interactions";
+    this.async = typeof n.async !== "boolean" || n.async;
+    this.debug = typeof n.debug !== "boolean" || n.debug;
     this.records = [];
     this.session = {};
     this.loadTime = new Date();
@@ -73,13 +73,13 @@ class Interactor {
     if (this.interactions) {
       for (let e = 0; e < this.interactionEvents.length; e++) {
         document
-          ?.querySelector('body')
-          ?.addEventListener(this.interactionEvents[e], event => {
+          ?.querySelector("body")
+          ?.addEventListener(this.interactionEvents[e], (event) => {
             event.stopPropagation();
             // Make sure that we only access vents that have a target with classList
             const eventTarget = event.target as HTMLElement;
             if (eventTarget?.classList.value === this.interactionElement) {
-              this.addInteraction(e, 'interaction');
+              this.addInteraction(e, "interaction");
             }
           });
       }
@@ -88,12 +88,12 @@ class Interactor {
     if (this.conversions) {
       for (let e = 0; e < this.conversionEvents.length; e++) {
         document
-          ?.querySelector('body')
-          ?.addEventListener(this.conversionEvents[e], event => {
+          ?.querySelector("body")
+          ?.addEventListener(this.conversionEvents[e], (event) => {
             event.stopPropagation();
             const eventTarget = event.target as HTMLElement;
             if (eventTarget?.classList.value === this.conversionElement) {
-              this.addInteraction(e, 'conversion');
+              this.addInteraction(e, "conversion");
             }
           });
       }
@@ -111,14 +111,14 @@ class Interactor {
       targetTag: n.target.nodeName,
       targetClasses: n.target.className,
       content: n.target.innerText,
-      clientPosition: {x: n.clientX, y: n.clientY},
-      screenPosition: {x: n.screenX, y: n.screenY},
+      clientPosition: { x: n.clientX, y: n.clientY },
+      screenPosition: { x: n.screenX, y: n.screenY },
       createdAt: new Date(),
     };
     this.records.push(i);
     if (this.debug) {
       this.closeSession();
-      console.log('Session:\n', this.session);
+      console.log("Session:\n", this.session);
     }
   }
 
@@ -161,8 +161,8 @@ class Interactor {
   sendInteractions() {
     const e = new XMLHttpRequest();
     this.closeSession();
-    e.open('POST', this.endpoint, this.async);
-    e.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
+    e.open("POST", this.endpoint, this.async);
+    e.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
     e.send(JSON.stringify(this.session));
   }
 }

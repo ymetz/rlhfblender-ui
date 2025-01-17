@@ -1,95 +1,90 @@
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-} from 'react';
-import IconButton from '@mui/material/IconButton';
-import KeyboardArrowUp from '@mui/icons-material/KeyboardArrowUp';
-import KeyboardArrowDown from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowLeft from '@mui/icons-material/KeyboardArrowLeft';
-import KeyboardArrowRight from '@mui/icons-material/KeyboardArrowRight';
-import {useTheme} from '@mui/material/styles';
-import { styled } from '@mui/system';
-import { useSetupConfigState } from '../../SetupConfigContext';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import IconButton from "@mui/material/IconButton";
+import KeyboardArrowUp from "@mui/icons-material/KeyboardArrowUp";
+import KeyboardArrowDown from "@mui/icons-material/KeyboardArrowDown";
+import KeyboardArrowLeft from "@mui/icons-material/KeyboardArrowLeft";
+import KeyboardArrowRight from "@mui/icons-material/KeyboardArrowRight";
+import { useTheme } from "@mui/material/styles";
+import { styled } from "@mui/system";
+import { useSetupConfigState } from "../../SetupConfigContext";
 
 // Custom styles
-interface ScrollbarStyledProps extends React.ComponentPropsWithoutRef<'div'> {
+interface ScrollbarStyledProps extends React.ComponentPropsWithoutRef<"div"> {
   horizontalRanking: boolean;
 }
 
-const ScrollbarContainer = styled('div')<ScrollbarStyledProps>(
-  ({theme, horizontalRanking}) => ({
-    display: 'flex',
-    flexDirection: horizontalRanking ? 'column' : 'row',
+const ScrollbarContainer = styled("div")<ScrollbarStyledProps>(
+  ({ theme, horizontalRanking }) => ({
+    display: "flex",
+    flexDirection: horizontalRanking ? "column" : "row",
     backgroundColor: theme.palette.background?.l1,
-    height: '100%',
-    width: '100%',
-  })
+    height: "100%",
+    width: "100%",
+  }),
 );
 
-const ScrollbarContentContainer = styled('div')<ScrollbarStyledProps>(
-  ({theme, horizontalRanking}) => ({
-    display: 'flex',
-    flexDirection: horizontalRanking ? 'row' : 'column',
+const ScrollbarContentContainer = styled("div")<ScrollbarStyledProps>(
+  ({ theme, horizontalRanking }) => ({
+    display: "flex",
+    flexDirection: horizontalRanking ? "row" : "column",
     backgroundColor: theme.palette.background?.l0,
     border: `1px solid ${theme.palette.divider}`,
-    msOverflowStyle: 'none',
-    overflowY: 'auto',
-    padding: '0 1rem',
+    msOverflowStyle: "none",
+    overflowY: "auto",
+    padding: "0 1rem",
     flex: 1,
-    scrollbarWidth: 'none',
-  })
+    scrollbarWidth: "none",
+  }),
 );
 
-const ScrollbarMain = styled('div')<ScrollbarStyledProps>(
-  ({theme, horizontalRanking}) => ({
-    display: 'grid',
-    gap: '1rem',
-    gridAutoFlow: 'row',
-    padding: '1rem',
-    placeItems: 'center',
+const ScrollbarMain = styled("div")<ScrollbarStyledProps>(
+  ({ theme, horizontalRanking }) => ({
+    display: "grid",
+    gap: "1rem",
+    gridAutoFlow: "row",
+    padding: "1rem",
+    placeItems: "center",
     gridTemplate: horizontalRanking
-      ? '1fr / auto 1fr auto'
-      : 'auto 1fr auto / 1fr',
-  })
+      ? "1fr / auto 1fr auto"
+      : "auto 1fr auto / 1fr",
+  }),
 );
 
-const TrackAndThumb = styled('div')<ScrollbarStyledProps>(
-  ({horizontalRanking}) => ({
-    display: 'block',
-    position: 'relative',
-    height: horizontalRanking ? '1vw' : '100%',
-    width: horizontalRanking ? '100%' : '1vw',
-  })
+const TrackAndThumb = styled("div")<ScrollbarStyledProps>(
+  ({ horizontalRanking }) => ({
+    display: "block",
+    position: "relative",
+    height: horizontalRanking ? "1vw" : "100%",
+    width: horizontalRanking ? "100%" : "1vw",
+  }),
 );
 
-const Track = styled('div')<ScrollbarStyledProps>(
-  ({theme, horizontalRanking}) => ({
+const Track = styled("div")<ScrollbarStyledProps>(
+  ({ theme, horizontalRanking }) => ({
     backgroundColor: theme.palette.background?.l0,
-    borderRadius: '12px',
+    borderRadius: "12px",
     bottom: 0,
     left: 0,
     top: 0,
     right: 0,
-    cursor: 'pointer',
-    position: 'absolute',
-    width: horizontalRanking ? 'auto' : '1vw',
+    cursor: "pointer",
+    position: "absolute",
+    width: horizontalRanking ? "auto" : "1vw",
     border: `1px solid ${theme.palette?.divider}`,
-  })
+  }),
 );
 
-const Thumb = styled('div')<ScrollbarStyledProps>(
-  ({theme, horizontalRanking}) => ({
-    borderRadius: '12px',
+const Thumb = styled("div")<ScrollbarStyledProps>(
+  ({ theme, horizontalRanking }) => ({
+    borderRadius: "12px",
     backgroundColor: theme.palette.text.secondary,
-    position: 'absolute',
-    height: horizontalRanking ? '1vw' : '16px',
-    width: horizontalRanking ? '16px' : '1vw',
-  })
+    position: "absolute",
+    height: horizontalRanking ? "1vw" : "16px",
+    width: horizontalRanking ? "16px" : "1vw",
+  }),
 );
 
-const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
+const Scrollbar: React.FC<React.ComponentPropsWithoutRef<"div">> = ({
   children,
   className,
   ...props
@@ -103,21 +98,22 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
   const [scrollStartPositionY, setScrollStartPositionY] = useState<number>(0);
   const [scrollStartPositionX, setScrollStartPositionX] = useState<number>(0);
   const setupConfigState = useSetupConfigState();
-  const horizontalRanking = setupConfigState.activeUIConfig.uiComponents.horizontalRanking;
+  const horizontalRanking =
+    setupConfigState.activeUIConfig.uiComponents.horizontalRanking;
   const theme = useTheme();
 
   // Number of pixels that an element's content is scrolled vertically.
   const [initialScrollTop, setInitialScrollTop] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  function handleScrollButton(direction: 'up' | 'down') {
-    const {current} = contentRef;
+  function handleScrollButton(direction: "up" | "down") {
+    const { current } = contentRef;
     if (current) {
-      const scrollAmount = direction === 'down' ? 200 : -200;
+      const scrollAmount = direction === "down" ? 200 : -200;
       if (horizontalRanking) {
-        current.scrollBy({left: scrollAmount, behavior: 'smooth'});
+        current.scrollBy({ left: scrollAmount, behavior: "smooth" });
       } else {
-        current.scrollBy({top: scrollAmount, behavior: 'smooth'});
+        current.scrollBy({ top: scrollAmount, behavior: "smooth" });
       }
     }
   }
@@ -126,10 +122,10 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
     (event: React.MouseEvent<HTMLDivElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      const {current: trackCurrent} = scrollTrackRef;
-      const {current: contentCurrent} = contentRef;
+      const { current: trackCurrent } = scrollTrackRef;
+      const { current: contentCurrent } = contentRef;
       if (trackCurrent && contentCurrent) {
-        const {clientY, clientX} = event;
+        const { clientY, clientX } = event;
         const target = event.target as HTMLDivElement;
         const rect = target.getBoundingClientRect();
         let scrollAmount = 0;
@@ -149,17 +145,17 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
         if (horizontalRanking) {
           contentCurrent.scrollTo({
             left: scrollAmount,
-            behavior: 'smooth',
+            behavior: "smooth",
           });
         } else {
           contentCurrent.scrollTo({
             top: scrollAmount,
-            behavior: 'smooth',
+            behavior: "smooth",
           });
         }
       }
     },
-    [thumbHeight, thumbWidth, horizontalRanking]
+    [thumbHeight, thumbWidth, horizontalRanking],
   );
 
   const handleThumbPosition = useCallback(() => {
@@ -172,16 +168,16 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
     }
     const thumb = scrollThumbRef.current;
     if (horizontalRanking) {
-      const {scrollLeft: contentLeft, scrollWidth: contentWidth} =
+      const { scrollLeft: contentLeft, scrollWidth: contentWidth } =
         contentRef.current;
-      const {clientWidth: trackWidth} = scrollTrackRef.current;
+      const { clientWidth: trackWidth } = scrollTrackRef.current;
       let newLeft = (+contentLeft / +contentWidth) * trackWidth;
       newLeft = Math.min(newLeft, trackWidth - thumbWidth);
       thumb.style.left = `${newLeft}px`;
     } else {
-      const {scrollTop: contentTop, scrollHeight: contentHeight} =
+      const { scrollTop: contentTop, scrollHeight: contentHeight } =
         contentRef.current;
-      const {clientHeight: trackHeight} = scrollTrackRef.current;
+      const { clientHeight: trackHeight } = scrollTrackRef.current;
       let newTop = (+contentTop / +contentHeight) * trackHeight;
       newTop = Math.min(newTop, trackHeight - thumbHeight);
       thumb.style.top = `${newTop}px`;
@@ -203,7 +199,7 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
       }
       setIsDragging(true);
     },
-    [horizontalRanking]
+    [horizontalRanking],
   );
 
   const handleThumbMouseup = useCallback(
@@ -214,7 +210,7 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
         setIsDragging(false);
       }
     },
-    [isDragging]
+    [isDragging],
   );
 
   useEffect(() => {
@@ -223,9 +219,9 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
     }
     const thumb = scrollThumbRef.current;
     if (horizontalRanking) {
-      thumb.style.top = '0px';
+      thumb.style.top = "0px";
     } else {
-      thumb.style.left = '0px';
+      thumb.style.left = "0px";
     }
   }, [horizontalRanking]);
 
@@ -244,7 +240,7 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
             (contentOffsetWidth / thumbWidth);
           const newScrollLeft = Math.min(
             initialScrollTop + deltaX,
-            contentScrollWidth - contentOffsetWidth
+            contentScrollWidth - contentOffsetWidth,
           );
           contentRef.current.scrollLeft = newScrollLeft;
         } else {
@@ -257,7 +253,7 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
             (contentOffsetHeight / thumbHeight);
           const newScrollTop = Math.min(
             initialScrollTop + deltaY,
-            contentScrollHeight - contentOffsetHeight
+            contentScrollHeight - contentOffsetHeight,
           );
           contentRef.current.scrollTop = newScrollTop;
         }
@@ -271,17 +267,17 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
       thumbWidth,
       horizontalRanking,
       scrollStartPositionX,
-    ]
+    ],
   );
 
   // If the content and the scrollbar track exist, use a ResizeObserver to adjust height of thumb and listen for scroll event to move the thumb
   useEffect(() => {
     if (contentRef.current && scrollTrackRef.current) {
       const ref = contentRef.current;
-      const {clientHeight: trackHeight} = scrollTrackRef.current;
-      const {clientWidth: trackWidth} = scrollTrackRef.current;
+      const { clientHeight: trackHeight } = scrollTrackRef.current;
+      const { clientWidth: trackWidth } = scrollTrackRef.current;
       observer.current = new ResizeObserver(() => {
-        const {clientHeight, scrollHeight, clientWidth, scrollWidth} = ref;
+        const { clientHeight, scrollHeight, clientWidth, scrollWidth } = ref;
         if (horizontalRanking) {
           setThumbWidth(Math.max((clientWidth / scrollWidth) * trackWidth));
           setThumbHeight(window.innerWidth / 100.0);
@@ -291,34 +287,34 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
         }
       });
       observer.current.observe(ref);
-      ref.addEventListener('scroll', handleThumbPosition);
+      ref.addEventListener("scroll", handleThumbPosition);
       return () => {
         observer.current?.unobserve(ref);
-        ref.removeEventListener('scroll', handleThumbPosition);
+        ref.removeEventListener("scroll", handleThumbPosition);
       };
     }
   }, [handleThumbPosition, horizontalRanking]);
 
   // Listen for mouse events to handle scrolling by dragging the thumb
   useEffect(() => {
-    document.addEventListener('mousemove', handleThumbMousemove);
-    document.addEventListener('mouseup', handleThumbMouseup);
-    document.addEventListener('mouseleave', handleThumbMouseup);
+    document.addEventListener("mousemove", handleThumbMousemove);
+    document.addEventListener("mouseup", handleThumbMouseup);
+    document.addEventListener("mouseleave", handleThumbMouseup);
     return () => {
-      document.removeEventListener('mousemove', handleThumbMousemove);
-      document.removeEventListener('mouseup', handleThumbMouseup);
-      document.removeEventListener('mouseleave', handleThumbMouseup);
+      document.removeEventListener("mousemove", handleThumbMousemove);
+      document.removeEventListener("mouseup", handleThumbMouseup);
+      document.removeEventListener("mouseleave", handleThumbMouseup);
     };
   }, [handleThumbMousemove, handleThumbMouseup]);
 
   return (
     <ScrollbarContainer horizontalRanking={horizontalRanking}>
       <ScrollbarMain horizontalRanking={horizontalRanking}>
-        <IconButton onClick={() => handleScrollButton('up')}>
+        <IconButton onClick={() => handleScrollButton("up")}>
           {horizontalRanking ? (
-            <KeyboardArrowLeft sx={{color: theme.palette.text.secondary}} />
+            <KeyboardArrowLeft sx={{ color: theme.palette.text.secondary }} />
           ) : (
-            <KeyboardArrowUp sx={{color: theme.palette.text.secondary}} />
+            <KeyboardArrowUp sx={{ color: theme.palette.text.secondary }} />
           )}
         </IconButton>
         <TrackAndThumb horizontalRanking={horizontalRanking}>
@@ -326,7 +322,7 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
             horizontalRanking={horizontalRanking}
             ref={scrollTrackRef}
             onClick={handleClickOnTrack}
-            style={{cursor: isDragging ? 'grabbing' : 'grab'}}
+            style={{ cursor: isDragging ? "grabbing" : "grab" }}
           ></Track>
           <Thumb
             horizontalRanking={horizontalRanking}
@@ -335,15 +331,15 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<'div'>> = ({
             style={{
               height: `${thumbHeight}px`,
               width: `${thumbWidth}px`,
-              cursor: isDragging ? 'grabbing' : 'grab',
+              cursor: isDragging ? "grabbing" : "grab",
             }}
           ></Thumb>
         </TrackAndThumb>
-        <IconButton onClick={() => handleScrollButton('down')}>
+        <IconButton onClick={() => handleScrollButton("down")}>
           {horizontalRanking ? (
-            <KeyboardArrowRight sx={{color: theme.palette.text.secondary}} />
+            <KeyboardArrowRight sx={{ color: theme.palette.text.secondary }} />
           ) : (
-            <KeyboardArrowDown sx={{color: theme.palette.text.secondary}} />
+            <KeyboardArrowDown sx={{ color: theme.palette.text.secondary }} />
           )}
         </IconButton>
       </ScrollbarMain>

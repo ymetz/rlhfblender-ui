@@ -1,10 +1,10 @@
-import {BackendConfig, UIConfig} from './types';
+import { BackendConfig, UIConfig } from "./types";
 
 // Make sure that this config mirrors the format of the UIConfig model in the backend
 const defaultUIConfig: UIConfig = {
-  id: 'default',
-  name: '',
-  description: '',
+  id: "default",
+  name: "",
+  description: "",
   uiComponents: {
     progressBar: true,
     interactiveEpisodeSelect: false,
@@ -26,22 +26,22 @@ const defaultUIConfig: UIConfig = {
     text: true,
   },
   max_ranking_elements: 2,
-  customInput: '',
+  customInput: "",
 };
 
 const defaultBackendConfig: BackendConfig = {
-  id: 'default',
-  name: '',
-  description: '',
-  samplingStrategy: 'sequential',
-  loggerMode: 'local',
+  id: "default",
+  name: "",
+  description: "",
+  samplingStrategy: "sequential",
+  loggerMode: "local",
 
   selectedUiConfigs: [],
-  uiConfigMode: 'sequential',
+  uiConfigMode: "sequential",
 
   feedbackModelTrainingEnabled: false,
-  feeedbackModelType: '',
+  feeedbackModelType: "",
   feedbackModelConfig: {},
 };
 
-export {defaultUIConfig, defaultBackendConfig};
+export { defaultUIConfig, defaultBackendConfig };

@@ -1,11 +1,11 @@
-import React from 'react';
-import { Box, Typography, IconButton } from '@mui/material';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import PauseIcon from '@mui/icons-material/Pause';
-import VideoPlayer from './video-player';
-import FeatIcon from '../../../icons/feat-icon';
+import React from "react";
+import { Box, Typography, IconButton } from "@mui/material";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
+import VideoPlayer from "./video-player";
+import FeatIcon from "../../../icons/feat-icon";
 
 interface EnvRenderProps {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -32,12 +32,13 @@ const EnvRender: React.FC<EnvRenderProps> = ({
   playing,
   mission,
 }) => {
-  const handleStep = (direction: 'forward' | 'backward') => {
+  const handleStep = (direction: "forward" | "backward") => {
     if (videoRef.current) {
-      const frameTime = 1/30;
-      videoSliderHandler(direction === 'forward' ? 
-        videoRef.current.currentTime + frameTime : 
-        videoRef.current.currentTime - frameTime
+      const frameTime = 1 / 30;
+      videoSliderHandler(
+        direction === "forward"
+          ? videoRef.current.currentTime + frameTime
+          : videoRef.current.currentTime - frameTime,
       );
     }
   };
@@ -45,20 +46,21 @@ const EnvRender: React.FC<EnvRenderProps> = ({
   return (
     <Box
       sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        gridArea: 'envRender',
-        maxWidth: '25vh',
-        justifySelf: 'center',
-        marginTop: '1rem',
-        alignSelf: 'center',
-        border: theme => `1px solid ${theme.palette.divider}`,
-        borderRadius: '10px',
-        overflow: 'hidden', // Ensures nothing breaks out of the container
+        display: "flex",
+        flexDirection: "column",
+        gridArea: "envRender",
+        maxWidth: "25vh",
+        justifySelf: "center",
+        marginTop: "1rem",
+        alignSelf: "center",
+        border: (theme) => `1px solid ${theme.palette.divider}`,
+        borderRadius: "10px",
+        overflow: "hidden", // Ensures nothing breaks out of the container
         ...(hasFeatureSelectionFeedback && {
-          outline: theme => `2px solid ${theme.palette.primary.main}`,
-          boxShadow: theme => `0px 0px 20px 0px ${theme.palette.primary.main}`,
-          outlineOffset: '-1px',
+          outline: (theme) => `2px solid ${theme.palette.primary.main}`,
+          boxShadow: (theme) =>
+            `0px 0px 20px 0px ${theme.palette.primary.main}`,
+          outlineOffset: "-1px",
         }),
       }}
     >
@@ -66,16 +68,16 @@ const EnvRender: React.FC<EnvRenderProps> = ({
       {mission && (
         <Box
           sx={{
-            padding: '4px 8px',
-            borderBottom: theme => `1px solid ${theme.palette.divider}`,
-            bgcolor: theme => theme.palette.background.default,
+            padding: "4px 8px",
+            borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+            bgcolor: (theme) => theme.palette.background.default,
           }}
         >
-          <Typography 
-            variant="body2" 
-            sx={{ 
-              color: 'text.secondary',
-              fontSize: '0.8rem',
+          <Typography
+            variant="body2"
+            sx={{
+              color: "text.secondary",
+              fontSize: "0.8rem",
               lineHeight: 1.2,
             }}
           >
@@ -85,9 +87,7 @@ const EnvRender: React.FC<EnvRenderProps> = ({
       )}
 
       {/* Video Container */}
-      <Box
-        sx={{display: 'flex'}}
-      >
+      <Box sx={{ display: "flex" }}>
         <VideoPlayer
           videoRef={videoRef}
           videoURL={videoURL}
@@ -98,22 +98,22 @@ const EnvRender: React.FC<EnvRenderProps> = ({
           playButtonHandler={playButtonHandler}
           playing={playing}
         />
-        
+
         {showFeatureSelection && (
           <IconButton
             onClick={onFeatureSelect}
             sx={{
-              position: 'absolute',
-              marginTop: '4px',
-              marginLeft: '4px',
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
-              padding: '8px',
-              color: theme =>
+              position: "absolute",
+              marginTop: "4px",
+              marginLeft: "4px",
+              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              padding: "8px",
+              color: (theme) =>
                 hasFeatureSelectionFeedback
                   ? theme.palette.primary.light
                   : theme.palette.text.secondary,
-              '&:hover': {
-                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              "&:hover": {
+                backgroundColor: "rgba(0, 0, 0, 0.7)",
               },
             }}
           >
@@ -123,46 +123,49 @@ const EnvRender: React.FC<EnvRenderProps> = ({
       </Box>
 
       {/* Video Controls */}
-      <Box sx={{ 
-        display: 'flex', 
-        height: '1.5rem',
-        justifyContent: 'center', 
-        gap: 0.5,
-        //padding: '4px',
-        bgcolor: theme => theme.palette.background.default,
-      }}>
+      <Box
+        sx={{
+          display: "flex",
+          height: "1.5rem",
+          justifyContent: "center",
+          gap: 0.5,
+          //padding: '4px',
+          bgcolor: (theme) => theme.palette.background.default,
+        }}
+      >
         <IconButton
           size="small"
-          onClick={() => handleStep('backward')}
-          sx={{ 
-            color: 'text.secondary',
-            padding: '4px',
+          onClick={() => handleStep("backward")}
+          sx={{
+            color: "text.secondary",
+            padding: "4px",
           }}
         >
-          <ChevronLeftIcon sx={{ fontSize: '1.2rem' }} />
+          <ChevronLeftIcon sx={{ fontSize: "1.2rem" }} />
         </IconButton>
         <IconButton
           size="small"
           onClick={playButtonHandler}
-          sx={{ 
-            color: 'text.secondary',
-            padding: '4px',
+          sx={{
+            color: "text.secondary",
+            padding: "4px",
           }}
         >
-          {playing ? 
-            <PauseIcon sx={{ fontSize: '1.2rem' }} /> : 
-            <PlayArrowIcon sx={{ fontSize: '1.2rem' }} />
-          }
+          {playing ? (
+            <PauseIcon sx={{ fontSize: "1.2rem" }} />
+          ) : (
+            <PlayArrowIcon sx={{ fontSize: "1.2rem" }} />
+          )}
         </IconButton>
         <IconButton
           size="small"
-          onClick={() => handleStep('forward')}
-          sx={{ 
-            color: 'text.secondary',
-            padding: '4px',
+          onClick={() => handleStep("forward")}
+          sx={{
+            color: "text.secondary",
+            padding: "4px",
           }}
         >
-          <ChevronRightIcon sx={{ fontSize: '1.2rem' }} />
+          <ChevronRightIcon sx={{ fontSize: "1.2rem" }} />
         </IconButton>
       </Box>
     </Box>

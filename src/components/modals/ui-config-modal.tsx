@@ -1,26 +1,26 @@
-import * as React from 'react';
+import * as React from "react";
 
 // MUI components
-import Button from '@mui/material/Button';
-import TextField from '@mui/material/TextField';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import FormGroup from '@mui/material/FormGroup';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import Select, { SelectChangeEvent } from '@mui/material/Select';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogTitle from '@mui/material/DialogTitle';
-import Checkbox from '@mui/material/Checkbox';
-import { MuiFileInput } from 'mui-file-input';
-import { FormControl, InputLabel, MenuItem, Stack } from '@mui/material';
-import UploadIcon from '@mui/icons-material/Upload';
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import FormGroup from "@mui/material/FormGroup";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Select, { SelectChangeEvent } from "@mui/material/Select";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
+import Checkbox from "@mui/material/Checkbox";
+import { MuiFileInput } from "mui-file-input";
+import { FormControl, InputLabel, MenuItem, Stack } from "@mui/material";
+import UploadIcon from "@mui/icons-material/Upload";
 
 // A list of all available custom inputs
-import { AvailableCustomInputs } from '../../custom_env_inputs/custom_input_mapping';
+import { AvailableCustomInputs } from "../../custom_env_inputs/custom_input_mapping";
 
 // Our types
-import { UIConfig } from '../../types';
+import { UIConfig } from "../../types";
 
 export type ConfigModalProps = {
   config: UIConfig;
@@ -47,7 +47,7 @@ export default function ConfigModal(props: ConfigModalProps) {
       return;
     }
     const reader = new FileReader();
-    reader.onload = event => {
+    reader.onload = (event) => {
       const config = JSON.parse(event.target?.result as string);
       setNewConfig(config);
     };
@@ -55,7 +55,7 @@ export default function ConfigModal(props: ConfigModalProps) {
   };
 
   const formChangeHandler = (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const overwrite_config = Object.assign({}, new_config);
     const value = event.target.value;
@@ -65,11 +65,11 @@ export default function ConfigModal(props: ConfigModalProps) {
   };
 
   const formChangeHandlerCheckbox = (
-    event: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const overwrite_config = Object.assign({}, new_config);
-    const key = event.target.id.split('_')[0];
-    const component = event.target.id.split('_')[1];
+    const key = event.target.id.split("_")[0];
+    const component = event.target.id.split("_")[1];
     const value = event.target.checked;
     // @ts-ignore
     overwrite_config[key as keyof UIConfig][component] = value;
@@ -85,13 +85,16 @@ export default function ConfigModal(props: ConfigModalProps) {
 
   return (
     <div>
-      <Dialog open={props.open} onClose={() => props.onClose(null)}
+      <Dialog
+        open={props.open}
+        onClose={() => props.onClose(null)}
         PaperProps={{
           style: {
-            minHeight: '50%',
-            maxHeight: '50%',
-          }
-        }} >
+            minHeight: "50%",
+            maxHeight: "50%",
+          },
+        }}
+      >
         <DialogTitle>RLHF-Blender: UI Configuration</DialogTitle>
         <DialogContent>
           <DialogContentText>
@@ -102,11 +105,11 @@ export default function ConfigModal(props: ConfigModalProps) {
             Upload a config file to copy the settings from an existing
             experiment.
           </DialogContentText>
-          <Stack direction={'row'}>
+          <Stack direction={"row"}>
             <MuiFileInput
               value={filePath}
               onChange={handleChange}
-              sx={{ width: '80%', marginRight: '10px' }}
+              sx={{ width: "80%", marginRight: "10px" }}
             />
             <Button
               variant="outlined"
@@ -120,9 +123,9 @@ export default function ConfigModal(props: ConfigModalProps) {
             Adapt the settings below to your needs.
           </DialogContentText>
           {Object.keys(new_config).map((key: string, index: number) => {
-            if (key === 'id' || key === 'customInput') {
+            if (key === "id" || key === "customInput") {
               return <div key={`empty-${key}`}></div>;
-            } else if (key === 'uiComponents' || key === 'feedbackComponents') {
+            } else if (key === "uiComponents" || key === "feedbackComponents") {
               return (
                 <div key={index}>
                   <DialogContentText>
@@ -133,14 +136,14 @@ export default function ConfigModal(props: ConfigModalProps) {
                       (component: string) => {
                         const element =
                           new_config[key][
-                          component as keyof UIConfig[typeof key]
+                            component as keyof UIConfig[typeof key]
                           ];
                         return (
                           <div key={`${key}-${component}`}>
                             <FormControlLabel
                               control={
                                 <Checkbox
-                                  id={key + '_' + component}
+                                  id={key + "_" + component}
                                   onChange={formChangeHandlerCheckbox}
                                   checked={element}
                                 />
@@ -149,14 +152,12 @@ export default function ConfigModal(props: ConfigModalProps) {
                             />
                           </div>
                         );
-                      }
+                      },
                     )}
                   </FormGroup>
                 </div>
               );
-            } else if (
-              typeof new_config[key as keyof UIConfig] === 'string'
-            ) {
+            } else if (typeof new_config[key as keyof UIConfig] === "string") {
               return (
                 <TextField
                   margin="dense"
@@ -169,9 +170,7 @@ export default function ConfigModal(props: ConfigModalProps) {
                   onChange={formChangeHandler}
                 />
               );
-            } else if (
-              typeof new_config[key as keyof UIConfig] === 'number'
-            ) {
+            } else if (typeof new_config[key as keyof UIConfig] === "number") {
               return (
                 <TextField
                   margin="dense"
@@ -195,11 +194,15 @@ export default function ConfigModal(props: ConfigModalProps) {
             <Select
               id="customInput"
               labelId="custom-environment-input-label"
-              value={'customInput' in new_config ? new_config.customInput : ''}
+              value={"customInput" in new_config ? new_config.customInput : ""}
               onChange={formDropdownHandler}
             >
               {availableCustomInputs.map((element: string) => {
-                return <MenuItem key={"customInput" + element} value={element}>{element}</MenuItem>;
+                return (
+                  <MenuItem key={"customInput" + element} value={element}>
+                    {element}
+                  </MenuItem>
+                );
               })}
             </Select>
           </FormControl>

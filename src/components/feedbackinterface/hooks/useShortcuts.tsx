@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { useShortcuts } from '../../../ShortCutProvider';
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useShortcuts } from "../../../ShortCutProvider";
 
 export const useFeedbackShortcuts = ({
   episodeIDs,
@@ -21,7 +21,7 @@ export const useFeedbackShortcuts = ({
     onEvalFeedback,
     onBestOfKSelection,
     onDemoRequest,
-    onFeatureAnnotation
+    onFeatureAnnotation,
   });
 
   // Update refs when callbacks change
@@ -30,7 +30,7 @@ export const useFeedbackShortcuts = ({
       onEvalFeedback,
       onBestOfKSelection,
       onDemoRequest,
-      onFeatureAnnotation
+      onFeatureAnnotation,
     };
   }, [onEvalFeedback, onBestOfKSelection, onDemoRequest, onFeatureAnnotation]);
 
@@ -71,11 +71,11 @@ export const useFeedbackShortcuts = ({
       }
     }
 
-    if (uiConfigFeedbackComponents?.ranking && feedbackMode === 'bestOfK') {
-      ['left', 'right'].forEach((direction, index) => {
+    if (uiConfigFeedbackComponents?.ranking && feedbackMode === "bestOfK") {
+      ["left", "right"].forEach((direction, index) => {
         const shortcutId = `select-${direction}`;
         registerShortcut(shortcutId, {
-          key: direction === 'left' ? 'ArrowLeft' : 'ArrowRight',
+          key: direction === "left" ? "ArrowLeft" : "ArrowRight",
           description: `Select ${direction} episode`,
           action: () => {
             if (episodeIDs.length === 2) {
@@ -89,7 +89,7 @@ export const useFeedbackShortcuts = ({
 
     // Clean up function to unregister all shortcuts
     return () => {
-      shortcutIds.forEach(id => unregisterShortcut(id));
+      shortcutIds.forEach((id) => unregisterShortcut(id));
     };
   }, [
     registerShortcut,

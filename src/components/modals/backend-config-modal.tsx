@@ -1,23 +1,30 @@
-import * as React from 'react';
+import * as React from "react";
 
 // MUI components
-import Button from '@mui/material/Button';
-import TextField from '@mui/material/TextField';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import Select, { SelectChangeEvent } from '@mui/material/Select';
-import Chip from '@mui/material/Chip';
-import DialogContent from '@mui/material/DialogContent';
-import DialogContentText from '@mui/material/DialogContentText';
-import DialogTitle from '@mui/material/DialogTitle';
-import { MuiFileInput } from 'mui-file-input';
-import { Box, FormControl, InputLabel, MenuItem, Stack, Typography } from '@mui/material';
-import { BackendConfigSequenceVisualizer } from './backend-config-sequence-generator';
-import UploadIcon from '@mui/icons-material/Upload';
-import OutlinedInput from '@mui/material/OutlinedInput';
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import Select, { SelectChangeEvent } from "@mui/material/Select";
+import Chip from "@mui/material/Chip";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
+import { MuiFileInput } from "mui-file-input";
+import {
+  Box,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Stack,
+  Typography,
+} from "@mui/material";
+import { BackendConfigSequenceVisualizer } from "./backend-config-sequence-generator";
+import UploadIcon from "@mui/icons-material/Upload";
+import OutlinedInput from "@mui/material/OutlinedInput";
 
 // Our types
-import { BackendConfig, UIConfig } from '../../types';
+import { BackendConfig, UIConfig } from "../../types";
 
 export type ConfigModalProps = {
   config: BackendConfig;
@@ -43,7 +50,7 @@ export default function BackendConfigModal(props: ConfigModalProps) {
       return;
     }
     const reader = new FileReader();
-    reader.onload = event => {
+    reader.onload = (event) => {
       const config = JSON.parse(event.target?.result as string);
       setNewConfig(config);
     };
@@ -51,24 +58,12 @@ export default function BackendConfigModal(props: ConfigModalProps) {
   };
 
   const formChangeHandler = (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const overwrite_config = Object.assign({}, new_config);
     const value = event.target.value;
     // @ts-ignore
     overwrite_config[event.target?.id] = value;
-    setNewConfig(overwrite_config);
-  };
-
-  const formChangeHandlerCheckbox = (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const overwrite_config = Object.assign({}, new_config);
-    const key = event.target.id.split('_')[0];
-    const component = event.target.id.split('_')[1];
-    const value = event.target.checked;
-    // @ts-ignore
-    overwrite_config[key as keyof BackendConfig][component] = value;
     setNewConfig(overwrite_config);
   };
 
@@ -83,10 +78,10 @@ export default function BackendConfigModal(props: ConfigModalProps) {
     const selectedNames = event.target.value as string[];
 
     // Map the selected names back to their full UI config objects
-    const selectedConfigs = selectedNames.map(name =>
-      props.uiConfigList.find(config => config.name === name)
-    ).filter((config): config is UIConfig => config !== undefined)
-    .map(config => ({ id: config.id, name: config.name }));
+    const selectedConfigs = selectedNames
+      .map((name) => props.uiConfigList.find((config) => config.name === name))
+      .filter((config): config is UIConfig => config !== undefined)
+      .map((config) => ({ id: config.id, name: config.name }));
 
     setNewConfig({
       ...new_config,
@@ -96,13 +91,16 @@ export default function BackendConfigModal(props: ConfigModalProps) {
 
   return (
     <div>
-      <Dialog open={props.open} onClose={() => props.onClose(null)}
+      <Dialog
+        open={props.open}
+        onClose={() => props.onClose(null)}
         PaperProps={{
           style: {
-            minHeight: '70%',
-            maxHeight: '70%',
-          }
-        }} >
+            minHeight: "70%",
+            maxHeight: "70%",
+          },
+        }}
+      >
         <DialogTitle>RLHF-Blender: Experiment Setup</DialogTitle>
         <DialogContent>
           <DialogContentText>
@@ -113,11 +111,11 @@ export default function BackendConfigModal(props: ConfigModalProps) {
             Upload a config file to copy the settings from an existing
             experiment.
           </DialogContentText>
-          <Stack direction={'row'}>
+          <Stack direction={"row"}>
             <MuiFileInput
               value={filePath}
               onChange={handleChange}
-              sx={{ width: '80%', marginRight: '10px' }}
+              sx={{ width: "80%", marginRight: "10px" }}
             />
             <Button
               variant="outlined"
@@ -134,7 +132,9 @@ export default function BackendConfigModal(props: ConfigModalProps) {
             Experiment Sequence Settings
           </Typography>
           <FormControl fullWidth>
-            <InputLabel id="ui-config-select-label">Selected UI Configs</InputLabel>
+            <InputLabel id="ui-config-select-label">
+              Selected UI Configs
+            </InputLabel>
             <Select
               labelId="ui-config-select-label"
               label="Selected UI Configs"
@@ -142,11 +142,11 @@ export default function BackendConfigModal(props: ConfigModalProps) {
               multiple
               fullWidth
               margin="dense"
-              value={new_config.selectedUiConfigs.map(config => config.name)}
+              value={new_config.selectedUiConfigs.map((config) => config.name)}
               onChange={handleListChange}
               input={<OutlinedInput id="select-multiple-chip" label="Chip" />}
               renderValue={(selected) => (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                   {selected.map((name) => (
                     <Chip key={name} label={name} />
                   ))}
@@ -154,10 +154,7 @@ export default function BackendConfigModal(props: ConfigModalProps) {
               )}
             >
               {props.uiConfigList.map((uiConfig) => (
-                <MenuItem
-                  key={uiConfig.id}
-                  value={uiConfig.name}
-                >
+                <MenuItem key={uiConfig.id} value={uiConfig.name}>
                   {uiConfig.name}
                 </MenuItem>
               ))}
@@ -172,14 +169,22 @@ export default function BackendConfigModal(props: ConfigModalProps) {
               value={new_config.uiConfigMode}
               onChange={formDropdownHandler}
             >
-              <MenuItem key="seq_mode_sequential" value="sequential">Sequential</MenuItem>
-              <MenuItem key="seq_mode_alternating" value="alternating">Alternating</MenuItem>
-              <MenuItem key="seq_mode_random" value="random">Random</MenuItem>
+              <MenuItem key="seq_mode_sequential" value="sequential">
+                Sequential
+              </MenuItem>
+              <MenuItem key="seq_mode_alternating" value="alternating">
+                Alternating
+              </MenuItem>
+              <MenuItem key="seq_mode_random" value="random">
+                Random
+              </MenuItem>
             </Select>
           </FormControl>
-          <Box sx={{ marginTop: '1vh' }}>
+          <Box sx={{ marginTop: "1vh" }}>
             <BackendConfigSequenceVisualizer
-              uiCOnfigIds={new_config.selectedUiConfigs.map((uiConfig) => uiConfig.name)}
+              uiCOnfigIds={new_config.selectedUiConfigs.map(
+                (uiConfig) => uiConfig.name,
+              )}
               nrOfBatches={3}
               mode={new_config.uiConfigMode}
             />
@@ -188,9 +193,15 @@ export default function BackendConfigModal(props: ConfigModalProps) {
             Additional Settings
           </Typography>
           {Object.keys(new_config).map((key: string, index: number) => {
-            if (key === 'id' || key === 'customInput' || key === 'uiConfigMode') {
+            if (
+              key === "id" ||
+              key === "customInput" ||
+              key === "uiConfigMode"
+            ) {
               return <div key={`empty-${key}`}></div>;
-            } else if (typeof new_config[key as keyof BackendConfig] === 'string') {
+            } else if (
+              typeof new_config[key as keyof BackendConfig] === "string"
+            ) {
               return (
                 <TextField
                   key={key}
@@ -203,7 +214,9 @@ export default function BackendConfigModal(props: ConfigModalProps) {
                   onChange={formChangeHandler}
                 />
               );
-            } else if (typeof new_config[key as keyof BackendConfig] === 'number') {
+            } else if (
+              typeof new_config[key as keyof BackendConfig] === "number"
+            ) {
               return (
                 <TextField
                   key={key}

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Box } from '@mui/material';
+import React from "react";
+import { Box } from "@mui/material";
 
 interface VideoPlayerProps {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -18,16 +18,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onLoadMetadata,
 }) => {
   return (
-    <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
+    <Box sx={{ width: "100%", height: "100%", position: "relative" }}>
       {videoURL && (
         <video
           ref={videoRef}
           onLoadedMetadata={onLoadMetadata}
           loop
           style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
           }}
         >
           <source src={videoURL} type="video/mp4" />

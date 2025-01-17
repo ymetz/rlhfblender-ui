@@ -1,9 +1,9 @@
-import React from 'react';
-import { Box, Typography, Button } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
-import Send from '@mui/icons-material/Send';
-import Progressbar from './progressbar';
-import UserInstruction from './user-instruction';
+import React from "react";
+import { Box, Typography, Button } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import Send from "@mui/icons-material/Send";
+import Progressbar from "./progressbar";
+import UserInstruction from "./user-instruction";
 
 interface ProgressHeaderProps {
   showProgressBar: boolean;
@@ -24,36 +24,38 @@ export const ProgressHeader: React.FC<ProgressHeaderProps> = ({
   const theme = useTheme();
 
   return (
-    <Box 
-      sx={{ 
-        display: 'flex',
-        flexDirection: 'column',
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
         backgroundColor: theme.palette.background.l1,
         padding: 2,
-        gap: 1
+        gap: 1,
       }}
     >
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        width: '100%'
-      }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          width: "100%",
+        }}
+      >
         {showProgressBar && (
           <Box
             id="progress-section"
             sx={{
-              display: 'flex',
+              display: "flex",
               flex: 1,
-              alignItems: 'center',
-              marginRight: 2
+              alignItems: "center",
+              marginRight: 2,
             }}
           >
             <Typography
               sx={{
                 color: theme.palette.text.secondary,
                 marginRight: 2,
-                minWidth: 'fit-content'
+                minWidth: "fit-content",
               }}
             >
               Experiment Progress:
@@ -78,13 +80,14 @@ export const ProgressHeader: React.FC<ProgressHeaderProps> = ({
           </Button>
         </Box>
       </Box>
-      <Box sx={{ 
-        borderTop: `1px solid ${theme.palette.divider}`,
-        paddingTop: 1,
-        display: 'flex',
-        justifyContent: 'center'
-
-      }}>
+      <Box
+        sx={{
+          borderTop: `1px solid ${theme.palette.divider}`,
+          paddingTop: 1,
+          display: "flex",
+          justifyContent: "center",
+        }}
+      >
         <UserInstruction />
       </Box>
     </Box>

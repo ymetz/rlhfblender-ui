@@ -1,15 +1,15 @@
-import React, {useState, useEffect, useRef} from 'react';
-import {ReactSketchCanvas, ReactSketchCanvasRef} from 'react-sketch-canvas';
-import Box from '@mui/material/Box';
-import Close from '@mui/icons-material/Close';
-import Redo from '@mui/icons-material/Redo';
-import Undo from '@mui/icons-material/Undo';
-import Delete from '@mui/icons-material/Delete';
-import Send from '@mui/icons-material/Send';
-import Tooltip from '@mui/material/Tooltip';
-import axios from 'axios';
-import {Feedback, FeedbackType} from '../../types';
-import {EpisodeFromID} from '../../id';
+import React, { useState, useEffect, useRef } from "react";
+import { ReactSketchCanvas, ReactSketchCanvasRef } from "react-sketch-canvas";
+import Box from "@mui/material/Box";
+import Close from "@mui/icons-material/Close";
+import Redo from "@mui/icons-material/Redo";
+import Undo from "@mui/icons-material/Undo";
+import Delete from "@mui/icons-material/Delete";
+import Send from "@mui/icons-material/Send";
+import Tooltip from "@mui/material/Tooltip";
+import axios from "axios";
+import { Feedback, FeedbackType } from "../../types";
+import { EpisodeFromID } from "../../id";
 
 interface FeatureHighlightModalProps {
   episodeId: string;
@@ -28,12 +28,12 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
 }) => {
   const canvasRef = useRef<ReactSketchCanvasRef>(null);
 
-  const [thumbnailURL, setThumbnailURL] = useState('');
+  const [thumbnailURL, setThumbnailURL] = useState("");
   const [imageWidth, setImageWidth] = useState(0);
   const [imageHeight, setImageHeight] = useState(0);
 
   useEffect(() => {
-    getThumbnailURL(episodeId).then(url => {
+    getThumbnailURL(episodeId).then((url) => {
       if (url !== undefined) {
         // Get natural height and width of the image
         const img = new Image();
@@ -50,38 +50,43 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
   const onSubmitFeedback = () => {
     // Hack to prevent background image from being exported
     const oldURL = thumbnailURL;
-    setThumbnailURL('0');
+    setThumbnailURL("0");
 
-    const save_image_name = ("feature_selection_" + sessionId + "_" + episodeId).replace(/[^a-zA-Z0-9]/g, "_");
+    const save_image_name = (
+      "feature_selection_" +
+      sessionId +
+      "_" +
+      episodeId
+    ).replace(/[^a-zA-Z0-9]/g, "_");
 
     canvasRef.current
-      ?.exportImage('png')
-      .then(data => {
+      ?.exportImage("png")
+      .then((data) => {
         // Create a FormData object to send the image file
-        const file = new File([data], 'image.png', {type: 'image/png'});
+        const file = new File([data], "image.png", { type: "image/png" });
 
         const formData = new FormData();
-        formData.append('image', file);
+        formData.append("image", file);
 
         // Send the image data to the backend using Axios (also send the sessionID)
         axios({
-          method: 'post',
-          url: '/data/save_feature_feedback?save_image_name=' + save_image_name,
+          method: "post",
+          url: "/data/save_feature_feedback?save_image_name=" + save_image_name,
           data: formData,
           headers: {
-            Accept: 'application/json',
-            'Content-Type': 'multipart/form-data',
+            Accept: "application/json",
+            "Content-Type": "multipart/form-data",
           },
         })
-          .then(response => {
-            console.log('Image saved successfully:', response.data);
+          .then((response) => {
+            console.log("Image saved successfully:", response.data);
           })
-          .catch(error => {
-            console.log('Error saving image:', error);
+          .catch((error) => {
+            console.log("Error saving image:", error);
           });
       })
-      .catch(e => {
-        console.log('Error exporting image:', e);
+      .catch((e) => {
+        console.log("Error exporting image:", e);
       });
 
     onCloseSubmit({
@@ -90,14 +95,14 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
         {
           target_id: episodeId,
           reference: EpisodeFromID(episodeId),
-          origin: 'offline',
+          origin: "offline",
           timestamp: Date.now(),
         },
       ],
-      granularity: 'entire',
+      granularity: "entire",
       timestamp: Date.now(),
       session_id: sessionId,
-      feature_selection: save_image_name
+      feature_selection: save_image_name,
     } as Feedback);
 
     onClose();
@@ -117,19 +122,19 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
       />
       <Box
         sx={{
-          position: 'absolute',
+          position: "absolute",
           top: 0,
           right: 0,
-          display: 'flex',
-          justifyContent: 'center',
-          width: 'auto',
+          display: "flex",
+          justifyContent: "center",
+          width: "auto",
         }}
       >
         <Tooltip title="Submit Feedback">
           <Send
             onClick={onSubmitFeedback}
             style={{
-              color: 'green',
+              color: "green",
             }}
           />
         </Tooltip>
@@ -137,7 +142,7 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
           <Undo
             onClick={() => canvasRef.current?.undo()}
             style={{
-              color: 'white',
+              color: "white",
             }}
           />
         </Tooltip>
@@ -145,7 +150,7 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
           <Redo
             onClick={() => canvasRef.current?.redo()}
             style={{
-              color: 'white',
+              color: "white",
             }}
           />
         </Tooltip>
@@ -153,7 +158,7 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
           <Delete
             onClick={() => canvasRef.current?.clearCanvas()}
             style={{
-              color: 'white',
+              color: "white",
             }}
           />
         </Tooltip>
@@ -161,7 +166,7 @@ const FeatureHighlightModal: React.FC<FeatureHighlightModalProps> = ({
           <Close
             onClick={onClose}
             style={{
-              color: 'white',
+              color: "white",
             }}
           />
         </Tooltip>

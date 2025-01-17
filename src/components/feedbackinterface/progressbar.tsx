@@ -1,5 +1,5 @@
-import {Slider} from '@mui/material';
-import React from 'react';
+import { Slider } from "@mui/material";
+import React from "react";
 
 type ProgressbarProps = {
   maxSteps: number;
