@@ -1,10 +1,10 @@
-import Scrollbar from './scrollbar';
-import SmallEpisodeItem from './episodeitem/small-episode-item';
-import Box from '@mui/material/Box';
-import {Episode} from '../../types';
-import {IDfromEpisode} from '../../id';
-import {Droppable} from 'react-beautiful-dnd';
-import React from 'react';
+import Scrollbar from "./scrollbar";
+import SmallEpisodeItem from "./episodeitem/small-episode-item";
+import Box from "@mui/material/Box";
+import { Episode } from "../../types";
+import { IDfromEpisode } from "../../id";
+import { Droppable } from "react-beautiful-dnd";
+import React from "react";
 
 interface AlternativeScrollableEpisodeListProps {
   episodeIDs: Episode[];
@@ -13,15 +13,15 @@ interface AlternativeScrollableEpisodeListProps {
 
 const ScrollableEpisodeList: React.FC<
   AlternativeScrollableEpisodeListProps
-> = ({episodeIDs, rankeableEpisodeIDs}) => {
+> = ({ episodeIDs, rankeableEpisodeIDs }) => {
   let draggableIndex = 0;
   return (
     <Droppable
-      droppableId={'scrollable-episode-list'}
+      droppableId={"scrollable-episode-list"}
       direction="horizontal"
       isDropDisabled={true}
     >
-      {provided => (
+      {(provided) => (
         <Box
           id="scrollable-episode-list"
           ref={provided.innerRef}
@@ -32,7 +32,7 @@ const ScrollableEpisodeList: React.FC<
               <SmallEpisodeItem
                 key={index}
                 isRankeable={rankeableEpisodeIDs.includes(
-                  IDfromEpisode(episodeID)
+                  IDfromEpisode(episodeID),
                 )}
                 episodeID={episodeID}
                 draggableIndex={draggableIndex++}

@@ -1,4 +1,4 @@
-import * as React from 'react';
+import * as React from "react";
 
 // Material UI
 import {
@@ -8,18 +8,18 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-} from '@mui/material';
-import { useTheme } from '@mui/material/styles';
+} from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 // Custom Components
-import { CustomInput } from '../../custom_env_inputs/custom_input_mapping';
+import { CustomInput } from "../../custom_env_inputs/custom_input_mapping";
 
 // Types
-import { Feedback, FeedbackType } from '../../types';
-import { EpisodeFromID } from '../../id';
+import { Feedback, FeedbackType } from "../../types";
+import { EpisodeFromID } from "../../id";
 
 // Axios
-import axios from 'axios';
+import axios from "axios";
 
 type CorrectionModalProps = {
   open: boolean;
@@ -46,24 +46,26 @@ export default function CorrectionModal(props: CorrectionModalProps) {
   const [feedback, setFeedback] = React.useState<Feedback>({
     targets: [
       {
-        target_id: props.episodeId || '',
-        reference: EpisodeFromID(props.episodeId || ''),
+        target_id: props.episodeId || "",
+        reference: EpisodeFromID(props.episodeId || ""),
         step: props.step,
-        origin: 'offline',
+        origin: "offline",
         timestamp: Date.now(),
       },
     ],
     feedback_type: FeedbackType.Corrective,
-    granularity: 'state',
+    granularity: "state",
     timestamp: Date.now(),
     session_id: props.sessionId,
   });
-  const [stepDetails, setStepDetails] = React.useState<StepDetails | null>(null);
+  const [stepDetails, setStepDetails] = React.useState<StepDetails | null>(
+    null,
+  );
 
   React.useEffect(() => {
     if (props.episodeId) {
       axios
-        .post('/data/get_single_step_details', {
+        .post("/data/get_single_step_details", {
           ...EpisodeFromID(props.episodeId),
           step: props.step,
         })
@@ -89,11 +91,17 @@ export default function CorrectionModal(props: CorrectionModalProps) {
         props.onClose();
       }}
     >
-      <DialogTitle>Correction for: {props.episodeId} - {props.step}</DialogTitle>
+      <DialogTitle>
+        Correction for: {props.episodeId} - {props.step}
+      </DialogTitle>
       <DialogContent>
         <Grid container spacing={1}>
           <Grid item xs="auto">
-            <img src={props.frame} alt="frame" style={{ width: '100%', height: '100%' }} />
+            <img
+              src={props.frame}
+              alt="frame"
+              style={{ width: "100%", height: "100%" }}
+            />
           </Grid>
           {stepDetails && (
             <Grid item xs>
@@ -109,10 +117,12 @@ export default function CorrectionModal(props: CorrectionModalProps) {
         </Grid>
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => {
-          setStepDetails(null);
-          props.onClose();
-        }}>
+        <Button
+          onClick={() => {
+            setStepDetails(null);
+            props.onClose();
+          }}
+        >
           Cancel
         </Button>
         <Button

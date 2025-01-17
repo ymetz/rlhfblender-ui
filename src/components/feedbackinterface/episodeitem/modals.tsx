@@ -1,8 +1,8 @@
-import React from 'react';
-import { Dialog } from '@mui/material';
-import FeatureHighlightModal from '../feature-highlight-modal';
-import CorrectionModal from '../../modals/correction-modal';
-import { Feedback } from '../../../types';
+import React from "react";
+import { Dialog } from "@mui/material";
+import FeatureHighlightModal from "../feature-highlight-modal";
+import CorrectionModal from "../../modals/correction-modal";
+import { Feedback } from "../../../types";
 
 interface ModalsProps {
   highlightModalOpen: boolean;
@@ -16,7 +16,7 @@ interface ModalsProps {
   onHighlightSubmit: (feedback: Feedback) => void;
   onCorrectionClose: () => void;
   onCorrectionSubmit: (feedback: Feedback, step: number) => void;
-  getThumbnailURL?: (episodeId: string) => Promise<string|undefined>;
+  getThumbnailURL?: (episodeId: string) => Promise<string | undefined>;
 }
 
 const Modals: React.FC<ModalsProps> = ({
@@ -35,22 +35,20 @@ const Modals: React.FC<ModalsProps> = ({
 }) => {
   const getSingleFrame = (video: HTMLVideoElement, time: number): string => {
     if (video === null || video.readyState < 2) {
-      return '';
+      return "";
     }
 
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    
+    const ctx = canvas.getContext("2d");
+
     if (ctx) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       return canvas.toDataURL();
     }
-    return '';
+    return "";
   };
-
-  console.log("CORRECTION correction", customInput);
 
   return (
     <>
@@ -68,7 +66,9 @@ const Modals: React.FC<ModalsProps> = ({
         open={correctionModalOpen}
         episodeId={episodeId}
         step={selectedStep}
-        frame={videoRef.current ? getSingleFrame(videoRef.current, selectedStep) : ''}
+        frame={
+          videoRef.current ? getSingleFrame(videoRef.current, selectedStep) : ""
+        }
         onClose={onCorrectionClose}
         onCloseSubmit={onCorrectionSubmit}
         custom_input={customInput}

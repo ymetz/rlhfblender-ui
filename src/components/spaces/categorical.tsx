@@ -1,9 +1,9 @@
-import * as React from 'react';
-import {Bar} from '@visx/shape';
-import {Group} from '@visx/group';
-import {scaleBand, scaleLinear} from '@visx/scale';
-import {AxisBottom, AxisLeft} from '@visx/axis';
-import {  GymSpaceInfo } from '../../types';
+import * as React from "react";
+import { Bar } from "@visx/shape";
+import { Group } from "@visx/group";
+import { scaleBand, scaleLinear } from "@visx/scale";
+import { AxisBottom, AxisLeft } from "@visx/axis";
+import { GymSpaceInfo } from "../../types";
 
 export type BarsProps = {
   width: number;
@@ -37,7 +37,7 @@ export default function Categorical({
         domain: distribution?.map((d, i) => i) ?? [],
         padding: 0.4,
       }),
-    [xMax, distribution]
+    [xMax, distribution],
   );
   const yScale = React.useMemo(
     () =>
@@ -46,7 +46,7 @@ export default function Categorical({
         round: true,
         domain: [0, 1.0],
       }),
-    [yMax]
+    [yMax],
   );
 
   return width < 10 ? null : (
@@ -70,8 +70,8 @@ export default function Categorical({
               height={barHeight}
               fill={
                 i === action
-                  ? 'rgba(245, 24, 16, 0.8)'
-                  : 'rgba(50, 150, 217, .8)'
+                  ? "rgba(245, 24, 16, 0.8)"
+                  : "rgba(50, 150, 217, .8)"
               }
               onClick={() => {
                 if (events)

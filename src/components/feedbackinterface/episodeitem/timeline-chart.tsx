@@ -1,22 +1,22 @@
-import React, {useMemo, useCallback} from 'react';
-import {AreaClosed, Line, Bar} from '@visx/shape';
-import {AxisLeft, AxisBottom} from '@visx/axis';
-import {curveMonotoneX} from '@visx/curve';
-import {GridRows, GridColumns} from '@visx/grid';
-import {scaleLinear} from '@visx/scale';
-import {Group} from '@visx/group';
-import {Glyph as CustomGlyph, GlyphCircle} from '@visx/glyph';
+import React, { useMemo, useCallback } from "react";
+import { AreaClosed, Line, Bar } from "@visx/shape";
+import { AxisLeft, AxisBottom } from "@visx/axis";
+import { curveMonotoneX } from "@visx/curve";
+import { GridRows, GridColumns } from "@visx/grid";
+import { scaleLinear } from "@visx/scale";
+import { Group } from "@visx/group";
+import { Glyph as CustomGlyph, GlyphCircle } from "@visx/glyph";
 import {
   withTooltip,
   Tooltip,
   TooltipWithBounds,
   defaultStyles,
-} from '@visx/tooltip';
-import {WithTooltipProvidedProps} from '@visx/tooltip/lib/enhancers/withTooltip';
-import {localPoint} from '@visx/event';
-import {LinearGradient} from '@visx/gradient';
-import LocationOnIcon from '@mui/icons-material/LocationOn';
-import {useTheme} from '@mui/material/styles';
+} from "@visx/tooltip";
+import { WithTooltipProvidedProps } from "@visx/tooltip/lib/enhancers/withTooltip";
+import { localPoint } from "@visx/event";
+import { LinearGradient } from "@visx/gradient";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
+import { useTheme } from "@mui/material/styles";
 
 type TimelineChartProps = {
   width: number;
@@ -25,7 +25,7 @@ type TimelineChartProps = {
   uncertainty: number[];
   actions?: number[];
   actionLabels?: any[];
-  margin?: {top: number; right: number; bottom: number; left: number};
+  margin?: { top: number; right: number; bottom: number; left: number };
   onChange: (value: number) => void;
   onCorrectionClick: (step: number) => void;
   givenFeedbackMarkers: any[];
@@ -52,7 +52,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
     uncertainty,
     actions,
     actionLabels,
-    margin = {top: 20, right: 10, bottom: 25, left: 30},
+    margin = { top: 20, right: 10, bottom: 25, left: 30 },
     onChange,
     onCorrectionClick,
     givenFeedbackMarkers,
@@ -66,7 +66,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
     useCorrectiveFeedback,
   }: TimelineChartProps & WithTooltipProvidedProps<TooltipProps>) => {
     if (width < 10) return null;
-    
+
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
     const rewardArray = rewards;
@@ -80,9 +80,9 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
           range: [margin.left, innerWidth + margin.left],
           domain: [0, rewardArray.length - 1],
         }),
-      [innerWidth, margin.left, rewardArray.length]
+      [innerWidth, margin.left, rewardArray.length],
     );
-    
+
     const valueScale = useMemo(
       () =>
         scaleLinear({
@@ -90,7 +90,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
           domain: [0, Math.max(...rewardArray) || 0],
           nice: true,
         }),
-      [innerHeight, margin.top, rewardArray]
+      [innerHeight, margin.top, rewardArray],
     );
 
     const uncertaintyScale = useMemo(
@@ -100,27 +100,30 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
           domain: [0, Math.max(...uncertainty) || 0],
           nice: true,
         }),
-      [innerHeight, margin.top, uncertainty]
+      [innerHeight, margin.top, uncertainty],
     );
 
     const handleTooltip = useCallback(
       (
         event:
           | React.TouchEvent<SVGRectElement>
-          | React.MouseEvent<SVGRectElement>
+          | React.MouseEvent<SVGRectElement>,
       ) => {
-        const {x} = localPoint(event) || {x: -1};
+        const { x } = localPoint(event) || { x: -1 };
         const x0 = x === -1 ? tooltipLeft * fps : stepScale.invert(x);
         const snappedIndex = Math.round(x0);
-        const clampedIndex = Math.max(0, Math.min(snappedIndex, rewardArray.length - 1));
-        
+        const clampedIndex = Math.max(
+          0,
+          Math.min(snappedIndex, rewardArray.length - 1),
+        );
+
         const d = rewardArray[clampedIndex];
         showTooltip({
-          tooltipData: {value: d, index: clampedIndex},
+          tooltipData: { value: d, index: clampedIndex },
           tooltipLeft: clampedIndex / fps,
           tooltipTop: valueScale(d),
         });
-        onChange((clampedIndex / fps) || 0);
+        onChange(clampedIndex / fps || 0);
       },
       [
         tooltipLeft,
@@ -130,7 +133,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
         valueScale,
         onChange,
         fps,
-      ]
+      ],
     );
 
     return (
@@ -172,7 +175,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             <AreaClosed
               data={rewardArray}
               x={(_, i) => stepScale(i) ?? 0}
-              y={d => valueScale(d) ?? 0}
+              y={(d) => valueScale(d) ?? 0}
               yScale={valueScale}
               strokeWidth={1}
               stroke="url(#area-gradient)"
@@ -182,18 +185,18 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             <AreaClosed
               data={uncertainty}
               x={(_, i) => stepScale(i) ?? 0}
-              y={d => uncertaintyScale(d) ?? 0}
+              y={(d) => uncertaintyScale(d) ?? 0}
               yScale={valueScale}
               strokeWidth={1}
               stroke={theme.palette.primary.light}
               fill="transparent"
               curve={curveMonotoneX}
             />
-            
+
             {rewardArray.map((reward, index) => {
               const x = stepScale(index);
               const y = valueScale(reward);
-              
+
               // If we have an action label SVG for this step
               if (actions && actionLabels && actionLabels[actions[index]]) {
                 return (
@@ -202,7 +205,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
                   </CustomGlyph>
                 );
               }
-              
+
               // Otherwise use circle glyphs
               const isLastStep = index === rewardArray.length - 1;
               return (
@@ -211,8 +214,8 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
                   left={x}
                   top={y}
                   size={15}
-                  stroke={isLastStep ? '#4de44d' : theme.palette.secondary.main}
-                  fill={isLastStep ? '#4de44d' : theme.palette.secondary.main}
+                  stroke={isLastStep ? "#4de44d" : theme.palette.secondary.main}
+                  fill={isLastStep ? "#4de44d" : theme.palette.secondary.main}
                 />
               );
             })}
@@ -222,7 +225,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
               left={margin.left}
               label="Reward"
               numTicks={valueScale.ticks().length / 4}
-              tickFormat={value => `${value}`}
+              tickFormat={(value) => `${value}`}
               stroke={theme.palette.text.secondary}
               tickLabelProps={{
                 fill: theme.palette.text.primary,
@@ -251,8 +254,14 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             />
 
             <Line
-              from={{x: stepScale(Math.round(tooltipLeft * fps)), y: margin.top}}
-              to={{x: stepScale(Math.round(tooltipLeft * fps)), y: innerHeight + margin.top}}
+              from={{
+                x: stepScale(Math.round(tooltipLeft * fps)),
+                y: margin.top,
+              }}
+              to={{
+                x: stepScale(Math.round(tooltipLeft * fps)),
+                y: innerHeight + margin.top,
+              }}
               stroke={theme.palette.primary.main}
               strokeWidth={3}
               pointerEvents="none"
@@ -269,9 +278,9 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             onTouchStart={handleTooltip}
             onTouchMove={handleTooltip}
             onMouseMove={handleTooltip}
-            onDoubleClick={event =>
+            onDoubleClick={(event) =>
               onCorrectionClick(
-                Math.floor(stepScale.invert(localPoint(event)?.x || 0))
+                Math.floor(stepScale.invert(localPoint(event)?.x || 0)),
               )
             }
             onMouseLeave={() => hideTooltip()}
@@ -279,14 +288,14 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
 
           {proposedFeedbackMarkers.map((marker, index) => (
             <g
-              key={'marker_' + index}
+              key={"marker_" + index}
               transform={`translate(${stepScale(marker.x) - 9},${0})`}
             >
               <LocationOnIcon
                 inheritViewBox
                 sx={{
                   color: theme.palette.primary.dark,
-                  '&:hover': {
+                  "&:hover": {
                     color: theme.palette.primary.light,
                   },
                 }}
@@ -295,16 +304,16 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
               />
             </g>
           ))}
-          
+
           {givenFeedbackMarkers.map((marker, index) => (
             <g
-              key={'marker_' + index}
+              key={"marker_" + index}
               transform={`translate(${stepScale(marker.x) - 9},${0})`}
             >
               <LocationOnIcon
                 inheritViewBox
                 sx={{
-                  '&:hover': {
+                  "&:hover": {
                     stroke: theme.palette.background.default,
                   },
                 }}
@@ -331,29 +340,29 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
               style={{
                 ...defaultStyles,
                 minWidth: 72,
-                textAlign: 'center',
-                transform: 'translateX(-50%)',
+                textAlign: "center",
+                transform: "translateX(-50%)",
               }}
             >
               {tooltipData.index}
             </Tooltip>
           </div>
         )}
-        
+
         {useCorrectiveFeedback && (
           <div
             style={{
-              position: 'absolute',
+              position: "absolute",
               top: 0,
               right: 0,
-              padding: '5px 10px 0 0',
+              padding: "5px 10px 0 0",
             }}
           >
             <div
               style={{
                 color: theme.palette.text.secondary,
                 fontSize: 13,
-                fontFamily: 'sans-serif',
+                fontFamily: "sans-serif",
               }}
             >
               <div>Double click to correct</div>
@@ -362,5 +371,5 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
         )}
       </div>
     );
-  }
+  },
 );

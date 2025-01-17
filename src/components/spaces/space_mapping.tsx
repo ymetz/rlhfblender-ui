@@ -1,8 +1,8 @@
-import * as React from 'react';
-import * as spaces from '.';
+import * as React from "react";
+import * as spaces from ".";
 
 type SpaceProps = {
-  space: {label: string};
+  space: { label: string };
   spaceProps: object;
 };
 
@@ -17,10 +17,10 @@ const SpaceMapping = {
 
 export default function Space(props: SpaceProps) {
   // Check if label exists in space
-  if (!('label' in props.space)) {
+  if (!("label" in props.space)) {
     return <></>;
   }
-  const label = props.space?.label.split('(')[0] || 'Discrete';
+  const label = props.space?.label.split("(")[0] || "Discrete";
 
   // Check if the custom input exists
   if (!(label in SpaceMapping)) {

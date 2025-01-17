@@ -1,85 +1,95 @@
-
-import React, { useMemo } from 'react';
-import { Box, TextField, useTheme } from '@mui/material';
-import { Feedback, FeedbackType } from '../../../types';
-import { EpisodeFromID } from '../../../id';
+import React, { useMemo } from "react";
+import { Box, TextField, useTheme } from "@mui/material";
+import { Feedback, FeedbackType } from "../../../types";
+import { EpisodeFromID } from "../../../id";
 
 interface TextFeedbackProps {
-    showTextFeedback: boolean;
-    scheduleFeedback: (feedback: Feedback) => void;
-    episodeId: string;
-    sessionId: string;
-    hasTextFeedback?: boolean;
+  showTextFeedback: boolean;
+  scheduleFeedback: (feedback: Feedback) => void;
+  episodeId: string;
+  sessionId: string;
+  hasTextFeedback?: boolean;
   // value: string;
 }
 
 function debounce(func: (...args: any[]) => void, wait: number) {
-    let timeout: number | undefined;
-    return function executedFunction(...args: any[]) {
-      const later = () => {
-        clearTimeout(timeout);
-        func(...args);
-      };
+  let timeout: number | undefined;
+  return function executedFunction(...args: any[]) {
+    const later = () => {
       clearTimeout(timeout);
-      timeout = window.setTimeout(later, wait);
+      func(...args);
     };
+    clearTimeout(timeout);
+    timeout = window.setTimeout(later, wait);
+  };
 }
-  
 
-const TextFeedback: React.FC<TextFeedbackProps> = ({ showTextFeedback, scheduleFeedback, episodeId, sessionId, hasTextFeedback }) => {
+const TextFeedback: React.FC<TextFeedbackProps> = ({
+  showTextFeedback,
+  scheduleFeedback,
+  episodeId,
+  sessionId,
+  hasTextFeedback,
+}) => {
   //const [feedback, setFeedback] = useState('');
   const theme = useTheme();
 
   const debouncedSubmitFeedback = useMemo(
-    () => debounce((event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const feedback = {
-        feedback_type: FeedbackType.Text,
-        targets: [{
-          target_id: episodeId,
-          reference: EpisodeFromID(episodeId || ''),
-          origin: 'offline',
-          timestamp: Date.now(),
-        }],
-        granularity: 'episode' as const,
-        timestamp: Date.now(),
-        session_id: sessionId,
-        text_feedback: event.target.value,
-      };
-      scheduleFeedback(feedback);
-    }, 1500), // 1.5 second delay before adding feedback
-    [episodeId, scheduleFeedback, sessionId]
+    () =>
+      debounce(
+        (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+          const feedback = {
+            feedback_type: FeedbackType.Text,
+            targets: [
+              {
+                target_id: episodeId,
+                reference: EpisodeFromID(episodeId || ""),
+                origin: "offline",
+                timestamp: Date.now(),
+              },
+            ],
+            granularity: "episode" as const,
+            timestamp: Date.now(),
+            session_id: sessionId,
+            text_feedback: event.target.value,
+          };
+          scheduleFeedback(feedback);
+        },
+        1500,
+      ), // 1.5 second delay before adding feedback
+    [episodeId, scheduleFeedback, sessionId],
   );
   return (
     <>
-    <Box
-      component="form"    
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        borderRadius: '10px',
-        backgroundColor: theme.palette.background.l0,
-        border: hasTextFeedback
-        ? `1px solid ${theme.palette.primary.main}`
-        : `1px solid ${theme.palette.divider}`,
-        boxShadow: hasTextFeedback
-          ? `0px 0px 20px 0px ${theme.palette.primary.main}`
-          : 'none',
-        overflow: 'hidden',
-        gridArea: 'mission',
-        margin: '10px',
-        width: 'auto',
-      }}
-    >
-      <TextField        
-        onChange={debouncedSubmitFeedback}
-        placeholder="Enter your feedback here..."
-        multiline
-        rows={4}
-        fullWidth
-        variant="outlined"
-      />
-    </Box>
-  </>
+      <Box
+        component="form"
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          borderRadius: "10px",
+          backgroundColor: theme.palette.background.l0,
+          border: hasTextFeedback
+            ? `1px solid ${theme.palette.primary.main}`
+            : `1px solid ${theme.palette.divider}`,
+          boxShadow: hasTextFeedback
+            ? `0px 0px 20px 0px ${theme.palette.primary.main}`
+            : "none",
+          overflow: "hidden",
+          gridArea: "mission",
+          margin: "10px",
+          width: "auto",
+        }}
+      >
+        <TextField
+          onChange={debouncedSubmitFeedback}
+          placeholder="Enter your feedback here..."
+          multiline
+          rows={4}
+          fullWidth
+          variant="outlined"
+        />
+      </Box>
+    </>
   );
 };
 

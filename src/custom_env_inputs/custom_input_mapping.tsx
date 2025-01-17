@@ -1,6 +1,6 @@
-import * as React from 'react';
-import * as customInputs from '.';
-import { GymSpaceInfo } from '../types';
+import * as React from "react";
+import * as customInputs from ".";
+import { GymSpaceInfo } from "../types";
 
 type CustomInputProps = {
   custom_input: string;
@@ -14,7 +14,7 @@ export function CustomInput(props: CustomInputProps) {
   // Check if the custom input exists
   if (!(props.custom_input in customInputs)) {
     return (
-      <div style={{textAlign: 'center'}}>
+      <div style={{ textAlign: "center" }}>
         <h1>Custom input {props.custom_input} not found</h1>
       </div>
     );
