@@ -29,7 +29,7 @@ import {
 } from "./SetupConfigContext";
 import getDesignTokens from "./theme";
 import { EpisodeFromID } from "./id";
-import { BackendConfig, UIConfig, SequenceElement } from "./types";
+import { BackendConfig, UIConfig, SequenceElement, Feedback, FeedbackType } from "./types";
 import { getConfigSequence } from "./components/modals/backend-config-sequence-generator";
 import { ShortcutsProvider } from "./ShortCutProvider";
 import { ShortcutsInfoBox } from "./components/shortcut-info-box";
@@ -284,6 +284,18 @@ const App: React.FC = () => {
         payload: resetResponse.data.session_id,
       });
       await dispatch({ type: "CLEAR_SCHEDULED_FEEDBACK" });
+
+      // Log reset as meta feedback
+      const resetFeedback: Feedback = {
+        experiment_id: state.selectedExperiment.id,
+        session_id: resetResponse.data.session_id,
+        feedback_type: FeedbackType.Meta,
+        granularity: "entire",
+        timestamp: Date.now(),
+        targets: [],
+        meta_action: "reset",
+      }
+      axios.post("/data/give_feedback", [resetFeedback]);
 
       // Get episodes first and store the result
       const episodes = await getEpisodeIDsChronologically();

@@ -1,11 +1,11 @@
 import { useCallback } from "react";
 import axios from "axios";
 import { useAppDispatch } from "../../../AppStateContext";
-import { Feedback } from "../../../types";
+import { Feedback, FeedbackType } from "../../../types";
 
 export const useFeedbackSubmission = (
-  sampleEpisodes: () => Promise<void>,
-  advanceToNextStep: () => Promise<boolean>,
+  sampleEpisodes: (step: number) => Promise<void>,
+  advanceToNextStep: () => Promise<boolean>
 ) => {
   const dispatch = useAppDispatch();
 
@@ -13,32 +13,41 @@ export const useFeedbackSubmission = (
     (feedback: Feedback) => {
       dispatch({ type: "SCHEDULE_FEEDBACK", payload: feedback });
     },
-    [dispatch],
+    [dispatch]
   );
 
   const submitFeedback = useCallback(
-    async (scheduledFeedback: Feedback[]) => {
+    async (scheduledFeedback: Feedback[], sessionId: string) => {
       try {
-        // Submit feedback to server
-        await axios.post("/data/give_feedback", scheduledFeedback);
-
-        // Clear scheduled feedback before proceeding
+        // Create submit meta feedback
+        const submitFeedback: Feedback = {
+          session_id: sessionId,
+          feedback_type: FeedbackType.Meta,
+          granularity: "entire",
+          timestamp: Date.now(),
+          meta_action: "submit",
+          targets: [],
+        };
+        
+        // Include submit feedback in the payload
+        const feedbackToSubmit = [...scheduledFeedback, submitFeedback];
+        
+        // Submit all feedback to server
+        await axios.post("/data/give_feedback", feedbackToSubmit);
+        
+        // Clear scheduled feedback
         await dispatch({ type: "CLEAR_SCHEDULED_FEEDBACK" });
 
-        // Try to advance to next step
+        // Advance to next step
         const hasNextStep = await advanceToNextStep();
-
-        // Only sample new episodes if we successfully advanced
-        if (hasNextStep) {
-          await sampleEpisodes();
-        }
+        
+        return hasNextStep;
       } catch (error) {
         console.error("Error submitting feedback:", error);
-        // Optionally re-throw the error if you want to handle it in the UI
         throw error;
       }
     },
-    [dispatch, advanceToNextStep, sampleEpisodes],
+    [dispatch, advanceToNextStep]
   );
 
   return { scheduleFeedback, submitFeedback };

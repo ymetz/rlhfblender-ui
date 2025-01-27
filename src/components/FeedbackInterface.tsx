@@ -122,7 +122,7 @@ const FeedbackInterface: React.FC = () => {
       uiConfigSequence.length > 0
     ) {
       isInitialized.current = true;
-      sampleEpisodes();
+      sampleEpisodes(0); // Start with step 0
       setSelectedColumn(null);
     }
   }, [episodeIDsChronologically, sampleEpisodes, uiConfigSequence]);
@@ -309,7 +309,7 @@ const FeedbackInterface: React.FC = () => {
         numEpisodes={episodeIDsChronologically.length}
         currentStep={currentStep}
         progressSteps={configState.uiConfigSequence.length}
-        onSubmit={() => submitFeedback(scheduledFeedback)}
+        onSubmit={() => submitFeedback(scheduledFeedback, state.sessionId)}
         onSubmitHover={setIsOnSubmit}
       />
       <Box

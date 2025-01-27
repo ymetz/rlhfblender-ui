@@ -30,6 +30,7 @@ enum FeedbackType {
   Demonstrative = "demonstrative",
   FeatureSelection = "featureSelection",
   Text = "text",
+  Meta = "meta",
 }
 
 type Feedback = {
