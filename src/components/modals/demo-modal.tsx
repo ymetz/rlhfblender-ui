@@ -9,7 +9,6 @@ import {
   DialogContent,
   DialogTitle,
   Typography,
-  Box,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 
@@ -27,6 +26,7 @@ type DemoModalProps = {
   onClose: () => void;
   onCloseSubmit: (feedback: Feedback) => void;
   custom_input: string;
+  activeExpId: number;
   activeEnvId: string;
   sessionId: string;
   inputProps: object;
@@ -38,6 +38,8 @@ type StepDetails = {
   done: boolean;
   infos: { mission?: string };
 };
+
+const MAX_IMAGE_SIZE = 500; // Maximum width or height in pixels
 
 export default function DemoModal(props: DemoModalProps) {
   const [initDemo, setInitDemo] = React.useState(false);
@@ -58,12 +60,39 @@ export default function DemoModal(props: DemoModalProps) {
     shape: [0],
     labels: {},
   } as GymSpaceInfo);
+  const [imageSize, setImageSize] = React.useState({ width: 0, height: 0 });
   const theme = useTheme();
+
+  // Function to handle image load and calculate dimensions
+  const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget;
+    const aspectRatio = img.naturalWidth / img.naturalHeight;
+    
+    let width = img.naturalWidth;
+    let height = img.naturalHeight;
+    
+    if (width > height) {
+      // Landscape orientation
+      if (width > MAX_IMAGE_SIZE) {
+        width = MAX_IMAGE_SIZE;
+        height = width / aspectRatio;
+      }
+    } else {
+      // Portrait orientation
+      if (height > MAX_IMAGE_SIZE) {
+        height = MAX_IMAGE_SIZE;
+        width = height * aspectRatio;
+      }
+    }
+    
+    setImageSize({ width, height });
+  };
 
   React.useEffect(() => {
     if (initDemo) {
       axios
         .post("/data/initialize_demo_session", {
+          exp_id: props.activeExpId,
           env_id: props.activeEnvId,
           seed: props.seed,
           session_id: props.sessionId,
@@ -79,7 +108,7 @@ export default function DemoModal(props: DemoModalProps) {
           }
         });
     }
-  }, [initDemo, props.activeEnvId, props.sessionId]);
+  }, [initDemo, props.activeEnvId, props.activeExpId, props.seed, props.sessionId]);
 
   React.useEffect(() => {
     if (processId !== -1) {
@@ -122,7 +151,8 @@ export default function DemoModal(props: DemoModalProps) {
           setInitDemo(false);
           setRenderURL("");
           setStepCount(0);
-          setMission(""); // Reset mission
+          setMission("");
+          setImageSize({ width: 0, height: 0 });
         });
     }
   }, [props.open, processId, props.sessionId]);
@@ -151,7 +181,12 @@ export default function DemoModal(props: DemoModalProps) {
               <img
                 src={renderURL}
                 alt="render"
-                style={{ width: "100%", height: "100%" }}
+                onLoad={handleImageLoad}
+                style={{
+                  width: imageSize.width > 0 ? `${imageSize.width}px` : 'auto',
+                  height: imageSize.height > 0 ? `${imageSize.height}px` : 'auto',
+                  objectFit: 'contain'
+                }}
               />
             ) : (
               <Typography variant="body2" color="textSecondary">
@@ -217,7 +252,7 @@ export default function DemoModal(props: DemoModalProps) {
               timestamp: Date.now(),
               session_id: props.sessionId,
             });
-            setInitDemo(false); // Reset demo state
+            setInitDemo(false);
             props.onClose();
           }}
         >

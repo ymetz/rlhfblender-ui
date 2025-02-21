@@ -1,5 +1,4 @@
 import * as React from "react";
-
 // Material UI
 import {
   Button,
@@ -10,14 +9,11 @@ import {
   DialogTitle,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-
 // Custom Components
 import { CustomInput } from "../../custom_env_inputs/custom_input_mapping";
-
 // Types
 import { Feedback, FeedbackType } from "../../types";
 import { EpisodeFromID } from "../../id";
-
 // Axios
 import axios from "axios";
 
@@ -41,8 +37,11 @@ type StepDetails = {
   action_space: { shape: number[]; label: string } & { [key: string]: any };
 };
 
+const MAX_IMAGE_SIZE = 500; // Maximum width or height in pixels
+
 export default function CorrectionModal(props: CorrectionModalProps) {
   const theme = useTheme();
+  const [imageSize, setImageSize] = React.useState({ width: 0, height: 0 });
   const [feedback, setFeedback] = React.useState<Feedback>({
     targets: [
       {
@@ -58,9 +57,32 @@ export default function CorrectionModal(props: CorrectionModalProps) {
     timestamp: Date.now(),
     session_id: props.sessionId,
   });
-  const [stepDetails, setStepDetails] = React.useState<StepDetails | null>(
-    null,
-  );
+  const [stepDetails, setStepDetails] = React.useState<StepDetails | null>(null);
+
+  // Function to handle image load and calculate dimensions
+  const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = event.currentTarget;
+    const aspectRatio = img.naturalWidth / img.naturalHeight;
+    
+    let width = img.naturalWidth;
+    let height = img.naturalHeight;
+    
+    if (width > height) {
+      // Landscape orientation
+      if (width > MAX_IMAGE_SIZE) {
+        width = MAX_IMAGE_SIZE;
+        height = width / aspectRatio;
+      }
+    } else {
+      // Portrait orientation
+      if (height > MAX_IMAGE_SIZE) {
+        height = MAX_IMAGE_SIZE;
+        width = height * aspectRatio;
+      }
+    }
+    
+    setImageSize({ width, height });
+  };
 
   React.useEffect(() => {
     if (props.episodeId) {
@@ -83,14 +105,15 @@ export default function CorrectionModal(props: CorrectionModalProps) {
     }));
   };
 
+  // Reset state when modal closes
+  const handleClose = () => {
+    setStepDetails(null);
+    setImageSize({ width: 0, height: 0 });
+    props.onClose();
+  };
+
   return (
-    <Dialog
-      open={props.open}
-      onClose={() => {
-        setStepDetails(null);
-        props.onClose();
-      }}
-    >
+    <Dialog open={props.open} onClose={handleClose}>
       <DialogTitle>
         Correction for: {props.episodeId} - {props.step}
       </DialogTitle>
@@ -100,7 +123,12 @@ export default function CorrectionModal(props: CorrectionModalProps) {
             <img
               src={props.frame}
               alt="frame"
-              style={{ width: "100%", height: "100%" }}
+              onLoad={handleImageLoad}
+              style={{
+                width: imageSize.width > 0 ? `${imageSize.width}px` : 'auto',
+                height: imageSize.height > 0 ? `${imageSize.height}px` : 'auto',
+                objectFit: 'contain'
+              }}
             />
           </Grid>
           {stepDetails && (
@@ -117,14 +145,7 @@ export default function CorrectionModal(props: CorrectionModalProps) {
         </Grid>
       </DialogContent>
       <DialogActions>
-        <Button
-          onClick={() => {
-            setStepDetails(null);
-            props.onClose();
-          }}
-        >
-          Cancel
-        </Button>
+        <Button onClick={handleClose}>Cancel</Button>
         <Button
           sx={{ color: theme.palette.success.main }}
           disabled={!feedback.action_preferences}

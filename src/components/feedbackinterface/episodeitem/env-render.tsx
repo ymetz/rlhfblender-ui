@@ -49,7 +49,6 @@ const EnvRender: React.FC<EnvRenderProps> = ({
         display: "flex",
         flexDirection: "column",
         gridArea: "envRender",
-        maxWidth: "25vh",
         justifySelf: "center",
         marginTop: "1rem",
         alignSelf: "center",
@@ -87,7 +86,7 @@ const EnvRender: React.FC<EnvRenderProps> = ({
       )}
 
       {/* Video Container */}
-      <Box sx={{ display: "flex" }}>
+      <Box sx={{ display: "flex", position: "relative" }}>
         <VideoPlayer
           videoRef={videoRef}
           videoURL={videoURL}
@@ -104,8 +103,8 @@ const EnvRender: React.FC<EnvRenderProps> = ({
             onClick={onFeatureSelect}
             sx={{
               position: "absolute",
-              marginTop: "4px",
-              marginLeft: "4px",
+              top: "4px",
+              left: "4px",
               backgroundColor: "rgba(0, 0, 0, 0.5)",
               padding: "8px",
               color: (theme) =>
@@ -129,7 +128,6 @@ const EnvRender: React.FC<EnvRenderProps> = ({
           height: "1.5rem",
           justifyContent: "center",
           gap: 0.5,
-          //padding: '4px',
           bgcolor: (theme) => theme.palette.background.default,
         }}
       >

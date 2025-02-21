@@ -406,6 +406,7 @@ const FeedbackInterface: React.FC = () => {
             setDemoModalOpen({ open: false, seed: 0 });
           }}
           custom_input={activeUIConfig.customInput}
+          activeExpId={selectedExperiment?.id ?? ""}
           activeEnvId={selectedExperiment?.env_id ?? ""}
           sessionId={sessionId}
           inputProps={{}}
