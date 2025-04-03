@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef } from "react";
 import axios from "axios";
 import { useAppDispatch, useAppState } from "./AppStateContext";
 import { useSetupConfigDispatch, useSetupConfigState } from "./SetupConfigContext";
-import { SequenceElement } from "./types";
 import { IDfromEpisode } from "./id";
 
 export const useConfigBasedSampling = () => {

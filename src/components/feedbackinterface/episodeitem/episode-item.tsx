@@ -1,30 +1,25 @@
-import React, { useRef, useEffect, useState } from "react";
-
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Draggable } from "react-beautiful-dnd";
-
-// MUI
-import chroma from "chroma-js";
-// Axios
 import axios from "axios";
-
-// Types
-import { EpisodeFromID } from "../../../id";
-import { Feedback, FeedbackType } from "../../../types";
-
-// Context
-import { useSetupConfigState } from "../../../SetupConfigContext";
-import { useGetter } from "../../../getter-context";
 import { styled } from "@mui/system";
-import { useRatingInfo } from "../../../rating-info-context";
-import EnvRender from "./env-render";
-import TimelineSection from "./timeline-section";
-import EvaluativeFeedback from "./evaluative-feedback";
-import Modals from "./modals";
-import DragHandle from "./drag-handle";
-import DemoSection from "./demo-section";
-import TextFeedback from "./text-feedback";
 import { IconButton } from "@mui/material";
 import { Check } from "@mui/icons-material";
+import chroma from "chroma-js";
+
+// Components
+import VideoPlaybackContainer from "./video-playback-container";
+import DragHandle from "./drag-handle";
+import EvaluativeFeedback from "./evaluative-feedback";
+import DemoSection from "./demo-section";
+import TextFeedback from "./text-feedback";
+import Modals from "./modals";
+
+// Types and Context
+import { EpisodeFromID } from "../../../id";
+import { Feedback, FeedbackType } from "../../../types";
+import { useSetupConfigState } from "../../../SetupConfigContext";
+import { useGetter } from "../../../getter-context";
+import { useRatingInfo } from "../../../rating-info-context";
 
 interface EpisodeItemContainerProps {
   isDragging?: boolean;
@@ -101,9 +96,6 @@ interface EpisodeItemProps {
   setDemoModalOpen: ({ open, seed }: { open: boolean; seed: number }) => void;
   actionLabels?: any[];
   isBestOfK?: boolean;
-  onMouseEnter: (episodeId: string) => void;
-  onMouseLeave: () => void;
-  isHovered: boolean;
 }
 
 type StepDetails = {
@@ -114,367 +106,283 @@ type StepDetails = {
   action_space: object;
 };
 
-const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(
-  ({
-    episodeID,
-    index,
-    scheduleFeedback,
-    selectBest,
-    isSelectedAsBest,
-    sessionId,
-    evalFeedback,
-    updateEvalFeedback,
-    setDemoModalOpen,
-    actionLabels = [],
-    isBestOfK = false,
-    onMouseEnter,
-    onMouseLeave,
-    isHovered,
-  }) => {
-    const videoRef = useRef<HTMLVideoElement>(document.createElement("video"));
-    const [videoURL, setVideoURL] = useState("");
-    const [playing, setPlaying] = useState(false);
-    const [videoDuration, setVideoDuration] = useState(0);
-    const [videoSliderValue, setVideoSliderValue] = useState(0);
-    const [evaluativeSliderValue, setEvaluativeSliderValue] = useState(
-      evalFeedback || 5,
-    );
-    const [mouseOnVideo, setMouseOnVideo] = useState(false);
-    const [rewards, setRewards] = useState<number[]>([]);
-    const [uncertainty, setUncertainty] = useState<number[]>([]);
-    const [actions, setActions] = useState<number[]>([]);
-    const [highlightModelOpen, setHighlightModelOpen] = useState(false);
-    const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
-    const [selectedStep, setSelectedStep] = useState(0);
-    const [givenFeedbackMarkers, setGivenFeedbackMarkers] = useState<any[]>([]);
-    const [proposedFeedbackMarkers, setProposedFeedbackMarkers] = useState<
-      any[]
-    >([]);
-    const [stepDetails, setStepDetails] = useState<StepDetails>({
-      action_distribution: [],
-      action: 0,
-      reward: 0,
-      info: {},
-      action_space: {},
-    });
-    const UIConfig = useSetupConfigState().activeUIConfig;
-    const { hasFeedback } = useRatingInfo();
+const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
+  episodeID,
+  index,
+  scheduleFeedback,
+  selectBest,
+  isSelectedAsBest,
+  sessionId,
+  evalFeedback,
+  updateEvalFeedback,
+  setDemoModalOpen,
+  actionLabels = [],
+  isBestOfK = false,
+}) => {
+  // States that should NOT trigger video player re-renders
+  const [videoURL, setVideoURL] = useState("");
+  const [evaluativeSliderValue, setEvaluativeSliderValue] = useState(evalFeedback || 5);
+  const [rewards, setRewards] = useState<number[]>([]);
+  const [uncertainty, setUncertainty] = useState<number[]>([]);
+  const [actions, setActions] = useState<number[]>([]);
+  const [highlightModelOpen, setHighlightModelOpen] = useState(false);
+  const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
+  const [selectedStep, setSelectedStep] = useState(0);
+  const [givenFeedbackMarkers, setGivenFeedbackMarkers] = useState<any[]>([]);
+  const [proposedFeedbackMarkers, setProposedFeedbackMarkers] = useState<any[]>([]);
+  const [stepDetails, setStepDetails] = useState<StepDetails>({
+    action_distribution: [],
+    action: 0,
+    reward: 0,
+    info: {},
+    action_space: {},
+  });
 
-    // Whether this episode has already received feedback
-    const hasEvaluativeFeedback = hasFeedback(
+  // Hooks
+  const UIConfig = useSetupConfigState().activeUIConfig;
+  const { hasFeedback } = useRatingInfo();
+  const { getThumbnailURL, getVideoURL, getRewards, getUncertainty } = useGetter();
+
+  // Feedback status checks - memoized to prevent recalculation on every render
+  const feedbackStatus = useMemo(() => ({
+    hasEvaluativeFeedback: hasFeedback(
       EpisodeFromID(episodeID),
       FeedbackType.Evaluative,
-    );
-    const hasCorrectiveFeedback = hasFeedback(
+    ),
+    hasCorrectiveFeedback: hasFeedback(
       EpisodeFromID(episodeID),
       FeedbackType.Corrective,
-    );
-    const hasFeatureSelectionFeedback = hasFeedback(
+    ),
+    hasFeatureSelectionFeedback: hasFeedback(
       EpisodeFromID(episodeID),
       FeedbackType.FeatureSelection,
-    );
-    const hasTextFeedback = hasFeedback(
+    ),
+    hasTextFeedback: hasFeedback(
       EpisodeFromID(episodeID),
       FeedbackType.Text,
-    );
-
-    const hasDemoFeedback = hasFeedback(
+    ),
+    hasDemoFeedback: hasFeedback(
       EpisodeFromID(episodeID),
       FeedbackType.Demonstrative,
-    );
+    ),
+  }), [episodeID, hasFeedback]);
 
-    const { getThumbnailURL, getVideoURL, getRewards, getUncertainty } =
-      useGetter();
+  // Data fetching - using useEffect with proper dependencies
+  useEffect(() => {
+    getVideoURL(episodeID).then((url) => {
+      setVideoURL(url || "");
+    });
+  }, [episodeID, getVideoURL]);
 
-    useEffect(() => {
-      getVideoURL(episodeID).then((url) => {
-        setVideoURL(url || "");
+  useEffect(() => {
+    axios
+      .post("/data/get_single_step_details", {
+        ...EpisodeFromID(episodeID || ""),
+        step: 0,
+      })
+      .then((response: any) => {
+        setStepDetails(response.data);
+      })
+      .catch((error: any) => {
+        console.log(error);
       });
-    }, [episodeID, getVideoURL]);
+  }, [episodeID]);
 
-    // Retreive details for the particular step of the episode by calling "/get_single_step_details" with the episode ID and step number
-    useEffect(() => {
-      axios
-        .post("/data/get_single_step_details", {
-          ...EpisodeFromID(episodeID || ""),
-          step: 0,
-        })
-        .then((response: any) => {
-          setStepDetails(response.data);
-        })
-        .catch((error: any) => {
-          console.log(error);
-        });
-    }, [episodeID]);
-
-    useEffect(() => {
-      axios
-        .post("/data/get_actions_for_episode", {
-          ...EpisodeFromID(episodeID || ""),
-        })
-        .then((response: any) => {
-          setActions(response.data);
-        })
-        .catch((error: any) => {
-          console.log(error);
-        });
-    }, [episodeID]);
-
-    const playButtonHandler = () => {
-      if (playing) {
-        videoRef.current.pause();
-        setPlaying(false);
-      } else {
-        videoRef.current.play();
-        setPlaying(true);
-      }
-    };
-
-    useEffect(() => {
-      getRewards(episodeID).then((rewards) => {
-        setRewards(rewards ? rewards : []);
+  useEffect(() => {
+    axios
+      .post("/data/get_actions_for_episode", {
+        ...EpisodeFromID(episodeID || ""),
+      })
+      .then((response: any) => {
+        setActions(response.data);
+      })
+      .catch((error: any) => {
+        console.log(error);
       });
-    }, [episodeID, getRewards]);
+  }, [episodeID]);
 
-    useEffect(() => {
-      if (UIConfig.uiComponents.uncertaintyLine) {
-        getUncertainty(episodeID).then((uncertainty) => {
-          setUncertainty(uncertainty ? uncertainty : []);
-        });
-      }
-    }, [
-      episodeID,
-      getUncertainty,
-      UIConfig.uiComponents.showUncertainty,
-      UIConfig.uiComponents.uncertaintyLine,
-    ]);
+  useEffect(() => {
+    getRewards(episodeID).then((rewardsData) => {
+      setRewards(rewardsData ? rewardsData : []);
+    });
+  }, [episodeID, getRewards]);
 
-    useEffect(() => {
-      if (playing) {
-        const interval = setInterval(() => {
-          // Make sure currentTime is not NaN
-          setVideoSliderValue(
-            Number.isNaN(videoRef.current.currentTime)
-              ? 0
-              : videoRef.current.currentTime,
-          );
-        }, 1);
-        return () => clearInterval(interval);
-      }
-    }, [playing]);
+  useEffect(() => {
+    if (UIConfig.uiComponents.uncertaintyLine) {
+      getUncertainty(episodeID).then((uncertaintyData) => {
+        setUncertainty(uncertaintyData ? uncertaintyData : []);
+      });
+    }
+  }, [
+    episodeID,
+    getUncertainty,
+    UIConfig.uiComponents.showUncertainty,
+    UIConfig.uiComponents.uncertaintyLine,
+  ]);
 
-    const onLoadMetaDataHandler = () => {
-      setVideoDuration(videoRef.current.duration);
-      if (UIConfig.uiComponents.showProposedFeedback) {
-        setProposedFeedbackMarkers(
-          Array.from({ length: 4 }, (_, i) => ({
-            x: Math.floor(Math.random() * rewards.length),
-            y: Math.floor(Math.random() * 10),
-          })),
-        );
-      }
-    };
+  // Memoized callback handlers - prevents recreation on each render
+  const onCorrectionModalOpenHandler = useCallback((step: number) => {
+    if (!UIConfig.feedbackComponents.correction) return;
+    setSelectedStep(step);
+    setCorrectionModalOpen(true);
+  }, [UIConfig.feedbackComponents.correction]);
 
-    const videoSliderHandler = (value: number | number[]) => {
-      // Check if nan
-      videoRef.current.currentTime = Number.isNaN(value)
-        ? 0
-        : (value as number);
-      setVideoSliderValue(Number.isNaN(value) ? 0 : (value as number));
-    };
-
-    const evaluativeFeedbackHandler = (
-      _: Event | React.SyntheticEvent<Element, Event>,
-      value: number | number[],
-    ) => {
-      const feedback: Feedback = {
-        feedback_type: FeedbackType.Evaluative,
-        targets: [
-          {
-            target_id: episodeID,
-            reference: EpisodeFromID(episodeID || ""),
-            origin: "offline",
-            timestamp: Date.now(),
-          },
-        ],
-        granularity: "episode",
-        timestamp: Date.now(),
-        session_id: sessionId,
-        score: value as number,
-      };
-
-      setEvaluativeSliderValue(value as number);
-      updateEvalFeedback(episodeID, value as number);
+  const onFeatureSelectionSubmit = useCallback((feedback: Feedback) => {
+    if (sessionId !== "-") {
       scheduleFeedback(feedback);
+    }
+  }, [scheduleFeedback, sessionId]);
+
+  const onCorrectionModalSubmit = useCallback((feedback: Feedback, step: number) => {
+    setGivenFeedbackMarkers((prev) => [
+      ...prev,
+      { x: step, y: feedback.numeric_feedback },
+    ]);
+    setCorrectionModalOpen(false);
+    if (sessionId !== "-") {
+      scheduleFeedback(feedback);
+    }
+  }, [scheduleFeedback, sessionId]);
+
+  const evaluativeFeedbackHandler = useCallback((
+    _: Event | React.SyntheticEvent<Element, Event>,
+    value: number | number[],
+  ) => {
+    const feedback: Feedback = {
+      feedback_type: FeedbackType.Evaluative,
+      targets: [
+        {
+          target_id: episodeID,
+          reference: EpisodeFromID(episodeID || ""),
+          origin: "offline",
+          timestamp: Date.now(),
+        },
+      ],
+      granularity: "episode",
+      timestamp: Date.now(),
+      session_id: sessionId,
+      score: value as number,
     };
 
-    const onCorrectionModalOpenHandler = (step: number) => {
-      if (!UIConfig.feedbackComponents.correction) {
-        return;
-      }
-      setSelectedStep(step);
-      setCorrectionModalOpen(true);
-    };
+    setEvaluativeSliderValue(value as number);
+    updateEvalFeedback(episodeID, value as number);
+    scheduleFeedback(feedback);
+  }, [episodeID, scheduleFeedback, sessionId, updateEvalFeedback]);
 
-    const onFeatureSelectionSubmit = (feedback: Feedback) => {
-      if (sessionId !== "-") {
-        scheduleFeedback(feedback);
-      }
-    };
+  // Create a ref for the video element that will be shared between components
+  const videoRef = useRef<HTMLVideoElement>(document.createElement("video"));
 
-    const onCorrectionModalSubmit = (feedback: Feedback, step: number) => {
-      setGivenFeedbackMarkers([
-        ...givenFeedbackMarkers,
-        { x: step, y: feedback.numeric_feedback },
-      ]);
-      setCorrectionModalOpen(false);
-      if (sessionId !== "-") {
-        scheduleFeedback(feedback);
-      }
-    };
+  // Render the component content - extracted as a separate variable to improve readability
+  const EpisodeContent = (
+    <EpisodeItemContainer
+      horizontalRanking={UIConfig.uiComponents.horizontalRanking}
+      isDragging={false}
+      hasFeedback={false}
+      isBestOfK={isBestOfK}
+    >
+      {!isBestOfK && (
+        <DragHandle
+          horizontalRanking={UIConfig.uiComponents.horizontalRanking}
+        />
+      )}
 
-    const getSingleFrame = (video: HTMLVideoElement, time: number) => {
-      if (video === null || video.readyState < 2) {
-        return "";
-      }
+      {/* VideoPlaybackContainer - isolated playback state management */}
+      <VideoPlaybackContainer 
+        episodeID={episodeID}
+        videoURL={videoURL}
+        rewards={rewards}
+        uncertainty={uncertainty}
+        actions={actions}
+        actionLabels={UIConfig.uiComponents.actionLabels ? actionLabels : []}
+        mission={stepDetails?.info?.mission}
+        onCorrectionClick={onCorrectionModalOpenHandler}
+        givenFeedbackMarkers={givenFeedbackMarkers}
+        proposedFeedbackMarkers={proposedFeedbackMarkers}
+        hasCorrectiveFeedback={feedbackStatus.hasCorrectiveFeedback}
+        hasFeatureSelectionFeedback={feedbackStatus.hasFeatureSelectionFeedback}
+        showFeatureSelection={UIConfig.feedbackComponents.featureSelection}
+        onFeatureSelect={() => setHighlightModelOpen(true)}
+        useCorrectiveFeedback={UIConfig.feedbackComponents.correction}
+        videoRef={videoRef}
+      />
 
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        return canvas.toDataURL();
-      }
-      return "";
-    };
+      {UIConfig.feedbackComponents.rating && (
+        <EvaluativeFeedback
+          value={evaluativeSliderValue}
+          onChange={setEvaluativeSliderValue}
+          onCommit={evaluativeFeedbackHandler}
+          hasEvaluativeFeedback={feedbackStatus.hasEvaluativeFeedback}
+          horizontalRanking={UIConfig.uiComponents.horizontalRanking}
+        />
+      )}
 
-    const EpisodeContent = (
-      <EpisodeItemContainer
-        horizontalRanking={UIConfig.uiComponents.horizontalRanking}
-        isDragging={false}
-        hasFeedback={false}
-        isBestOfK={isBestOfK}
-        onMouseEnter={() => onMouseEnter(episodeID)}
-        onMouseLeave={onMouseLeave}
-        sx={
-          {
-            /*outline: isHovered ? `2px solid ${theme.palette.primary.main}` : 'none'*/
-          }
+      <DemoSection
+        showDemo={UIConfig.feedbackComponents.demonstration}
+        onDemoClick={() =>
+          setDemoModalOpen({
+            open: true,
+            seed: stepDetails.info?.seed || 0,
+          })
         }
-      >
-        {!isBestOfK && (
-          <DragHandle
-            horizontalRanking={UIConfig.uiComponents.horizontalRanking}
-          />
-        )}
+        hasDemoFeedback={feedbackStatus.hasDemoFeedback}
+      />
 
-        <EnvRender
-          videoRef={videoRef}
-          videoURL={videoURL}
-          onLoadMetadata={onLoadMetaDataHandler}
-          hasFeatureSelectionFeedback={hasFeatureSelectionFeedback}
-          showFeatureSelection={UIConfig.feedbackComponents.featureSelection}
-          onFeatureSelect={() => setHighlightModelOpen(true)}
-          playButtonHandler={playButtonHandler}
-          videoSliderHandler={videoSliderHandler}
-          playing={playing}
-          mission={stepDetails?.info?.mission}
-        />
-
-        {UIConfig.feedbackComponents.rating && (
-          <EvaluativeFeedback
-            value={evaluativeSliderValue}
-            onChange={setEvaluativeSliderValue}
-            onCommit={evaluativeFeedbackHandler}
-            hasEvaluativeFeedback={hasEvaluativeFeedback}
-            horizontalRanking={UIConfig.uiComponents.horizontalRanking}
-          />
-        )}
-
-        <DemoSection
-          showDemo={UIConfig.feedbackComponents.demonstration}
-          onDemoClick={() =>
-            setDemoModalOpen({
-              open: true,
-              seed: stepDetails.info?.seed || 0,
-            })
-          }
-          hasDemoFeedback={hasDemoFeedback}
-        />
-
-        <TimelineSection
-          rewards={rewards}
-          uncertainty={UIConfig.uiComponents.uncertaintyLine ? uncertainty : []}
-          actions={actions}
-          actionLabels={UIConfig.uiComponents.actionLabels ? actionLabels : []}
-          videoDuration={videoDuration}
-          videoSliderValue={videoSliderValue}
-          givenFeedbackMarkers={givenFeedbackMarkers}
-          proposedFeedbackMarkers={proposedFeedbackMarkers}
-          onSliderChange={videoSliderHandler}
-          onCorrectionClick={onCorrectionModalOpenHandler}
-          hasCorrectiveFeedback={hasCorrectiveFeedback}
-          useCorrectiveFeedback={UIConfig.feedbackComponents.correction}
-        />
-
-        {UIConfig.feedbackComponents.text && (
-          <TextFeedback
-            showTextFeedback={UIConfig.feedbackComponents.text}
-            episodeId={episodeID}
-            sessionId={sessionId}
-            scheduleFeedback={scheduleFeedback}
-            hasTextFeedback={hasTextFeedback}
-          />
-        )}
-
-        {isBestOfK && UIConfig.feedbackComponents.ranking && (
-          <SelectButton
-            className={isSelectedAsBest ? "selected" : ""}
-            onClick={() => selectBest(episodeID)}
-            size="large"
-            aria-label="Select as best"
-          >
-            <Check fontSize="large" />
-          </SelectButton>
-        )}
-
-        <Modals
-          highlightModalOpen={highlightModelOpen}
-          correctionModalOpen={correctionModalOpen}
+      {UIConfig.feedbackComponents.text && (
+        <TextFeedback
+          showTextFeedback={UIConfig.feedbackComponents.text}
           episodeId={episodeID}
-          selectedStep={selectedStep}
-          videoRef={videoRef}
           sessionId={sessionId}
-          onHighlightClose={() => setHighlightModelOpen(false)}
-          onHighlightSubmit={onFeatureSelectionSubmit}
-          onCorrectionClose={() => setCorrectionModalOpen(false)}
-          onCorrectionSubmit={onCorrectionModalSubmit}
-          customInput={UIConfig?.customInput}
-          getThumbnailURL={getThumbnailURL}
+          scheduleFeedback={scheduleFeedback}
+          hasTextFeedback={feedbackStatus.hasTextFeedback}
         />
-      </EpisodeItemContainer>
-    );
+      )}
 
-    // Conditionally wrap with Draggable
-    return isBestOfK ? (
-      EpisodeContent
-    ) : (
-      <Draggable draggableId={episodeID} index={index}>
-        {(provided, snapshot) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
-          >
-            {React.cloneElement(EpisodeContent, {
-              isDragging: snapshot.isDragging,
-            })}
-          </div>
-        )}
-      </Draggable>
-    );
-  },
-);
+      {isBestOfK && UIConfig.feedbackComponents.ranking && (
+        <SelectButton
+          className={isSelectedAsBest ? "selected" : ""}
+          onClick={() => selectBest(episodeID)}
+          size="large"
+          aria-label="Select as best"
+        >
+          <Check fontSize="large" />
+        </SelectButton>
+      )}
+
+      <Modals
+        highlightModalOpen={highlightModelOpen}
+        correctionModalOpen={correctionModalOpen}
+        episodeId={episodeID}
+        selectedStep={selectedStep}
+        videoRef={videoRef} // Now using the shared ref
+        sessionId={sessionId}
+        onHighlightClose={() => setHighlightModelOpen(false)}
+        onHighlightSubmit={onFeatureSelectionSubmit}
+        onCorrectionClose={() => setCorrectionModalOpen(false)}
+        onCorrectionSubmit={onCorrectionModalSubmit}
+        customInput={UIConfig?.customInput}
+        getThumbnailURL={getThumbnailURL}
+      />
+    </EpisodeItemContainer>
+  );
+
+  // Conditionally wrap with Draggable
+  return isBestOfK ? (
+    EpisodeContent
+  ) : (
+    <Draggable draggableId={episodeID} index={index}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+        >
+          {React.cloneElement(EpisodeContent, {
+            isDragging: snapshot.isDragging,
+          })}
+        </div>
+      )}
+    </Draggable>
+  );
+});
 
 export default React.memo(EpisodeItem);

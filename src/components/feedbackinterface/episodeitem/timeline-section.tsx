@@ -92,6 +92,8 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
             onChange={onSliderChange}
             onCorrectionClick={onCorrectionClick}
             useCorrectiveFeedback={useCorrectiveFeedback}
+            showTooltip={() => {}}
+            hideTooltip={() => {}}
           />
         )}
       </ParentSize>

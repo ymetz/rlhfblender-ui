@@ -19,13 +19,13 @@ const ShortcutsContext = createContext({
   registerShortcut: (id: string, shortcut: Shortcut) => {},
   unregisterShortcut: (id: string) => {},
   handleKeyPress: (e: KeyboardEvent) => {},
-  mousePosition: { x: 0, y: 0 },
+  //mousePosition: { x: 0, y: 0 },
 });
 
 // Provider component
 export const ShortcutsProvider = ({ children }) => {
   const [shortcuts, setShortcuts] = useState<Record<string, Shortcut>>({});
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  // const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
   // Memoize these callbacks to prevent unnecessary re-renders
   const registerShortcut = useCallback((id: string, shortcut: Shortcut) => {
@@ -55,9 +55,9 @@ export const ShortcutsProvider = ({ children }) => {
     [shortcuts],
   );
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
+  /*const handleMouseMove = useCallback((e: MouseEvent) => {
     setMousePosition({ x: e.clientX, y: e.clientY });
-  }, []);
+  }, []);*/
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyPress);
@@ -72,14 +72,14 @@ export const ShortcutsProvider = ({ children }) => {
       registerShortcut,
       unregisterShortcut,
       handleKeyPress,
-      mousePosition,
+      //mousePosition,
     }),
     [
       shortcuts,
       registerShortcut,
       unregisterShortcut,
       handleKeyPress,
-      mousePosition,
+      //mousePosition,
     ],
   );
 
