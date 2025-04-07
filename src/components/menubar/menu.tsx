@@ -123,7 +123,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
             labelId="project-select-label"
             id="project-select"
             value={
-              state.selectedProject.id >= -1
+              state?.selectedProject?.id >= -1
                 ? state.selectedProject.id.toString()
                 : ""
             }
@@ -144,7 +144,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
             labelId="experiment-select-label"
             id="experiment-select"
             value={
-              state.selectedExperiment.id >= -1
+              state.selectedExperiment?.id >= -1
                 ? state.selectedExperiment.id.toString()
                 : ""
             }

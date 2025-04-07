@@ -15,6 +15,7 @@ import BackendConfigModal from "./components/modals/backend-config-modal";
 import ExperimentStartModal from "./components/modals/experiment-start-modal";
 import ExperimentEndModal from "./components/modals/experiment-end-modal";
 import FeedbackInterface from "./components/FeedbackInterface";
+import ActiveLearningInterface from "./active_learning/ActiveLearningInterface";
 import { GetterContext } from "./getter-context";
 
 import {
@@ -27,6 +28,9 @@ import {
   useSetupConfigState,
   useSetupConfigDispatch,
 } from "./SetupConfigContext";
+import {
+  ActiveLearningProvider
+} from "./ActiveLearningContext";
 import getDesignTokens from "./theme";
 import { EpisodeFromID } from "./id";
 import { BackendConfig, UIConfig, SequenceElement, Feedback, FeedbackType } from "./types";
@@ -44,12 +48,17 @@ const App: React.FC = () => {
   useEffect(() => {
     const initializeData = () => {
       const url = new URL(window.location.href);
+      const study_mode = url.searchParams.get("study_mode") || "";
       const study_code = url.searchParams.get("study") || "";
       if (study_code !== "") {
         dispatch({ type: "SET_STUDY_CODE", payload: study_code });
         //dispatch({ type: 'TOGGLE_STATUS_BAR' });
         dispatch({ type: "SET_APP_MODE", payload: "study" });
-      } else {
+      } else if (study_mode === "active-learning") {
+        dispatch({ type: "SET_APP_MODE", payload: "active-learning" });
+        dispatch({ type: "TOGGLE_STATUS_BAR" });
+      }
+      else {
         dispatch({ type: "SET_APP_MODE", payload: "configure" });
         dispatch({ type: "TOGGLE_STATUS_BAR" });
       }
@@ -229,8 +238,6 @@ const App: React.FC = () => {
     const selectedUiConfigs = configState.activeBackendConfig.selectedUiConfigs;
     let uiConfigSequence: SequenceElement[] = [];
 
-    console.log("Selected UI Configs:", configState.activeUIConfig.id);
-
     if (selectedUiConfigs.length === 0) {
       const relevantUiConfigs = configState.allUIConfigs.filter(
         (c) => c.id === configState.activeUIConfig.id,
@@ -254,7 +261,6 @@ const App: React.FC = () => {
       );
     }
 
-    console.log("UI Config Sequence:", uiConfigSequence);
     await configDispatch({
       type: "SET_UI_CONFIG_SEQUENCE",
       payload: uiConfigSequence,
@@ -443,7 +449,13 @@ const App: React.FC = () => {
               )}
             </Box>
           </Box>
-          {state.selectedProject.id >= 0 ? <FeedbackInterface /> : null}
+          {state.app_mode === "active-learning" ? (
+            <ActiveLearningProvider>
+              <ActiveLearningInterface />
+            </ActiveLearningProvider>
+          ) : (
+            state.selectedProject?.id >= 0 ? <FeedbackInterface /> : null
+          )}
           <ConfigModal
             config={configState.activeUIConfig}
             open={state.uiConfigModalOpen}

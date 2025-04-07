@@ -4,6 +4,7 @@ import React, { createContext, useReducer, useContext, ReactNode } from "react";
 import { AppState, Feedback, Episode } from "./types";
 
 type AppAction =
+  | { type: "SET_UI_TYPE"; payload: string }
   | { type: "SET_PROJECTS"; payload: any[] }
   | { type: "SET_EXPERIMENTS"; payload: any[] }
   | { type: "SET_SELECTED_PROJECT"; payload: any }
@@ -12,7 +13,7 @@ type AppAction =
   | { type: "SET_BACKEND_CONFIG_MODAL_OPEN"; payload: boolean }
   | { type: "SET_SESSION_ID"; payload: string }
   | { type: "SCHEDULE_FEEDBACK"; payload: Feedback }
-  | { type: "SET_APP_MODE"; payload: "study" | "configure" }
+  | { type: "SET_APP_MODE"; payload: "study" | "configure" | "active-learning" }
   | { type: "SET_START_MODAL_OPEN"; payload: boolean }
   | { type: "TOGGLE_STATUS_BAR" }
   | { type: "SET_UNCERTAINTY_CACHE"; payload: any }

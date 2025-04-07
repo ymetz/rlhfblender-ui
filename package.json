@@ -20,6 +20,7 @@
     "@visx/visx": "^3.11.0",
     "axios": "^1.7.7",
     "chroma-js": "^2.6.0",
+    "d3": "^7.9.0",
     "mui-file-input": "^2.0.6",
     "react": "^18.3.1",
     "react-beautiful-dnd": "^13.1.1",
@@ -28,6 +29,7 @@
     "react-scan": "^0.2.4",
     "react-sketch-canvas": "^6.2.0",
     "react-swipeable": "^7.0.1",
+    "regl-scatterplot": "^1.14.0",
     "styled-components": "^5.3.11",
     "typescript": "~5.1.6",
     "web-vitals": "^3.5.2"
