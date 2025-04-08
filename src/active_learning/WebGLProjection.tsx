@@ -456,6 +456,8 @@ const WebGLProjection = (props) => {
         annotationMode = 'analyze'
     ) => {
 
+        console.log("Drawing chart with mode:", mode, data);
+
         switch (mode) {
             case 'state_space':
                 drawStateSpace(data, labels, doneData, labelInfos, annotationMode);
@@ -480,11 +482,9 @@ const WebGLProjection = (props) => {
         setError(null);
 
         const embedding_method = props.embeddingMethod;
-        const use_one_d_embedding = props.embeddingAxisOption !== '2D embedding' ? 1 : 0;
+        const use_one_d_embedding = 0;
         const reproject = props.reproject ? 1 : 0;
         const append_time = props.appendTimestamp ? 1 : 0;
-
-        console.log("PROPS", props);
 
         const url = '/projection/generate_projection';
         const params = {
@@ -550,12 +550,12 @@ const WebGLProjection = (props) => {
 
                 drawChart(
                     viewMode,
-                    data.embedding,
+                    data.projection,
                     data.labels,
                     data.merged_points,
                     data.connections,
-                    data.feature_embedding,
-                    data.transition_embedding,
+                    data.feature_projection,
+                    data.transition_projection,
                     actionData,
                     props.currentDoneData,
                     props.labelInfo,
@@ -594,6 +594,8 @@ const WebGLProjection = (props) => {
 
     const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], annotationMode = 'analyze') => {
         setLastIndex(data.length - 1);
+
+        console.log("DATA", data);
 
         if (!embeddingRef.current || !embeddingRef.current.parentElement) return;
 
@@ -666,311 +668,308 @@ const WebGLProjection = (props) => {
         setSvg(newSvg);
 
         // Wait until next frame to ensure DOM is updated
-        requestAnimationFrame(() => {
-            try {
-                // Initialize scatterplot
-                const newScatterplot = createScatterplot({
-                    canvas: newCanvas,
-                    width: svgWidth,
-                    height: svgHeight,
-                    lassoMinDelay: 10,
-                    lassoMinDist: 2,
-                    pointSize: 5,
-                    showReticle: false,
-                    reticleColor: [],
-                    showPointConnections: true,
-                    pointConnectionColor: [0, 0, 0, 0.8],
-                    pointConnectionSize: 3,
-                    lassoInitiator: true,
-                    xScale: xScale,
-                    yScale: yScale,
-                    resize: false,
-                });
+        try {
+            // Initialize scatterplot
+            const newScatterplot = createScatterplot({
+                canvas: newCanvas,
+                width: svgWidth,
+                height: svgHeight,
+                lassoMinDelay: 10,
+                lassoMinDist: 2,
+                pointSize: 5,
+                showReticle: false,
+                reticleColor: [],
+                showPointConnections: true,
+                pointConnectionColor: [0, 0, 0, 0.8],
+                pointConnectionSize: 3,
+                lassoInitiator: true,
+                xScale: xScale,
+                yScale: yScale,
+                resize: false,
+            });
 
-                // Add selection handler
-                newScatterplot.subscribe('select', (selection) => {
-                    if (selection.points.length > 0 && props.setHoverStep && props.selectDatapoint && props.infos) {
-                        props.setHoverStep(props.infos[selection.points[0]]);
-                        props.selectDatapoint(selection.points[0]);
-                    }
-                });
-
-                setScatterplot(newScatterplot);
-
-                // Configure scatterplot
-                newScatterplot.set({
-                    colorBy: 'valueZ',
-                    pointColor: uiState.object_color_scale,
-                    pointConnectionColorBy: 'valueZ',
-                    pointConnectionColor: 'inherit',
-                    pointConnectionMaxIntPointsPerSegment: 5,
-                    pointConnectionTolerance: 0.5,
-                });
-
-                // Prepare points data for scatterplot
-                const points = processedData.map((d, i) => [
-                    d[0],
-                    d[1],
-                    uiState.object_layer_colors[i],
-                    0,
-                    props.infos?.[i]?.['episode index'] || 0,
-                ]);
-
-                // Draw points
-                newScatterplot.draw(points);
-
-                // Continue with rest of visualization setup
-                continueDraw(newScatterplot, newSvg, processedData, xScale, yScale);
-            } catch (e) {
-                console.error("Error initializing scatterplot:", e);
-                setError("Failed to initialize visualization. Please try again.");
-            }
-        });
-
-        // Helper function to continue drawing after scatterplot is created
-        const continueDraw = (plot, svg, processedData, xScale, yScale) => {
-            // Set up color range for 2D color mapping
-            Color2D.ranges = { x: [-1, 1], y: [-1, 1] };
-
-            // Create view group for annotations
-            const view = svg.append('g');
-
-            // Build map of point labels
-            const label_data_map = new Map();
-
-            // Add 'Start' labels
-            const start_label_data = [0].concat(done_idx.slice(0, -1).map((d) => d + 1));
-            for (let i = 0; i < start_label_data.length; i++) {
-                label_data_map.set(start_label_data[i], ['Start']);
-            }
-
-            // Add 'Done' labels
-            for (let i = 0; i < done_idx.length; i++) {
-                if (!label_data_map.has(done_idx[i])) {
-                    label_data_map.set(done_idx[i], ['Done']);
-                } else {
-                    label_data_map.get(done_idx[i]).push('Done');
+            // Add selection handler
+            newScatterplot.subscribe('select', (selection) => {
+                if (selection.points.length > 0 && props.setHoverStep && props.selectDatapoint && props.infos) {
+                    props.setHoverStep(props.infos[selection.points[0]]);
+                    props.selectDatapoint(selection.points[0]);
                 }
-            }
+            });
 
-            // Add custom labels from labelInfos
-            for (let i = 0; i < labelInfos.length; i++) {
-                const label = labelInfos[i].label;
-                const ids = labelInfos[i].ids;
+            setScatterplot(newScatterplot);
 
-                for (let j = 0; j < ids.length; j++) {
-                    if (!label_data_map.has(ids[j])) {
-                        label_data_map.set(ids[j], [label]);
-                    } else {
-                        label_data_map.get(ids[j]).push(label);
-                    }
-                }
-            }
+            // Configure scatterplot
+            newScatterplot.set({
+                colorBy: 'valueZ',
+                pointColor: uiState.object_color_scale,
+                pointConnectionColorBy: 'valueZ',
+                pointConnectionColor: 'inherit',
+                pointConnectionMaxIntPointsPerSegment: 5,
+                pointConnectionTolerance: 0.5,
+            });
 
-            // Create text labels for labeled points
-            const text_labels = view
-                .selectAll('label-g')
-                .data(processedData.map((d, i) => [d[0], d[1], i]).filter((d) => label_data_map.has(d[2])))
-                .enter()
-                .append('g')
-                .attr('class', 'label-g')
-                .attr('id', (d) => 'label-g_' + d[2]);
+            // Prepare points data for scatterplot
+            const points = processedData.map((d, i) => [
+                d[0],
+                d[1],
+                uiState.object_layer_colors[i],
+                0,
+                props.infos?.[i]?.['episode index'] || 0,
+            ]);
 
-            // Update color legend
-            updateColorLegend();
+            // Draw points
+            newScatterplot.draw(points);
 
-            // Add text labels
-            const text_labels_text = text_labels
-                .append('text')
-                .attr('class', 'label')
-                .attr('x', (d) => xScale(d[0]) + 10)
-                .attr('y', (d) => yScale(d[1]) + 10)
-                .attr('text-anchor', 'start')
-                .attr('fill', '#333333')
-                .attr('font-size', '12px')
-                .text((d) => label_data_map.get(d[2]).join('/'));
+            // Continue with rest of visualization setup
+            continueDraw(newScatterplot, newSvg, processedData, xScale, yScale);
+        } catch (e) {
+            console.error("Error initializing scatterplot:", e);
+            setError("Failed to initialize visualization. Please try again.");
+        }
 
-            // Add connector lines for labels
-            const text_labels_lines = text_labels
-                .append('line')
-                .attr('class', 'label-line')
-                .attr('vector-effect', 'non-scaling-stroke')
-                .attr('x1', (d) => xScale(d[0]))
-                .attr('y1', (d) => yScale(d[1]))
-                .attr('x2', (d) => xScale(d[0]) + 10)
-                .attr('y2', (d) => yScale(d[1]) + 10)
-                .attr('stroke', '#a1a1a1')
-                .attr('stroke-width', '1px');
+        console.log("Continuing draw with processed data:", processedData);
 
-            // Generate density contours
-            try {
-                if (canvas) {
-                    const context2D = canvas.getContext('2d');
-                    if (context2D) {
-                        context2D.save();
-                        const path = d3.geoPath().context(context2D);
+        // Set up color range for 2D color mapping
+        Color2D.ranges = { x: [-1, 1], y: [-1, 1] };
 
-                        context2D.beginPath();
-                        for (const c of d3.contourDensity()
-                            .size([svgWidth, svgHeight])
-                            .bandwidth(8)
-                            .thresholds(10)(
-                                processedData.map((d, i) => [
-                                    xScale(d[0]) * svgWidth,
-                                    svgHeight - yScale(d[1]) * svgHeight,
-                                    i
-                                ])
-                            )) {
-                            path(c);
-                        }
-                        context2D.stroke();
-                        context2D.restore();
-                    }
-                }
-            } catch (e) {
-                console.error("Error drawing contours:", e);
-            }
+        // Create view group for annotations
+        const view = svg.append('g');
 
-            // Generate cluster hulls
-            const hulls: any[] = [];
-            const unique_labels = new Set(labels);
-            let label_idx = 0;
+        // Build map of point labels
+        const label_data_map = new Map();
 
-            // For each labeled cluster, draw a convex hull
-            for (const label of unique_labels) {
-                if (label === -1) continue;
+        // Add 'Start' labels
+        const start_label_data = [0].concat(done_idx.slice(0, -1).map((d) => d + 1));
+        for (let i = 0; i < start_label_data.length; i++) {
+            label_data_map.set(start_label_data[i], ['Start']);
+        }
 
-                const cluster_indices = processedData
-                    .map((element, index) => {
-                        if (labels[index] === label) {
-                            return index;
-                        }
-                        return -1;
-                    })
-                    .filter((element) => element >= 0);
-
-                const cluster_data = processedData.filter((_, i) => labels[i] === label);
-                const hull = d3.polygonHull(cluster_data);
-
-                if (hull === null) continue;
-
-                const label_text = props.annotationSets && label in props.annotationSets
-                    ? props.annotationSets[label]
-                    : label;
-
-                hulls.push({
-                    coords: hull,
-                    label: label_text,
-                    indices: cluster_indices,
-                    idx: label_idx
-                });
-
-                label_idx++;
-            }
-
-            // Delete old convex hulls
-            view.selectAll('.convex-g').remove();
-
-            // Add convex hulls for clusters
-            const convex_g = view
-                .selectAll('path')
-                .data(hulls)
-                .enter()
-                .append('g')
-                .attr('class', 'convex-g');
-
-            // Add label text in the center of the convex hull
-            const convex_g_texts = convex_g
-                .append('text')
-                .datum((d) => {
-                    return {
-                        centroid: d3.polygonCentroid(d.coords),
-                        text: d.label,
-                        idx: d.idx
-                    };
-                })
-                .attr('class', 'label')
-                .attr('x', (d) => xScale(d.centroid[0]))
-                .attr('y', (d) => yScale(d.centroid[1]))
-                .attr('text-anchor', 'middle')
-                .attr('font-size', '20px')
-                .attr('font-weight', 'bold')
-                .attr('fill', '#333333')
-                .text((d) => d.text);
-
-            // Add convex hull paths
-            const convex_g_paths = convex_g
-                .append('path')
-                .attr('d', (d) => 'M' + d.coords.map((p) => [xScale(p[0]), yScale(p[1])]).join('L') + 'Z')
-                .attr('fill', (d) => {
-                    const center = d3.polygonCentroid(d.coords);
-                    return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-                })
-                .style('opacity', 0.4)
-                .style('pointer-events', 'visibleFill')
-                .on('mouseover', function (event) {
-                    d3.select(this).style('opacity', 0.6);
-                })
-                .on('mouseout', function (event) {
-                    d3.select(this).style('opacity', 0.4);
-                })
-                .on('click', function (event, data) {
-                    d3.select(this).style('opacity', 0.7);
-
-                    // Open text edit field to change label
-                    const new_label = prompt('Please enter a new label', '');
-                    if (new_label !== null && props.annotateState) {
-                        // Update label text
-                        convex_g_texts
-                            .filter((d) => d.idx === data.idx)
-                            .text(new_label);
-
-                        // Call props function to update annotation state
-                        props.annotateState(data.indices, new_label, data.label);
-                    }
-                });
-
-            // Bring text to front
-            convex_g_texts.raise();
-
-            // Show/hide annotations based on mode
-            if (annotationMode === 'annotate') {
-                convex_g_paths.style('visibility', 'visible');
-                convex_g_texts.style('visibility', 'visible');
+        // Add 'Done' labels
+        for (let i = 0; i < done_idx.length; i++) {
+            if (!label_data_map.has(done_idx[i])) {
+                label_data_map.set(done_idx[i], ['Done']);
             } else {
-                convex_g_paths.style('visibility', 'hidden');
-                convex_g_texts.style('visibility', 'hidden');
+                label_data_map.get(done_idx[i]).push('Done');
             }
+        }
 
-            // Update text and line positions on zoom/pan
-            if (scatterplot) {
-                scatterplot.subscribe('view', ({ xScale, yScale }) => {
-                    // Update label positions
-                    text_labels_text
-                        .attr('x', (d) => xScale(d[0]) + 10)
-                        .attr('y', (d) => yScale(d[1]) + 10);
+        // Add custom labels from labelInfos
+        for (let i = 0; i < labelInfos.length; i++) {
+            const label = labelInfos[i].label;
+            const ids = labelInfos[i].ids;
 
-                    text_labels_lines
-                        .attr('x1', (d) => xScale(d[0]))
-                        .attr('y1', (d) => yScale(d[1]))
-                        .attr('x2', (d) => xScale(d[0]) + 10)
-                        .attr('y2', (d) => yScale(d[1]) + 10);
+            for (let j = 0; j < ids.length; j++) {
+                if (!label_data_map.has(ids[j])) {
+                    label_data_map.set(ids[j], [label]);
+                } else {
+                    label_data_map.get(ids[j]).push(label);
+                }
+            }
+        }
 
-                    // Update convex hull positions if in annotation mode
-                    if (annotationMode === 'annotate') {
-                        convex_g_paths.attr(
-                            'd',
-                            (d) => 'M' + d.coords.map((p) => [xScale(p[0]), yScale(p[1])]).join('L') + 'Z'
-                        );
+        // Create text labels for labeled points
+        const text_labels = view
+            .selectAll('label-g')
+            .data(processedData.map((d, i) => [d[0], d[1], i]).filter((d) => label_data_map.has(d[2])))
+            .enter()
+            .append('g')
+            .attr('class', 'label-g')
+            .attr('id', (d) => 'label-g_' + d[2]);
 
-                        // Update text at the center of the convex hull
-                        convex_g_texts
-                            .attr('x', (d) => xScale(d.centroid[0]))
-                            .attr('y', (d) => yScale(d.centroid[1]));
+        // Update color legend
+        updateColorLegend();
+
+        // Add text labels
+        const text_labels_text = text_labels
+            .append('text')
+            .attr('class', 'label')
+            .attr('x', (d) => xScale(d[0]) + 10)
+            .attr('y', (d) => yScale(d[1]) + 10)
+            .attr('text-anchor', 'start')
+            .attr('fill', '#333333')
+            .attr('font-size', '12px')
+            .text((d) => label_data_map.get(d[2]).join('/'));
+
+        // Add connector lines for labels
+        const text_labels_lines = text_labels
+            .append('line')
+            .attr('class', 'label-line')
+            .attr('vector-effect', 'non-scaling-stroke')
+            .attr('x1', (d) => xScale(d[0]))
+            .attr('y1', (d) => yScale(d[1]))
+            .attr('x2', (d) => xScale(d[0]) + 10)
+            .attr('y2', (d) => yScale(d[1]) + 10)
+            .attr('stroke', '#a1a1a1')
+            .attr('stroke-width', '1px');
+
+        // Generate density contours
+        try {
+            if (canvas) {
+                const context2D = canvas.getContext('2d');
+                if (context2D) {
+                    context2D.save();
+                    const path = d3.geoPath().context(context2D);
+
+                    context2D.beginPath();
+                    for (const c of d3.contourDensity()
+                        .size([svgWidth, svgHeight])
+                        .bandwidth(8)
+                        .thresholds(10)(
+                            processedData.map((d, i) => [
+                                xScale(d[0]) * svgWidth,
+                                svgHeight - yScale(d[1]) * svgHeight,
+                                i
+                            ])
+                        )) {
+                        path(c);
                     }
-                });
+                    context2D.stroke();
+                    context2D.restore();
+                }
             }
-        };
+        } catch (e) {
+            console.error("Error drawing contours:", e);
+        }
+
+        // Generate cluster hulls
+        const hulls: any[] = [];
+        const unique_labels = new Set(labels);
+        let label_idx = 0;
+
+        // For each labeled cluster, draw a convex hull
+        for (const label of unique_labels) {
+            if (label === -1) continue;
+
+            const cluster_indices = processedData
+                .map((element, index) => {
+                    if (labels[index] === label) {
+                        return index;
+                    }
+                    return -1;
+                })
+                .filter((element) => element >= 0);
+
+            const cluster_data = processedData.filter((_, i) => labels[i] === label);
+            const hull = d3.polygonHull(cluster_data);
+
+            if (hull === null) continue;
+
+            const label_text = props.annotationSets && label in props.annotationSets
+                ? props.annotationSets[label]
+                : label;
+
+            hulls.push({
+                coords: hull,
+                label: label_text,
+                indices: cluster_indices,
+                idx: label_idx
+            });
+
+            label_idx++;
+        }
+
+        // Delete old convex hulls
+        view.selectAll('.convex-g').remove();
+
+        // Add convex hulls for clusters
+        const convex_g = view
+            .selectAll('path')
+            .data(hulls)
+            .enter()
+            .append('g')
+            .attr('class', 'convex-g');
+
+        // Add label text in the center of the convex hull
+        const convex_g_texts = convex_g
+            .append('text')
+            .datum((d) => {
+                return {
+                    centroid: d3.polygonCentroid(d.coords),
+                    text: d.label,
+                    idx: d.idx
+                };
+            })
+            .attr('class', 'label')
+            .attr('x', (d) => xScale(d.centroid[0]))
+            .attr('y', (d) => yScale(d.centroid[1]))
+            .attr('text-anchor', 'middle')
+            .attr('font-size', '20px')
+            .attr('font-weight', 'bold')
+            .attr('fill', '#333333')
+            .text((d) => d.text);
+
+        // Add convex hull paths
+        const convex_g_paths = convex_g
+            .append('path')
+            .attr('d', (d) => 'M' + d.coords.map((p) => [xScale(p[0]), yScale(p[1])]).join('L') + 'Z')
+            .attr('fill', (d) => {
+                const center = d3.polygonCentroid(d.coords);
+                return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
+            })
+            .style('opacity', 0.4)
+            .style('pointer-events', 'visibleFill')
+            .on('mouseover', function (event) {
+                d3.select(this).style('opacity', 0.6);
+            })
+            .on('mouseout', function (event) {
+                d3.select(this).style('opacity', 0.4);
+            })
+            .on('click', function (event, data) {
+                d3.select(this).style('opacity', 0.7);
+
+                // Open text edit field to change label
+                const new_label = prompt('Please enter a new label', '');
+                if (new_label !== null && props.annotateState) {
+                    // Update label text
+                    convex_g_texts
+                        .filter((d) => d.idx === data.idx)
+                        .text(new_label);
+
+                    // Call props function to update annotation state
+                    props.annotateState(data.indices, new_label, data.label);
+                }
+            });
+
+        // Bring text to front
+        convex_g_texts.raise();
+
+        // Show/hide annotations based on mode
+        if (annotationMode === 'annotate') {
+            convex_g_paths.style('visibility', 'visible');
+            convex_g_texts.style('visibility', 'visible');
+        } else {
+            convex_g_paths.style('visibility', 'hidden');
+            convex_g_texts.style('visibility', 'hidden');
+        }
+
+        // Update text and line positions on zoom/pan
+        if (scatterplot) {
+            scatterplot.subscribe('view', ({ xScale, yScale }) => {
+                // Update label positions
+                text_labels_text
+                    .attr('x', (d) => xScale(d[0]) + 10)
+                    .attr('y', (d) => yScale(d[1]) + 10);
+
+                text_labels_lines
+                    .attr('x1', (d) => xScale(d[0]))
+                    .attr('y1', (d) => yScale(d[1]))
+                    .attr('x2', (d) => xScale(d[0]) + 10)
+                    .attr('y2', (d) => yScale(d[1]) + 10);
+
+                // Update convex hull positions if in annotation mode
+                if (annotationMode === 'annotate') {
+                    convex_g_paths.attr(
+                        'd',
+                        (d) => 'M' + d.coords.map((p) => [xScale(p[0]), yScale(p[1])]).join('L') + 'Z'
+                    );
+
+                    // Update text at the center of the convex hull
+                    convex_g_texts
+                        .attr('x', (d) => xScale(d.centroid[0]))
+                        .attr('y', (d) => yScale(d.centroid[1]));
+                }
+            });
+        }
     }, [
         props.infos,
         props.showModels,
@@ -1560,8 +1559,6 @@ const WebGLProjection = (props) => {
         circleGenerator
     ]);
 
-
-
     // Draw transition embedding visualization
     const drawTransitionEmbedding = useCallback((transition_embeddings = [], actions = [], data = [], annotationMode = 'analyze') => {
         setLastIndex(transition_embeddings.length - 1);
@@ -1997,7 +1994,8 @@ const WebGLProjection = (props) => {
                 position="absolute"
                 top="50%"
                 left="50%"
-                sx={{ transform: 'translate(-50%, -50%)', zIndex: 10 }}
+                sx={{ transform: 'translate(-50%, -50%)', zIndex: 10, visible: isLoading ? 'hidden' : 'visible' }}
+
             >
                 <Button variant="contained" color="primary" onClick={loadData}>
                     Load Data
