@@ -14,9 +14,13 @@ import {
     Paper,
     Typography,
     CircularProgress,
-    Alert
+    Alert,
+    Tooltip,
+    IconButton
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import axios from 'axios';
@@ -192,6 +196,8 @@ const WebGLProjection = (props) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [lastIndex, setLastIndex] = useState(0);
+    const [selectedTrajectory, setSelectedTrajectory] = useState(null);
+    const selectedTrajectoryRef = useRef(null);
 
     // Local UI state
     const [uiState, setUiState] = useState({
@@ -233,6 +239,10 @@ const WebGLProjection = (props) => {
             updateChartColors(props.highlightSteps, props.visibleEpisodes);
         }
     }, [props.selectionTimestamp]);
+
+    useEffect(() => {
+        selectedTrajectoryRef.current = selectedTrajectory;
+    }, [selectedTrajectory]);
 
     // React to color mode changes
     useEffect(() => {
@@ -452,15 +462,14 @@ const WebGLProjection = (props) => {
         transition_embeddings = [],
         actionData = [],
         doneData = [],
+        episodeIndices = [],
         labelInfos = [],
         annotationMode = 'analyze'
     ) => {
 
-        console.log("Drawing chart with mode:", mode, data);
-
         switch (mode) {
             case 'state_space':
-                drawStateSpace(data, labels, doneData, labelInfos, annotationMode);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, annotationMode);
                 break;
             case 'decision_points':
                 drawDecisionPoints(data, merged_points, connections);
@@ -536,6 +545,7 @@ const WebGLProjection = (props) => {
                 activeLearningDispatch({ type: 'SET_LAST_DATA_UPDATE_TIMESTAMP', payload: props.timeStamp });
                 activeLearningDispatch({ type: 'SET_SELECTED_POINTS', payload: selected_points });
                 activeLearningDispatch({ type: 'SET_HIGHLIGHTED_POINTS', payload: highlighted_points });
+                activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: data.episode_indices || [] });
 
                 // Update local UI state
                 setUiState(prev => ({
@@ -547,7 +557,7 @@ const WebGLProjection = (props) => {
                     background_color_scale: bgColorData.scale,
                     background_color_d3_scale: bgColorData.d3_scale,
                 }));
-
+                
                 drawChart(
                     viewMode,
                     data.projection,
@@ -556,9 +566,10 @@ const WebGLProjection = (props) => {
                     data.connections,
                     data.feature_projection,
                     data.transition_projection,
-                    actionData,
-                    props.currentDoneData,
-                    props.labelInfo,
+                    data.actions,
+                    data.dones,
+                    data.episode_indices,
+                    [],
                     annotationMode
                 );
 
@@ -592,157 +603,268 @@ const WebGLProjection = (props) => {
         activeLearningDispatch
     ]);
 
-    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], annotationMode = 'analyze') => {
+    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], annotationMode = 'analyze') => {
         setLastIndex(data.length - 1);
+
+        const margin = { top: 0, right: 0, bottom: 0, left: 0 };
+        const done_idx = doneData.reduce((a, elem, i) => (elem === true && a.push(i), a), []);
 
         if (!embeddingRef.current || !embeddingRef.current.parentElement) return;
 
-        const margin = { top: 100, right: 20, bottom: 20, left: 20 };
-        const done_idx = doneData.reduce((a, elem, i) => (elem === true && a.push(i), a), []);
-        const svgHeight = embeddingRef.current.parentElement.clientHeight - margin.top - margin.bottom;
-        const svgWidth = embeddingRef.current.parentElement.clientWidth - margin.left - margin.right;
+        d3.select(embeddingRef.current).selectAll('*').remove();
+
+        const svgHeight = embeddingRef.current.parentElement.clientHeight;
+        const svgWidth = embeddingRef.current.parentElement.clientWidth;
 
         if (svgWidth < 0 || svgHeight < 0) return;
 
         // Handle 1D embeddings by adding time dimension
         let processedData = [...data];
         if (data.length > 0 && data[0].length === 1) {
-            processedData = data.map((k, i) => [
+            processedData = processedData.map((k, i) => [
                 props.infos?.[i]?.['episode step'] || 0,
-                ...k
+                ...k,
             ]);
         }
 
-        // Filter data to only include visible models
+        processedData = processedData.map((k, i) => [...k, episodeIndices[i] || 0]);
+
+        // Filter data to only include visible models if needed
         if (props.showModels && props.infos) {
             processedData = processedData.filter((k, i) =>
                 props.showModels[props.infos[i]['model_index']]
             );
         }
 
-        // Set up scales
-        const xScale = d3.scaleLinear().domain([-1, 1]).range([0, svgWidth]); // Add range!
-        const yScale = d3.scaleLinear().domain([-1, 1]).range([svgHeight, 0]); // Add range!
+        // Create quad tree for fast point lookup
+        const quadTree = d3.quadtree(
+            processedData.map((d, i) => [d[0], d[1], i]),
+            (d) => d[0],
+            (d) => d[1]
+        );
 
-        // Clean up existing scatterplot if needed
-        if (scatterplot) {
-            try {
-                scatterplot.destroy();
-            } catch (e) {
-                console.error("Error destroying scatterplot:", e);
-            }
-        }
-
-        // Initialize or clear visualization elements
         const container = d3.select(embeddingRef.current);
+
+        // Select the previous view and get current transform
+        const prevView = container.select('.view');
+        const prevTransform = prevView.node() !== null ? prevView.attr('transform') : null;
+
+        // Remove all children of the container
+        container.selectAll('*').remove();
         container.style('position', 'relative');
 
-        // Clear any existing elements
-        container.selectAll('*').remove();
+        // Create canvas for background rendering (density, etc)
+        const canvas = container.append('canvas').node();
+        setCanvas(canvas);
 
-        // Create canvas for scatterplot
-        const newCanvas = container.append('canvas').node();
-
-        // Set explicit dimensions on the canvas
-        if (newCanvas) {
-            newCanvas.width = svgWidth;
-            newCanvas.height = svgHeight;
+        if (canvas) {
+            canvas.width = svgWidth;
+            canvas.height = svgHeight;
         }
 
-        setCanvas(newCanvas);
+        const context = canvas.getContext('2d');
 
-        // Create SVG overlay for annotations
-        const newSvg = container
+        // Create SVG overlay
+        const svg = container
             .append('svg')
             .attr('width', svgWidth)
             .attr('height', svgHeight)
             .style('position', 'absolute')
             .style('top', '0px')
             .style('left', '0px')
-            .style('pointer-events', 'none')
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
 
-        setSvg(newSvg);
+        setSvg(svg);
 
-        // Wait until next frame to ensure DOM is updated
-        try {
-            // Initialize scatterplot
-            const newScatterplot = createScatterplot({
-                canvas: newCanvas,
-                width: svgWidth,
-                height: svgHeight,
-                lassoMinDelay: 10,
-                lassoMinDist: 2,
-                pointSize: 5,
-                showReticle: false,
-                reticleColor: [],
-                showPointConnections: true,
-                pointConnectionColor: [0, 0, 0, 0.8],
-                pointConnectionSize: 3,
-                lassoInitiator: true,
-                xScale: xScale,
-                yScale: yScale,
-                resize: false,
+        // Set up scales
+        const xDomain = [d3.min(processedData.map((d) => d[0])) || -1, d3.max(processedData.map((d) => d[0])) || 1];
+        const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
+
+        const yDomain = [d3.min(processedData.map((d) => d[1])) || -1, d3.max(processedData.map((d) => d[1])) || 1];
+        const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
+
+        // Set up color mapping
+        Color2D.ranges = { x: xDomain, y: yDomain };
+
+        const zoom = d3
+            .zoom()
+            .scaleExtent([0.2, 15])
+            .translateExtent([
+                [-600, -600],
+                [svgWidth + 600, svgHeight + 600],
+            ])
+            .on('zoom', zoomed)
+            .on('end', (event) => {
+                setUiState(prev => ({ ...prev, k: event.transform.k }));
+            })
+            // Filter function to distinguish between zoom and click
+            .filter(function(event) {
+                // Allow wheel events
+                if (event.type === 'wheel') return true;
+                
+                // Allow double-click events for zoom reset
+                if (event.type === 'dblclick') return true;
+                
+                // For mouse events, only start zoom on right mouse button or with modifier key
+                return !event.button && event.type !== 'click';
             });
 
-            // Add selection handler
-            newScatterplot.subscribe('select', (selection) => {
-                if (selection.points.length > 0 && props.setHoverStep && props.selectDatapoint && props.infos) {
-                    props.setHoverStep(props.infos[selection.points[0]]);
-                    props.selectDatapoint(selection.points[0]);
-                }
-            });
+        // Create view group
+        const view = svg.append('g').attr('class', 'view');
 
-            setScatterplot(newScatterplot);
-
-            // Configure scatterplot
-            newScatterplot.set({
-                colorBy: 'valueZ',
-                pointColor: uiState.object_color_scale,
-                pointConnectionColorBy: 'valueZ',
-                pointConnectionColor: 'inherit',
-                pointConnectionMaxIntPointsPerSegment: 5,
-                pointConnectionTolerance: 0.5,
-            });
-
-            // Prepare points data for scatterplot
-            const points = processedData.map((d, i) => [
-                d[0],
-                d[1],
-                uiState.object_layer_colors[i],
-                0,
-                props.infos?.[i]?.['episode index'] || 0,
-            ]);
-
-            // Draw points
-            newScatterplot.draw(points);
-
-            // Continue with rest of visualization setup
-            continueDraw(newScatterplot, newSvg, processedData, xScale, yScale);
-        } catch (e) {
-            console.error("Error initializing scatterplot:", e);
-            setError("Failed to initialize visualization. Please try again.");
+        // Apply previous transform to the view if exists
+        if (prevTransform) {
+            view.attr('transform', prevTransform);
         }
 
-        console.log("Continuing draw with processed data:", processedData);
+        // Add invisible rect to capture events
+        const view_rect = view
+            .append('rect')
+            .attr('x', 0)
+            .attr('y', 0)
+            .attr('height', svgHeight)
+            .attr('width', svgWidth)
+            .style('opacity', '0');
 
-        // Set up color range for 2D color mapping
-        Color2D.ranges = { x: [-1, 1], y: [-1, 1] };
+        // Add mouse events
+        view_rect.on('mousemove', function (event) {
+            const mouse = d3.pointer(event);
 
-        // Create view group for annotations
-        const view = svg.append('g');
+            // Map the clicked point to the data space
+            const xClicked = xScale.invert(mouse[0]);
+            const yClicked = yScale.invert(mouse[1]);
 
-        // Build map of point labels
+            // Find the closest point in the dataset to the clicked point
+            const closest = quadTree.find(xClicked, yClicked, 10);
+
+            if (closest && props.setHoverStep && props.infos) {
+                props.setHoverStep(props.infos[closest[2]]);
+            }
+        });
+
+        view_rect.on('click', function (event) {
+            // Prevent default to avoid any interference
+            event.preventDefault();
+            
+            // Stop propagation to prevent zoom from catching it
+            event.stopPropagation();
+            
+            const mouse = d3.pointer(event);
+        
+            // Map the clicked point to the data space
+            const xClicked = xScale.invert(mouse[0]);
+            const yClicked = yScale.invert(mouse[1]);
+        
+            // Find the closest point in the dataset to the clicked point
+            const closest = quadTree.find(xClicked, yClicked, 10);
+        
+            if (closest) {
+
+                //props.setHoverStep(props.infos[closest[2]]);
+                //props.selectDatapoint(closest[2]);
+        
+                // Find the correct episode index
+                let episodeIdx: number | null = null;
+                
+                // First check if we have the episode directly in the processed data
+                if (processedData[closest[2]] && processedData[closest[2]].length > 3) {
+                    episodeIdx = processedData[closest[2]][processedData[closest[2]].length - 1];
+                } 
+                // Fall back to the episodeIndices array
+                else if (episodeIndices && episodeIndices[closest[2]] !== undefined) {
+                    episodeIdx = episodeIndices[closest[2]];
+                }
+                
+                if (episodeIdx !== null) {
+                    setSelectedTrajectory(episodeIdx);
+                    selectedTrajectoryRef.current = episodeIdx;  
+                    
+                    // Force a redraw to show the highlighted trajectory
+                    const currentTransform = d3.zoomTransform(view.node());
+                    zoomed({transform: currentTransform});
+                }
+            }
+        });
+
+        svg.on('click', function(event) {
+            // Only handle clicks directly on the SVG (not on points)
+            if (event.target === this) {
+                setSelectedTrajectory(null);
+                
+                // Force a redraw to update the visualization
+                const currentTransform = d3.zoomTransform(view.node());
+                zoomed({transform: currentTransform});
+            }
+        });
+
+        // Create line function for curves
+        const lineFunction = d3
+            .line()
+            .curve(d3.curveCatmullRom)
+            .x(function (d) {
+                return xScale(d[0]);
+            })
+            .y(function (d) {
+                return yScale(d[1]);
+            });
+
+        // Split data by episodes
+        const splitData = splitArray(processedData, done_idx);
+
+        // Add observation images for data points
+        /*const step_images = view
+            .selectAll('image')
+            .data(processedData.filter((d, i) => i % Math.floor(processedData.length / 30) === 0))
+            .enter()
+            .append('svg:image')
+            .attr('x', (d) => xScale(d[0]))
+            .attr('y', (d) => yScale(d[1]))
+            .attr('width', 40)
+            .attr('height', 48)
+            .attr('class', 'datapoint_images')
+            .attr('id', (d) => {
+                return (
+                    'datapoint_image_run_' +
+                    props.infos?.[d[2]]?.['model_index'] +
+                    '_' +
+                    props.infos?.[d[2]]?.['model_data_step']
+                );
+            })
+            .attr('opacity', 0.8)
+            .attr('display', 'none')
+            .attr(
+                'xlink:href',
+                (d) => {
+                    if (!props.infos || !props.benchmarkedModels) return '';
+
+                    return '/data/get_single_obs?step=' +
+                        props.infos[d[2]]['episode step'] +
+                        '&gym_registration_id=' +
+                        props.benchmarkedModels[props.infos[d[2]]['model_index']].gym_registration_id +
+                        '&benchmark_type=' +
+                        props.benchmarkedModels[props.infos[d[2]]['model_index']].benchmark_type +
+                        '&benchmark_id=' +
+                        props.benchmarkedModels[props.infos[d[2]]['model_index']].benchmark_id +
+                        '&checkpoint_step=' +
+                        props.benchmarkedModels[props.infos[d[2]]['model_index']].checkpoint_step +
+                        '&episode_id=' +
+                        props.infos[d[2]]['model_episode'] +
+                        '&type=render&rdn=' +
+                        Math.random();
+                }
+            );
+        */
+
+
+        // Create label data map
         const label_data_map = new Map();
-
-        // Add 'Start' labels
         const start_label_data = [0].concat(done_idx.slice(0, -1).map((d) => d + 1));
+
         for (let i = 0; i < start_label_data.length; i++) {
             label_data_map.set(start_label_data[i], ['Start']);
         }
 
-        // Add 'Done' labels
         for (let i = 0; i < done_idx.length; i++) {
             if (!label_data_map.has(done_idx[i])) {
                 label_data_map.set(done_idx[i], ['Done']);
@@ -751,7 +873,6 @@ const WebGLProjection = (props) => {
             }
         }
 
-        // Add custom labels from labelInfos
         for (let i = 0; i < labelInfos.length; i++) {
             const label = labelInfos[i].label;
             const ids = labelInfos[i].ids;
@@ -765,7 +886,7 @@ const WebGLProjection = (props) => {
             }
         }
 
-        // Create text labels for labeled points
+        // Create text labels
         const text_labels = view
             .selectAll('label-g')
             .data(processedData.map((d, i) => [d[0], d[1], i]).filter((d) => label_data_map.has(d[2])))
@@ -783,7 +904,7 @@ const WebGLProjection = (props) => {
             .attr('class', 'label')
             .attr('x', (d) => xScale(d[0]) + 10)
             .attr('y', (d) => yScale(d[1]) + 10)
-            .attr('text-anchor', 'start')
+            .attr('text-anchor', 'center')
             .attr('fill', '#333333')
             .attr('font-size', '12px')
             .text((d) => label_data_map.get(d[2]).join('/'));
@@ -800,185 +921,299 @@ const WebGLProjection = (props) => {
             .attr('stroke', '#a1a1a1')
             .attr('stroke-width', '1px');
 
-        // Generate density contours
+        // Setup density contours
         try {
-            if (canvas) {
-                const context2D = canvas.getContext('2d');
-                if (context2D) {
-                    context2D.save();
-                    const path = d3.geoPath().context(context2D);
+            const densityData = d3
+                .contourDensity()
+                .x(function (d) {
+                    return xScale(d[0]);
+                })
+                .y(function (d) {
+                    return yScale(d[1]);
+                })
+                .size([svgWidth, svgHeight])
+                .bandwidth(30)(processedData.map((d, i) => [d[0], d[1], i]));
 
-                    context2D.beginPath();
-                    for (const c of d3.contourDensity()
-                        .size([svgWidth, svgHeight])
-                        .bandwidth(8)
-                        .thresholds(10)(
-                            processedData.map((d, i) => [
-                                xScale(d[0]) * svgWidth,
-                                svgHeight - yScale(d[1]) * svgHeight,
-                                i
-                            ])
-                        )) {
-                        path(c);
-                    }
-                    context2D.stroke();
-                    context2D.restore();
-                }
+            const color = d3.scaleSequential(d3.interpolateGreys).domain([0, 0.05]);
+
+            if (context) {
+                densityData.forEach((d) => {
+                    context.beginPath();
+                    d3.geoPath().context(context)(d);
+                    context.fillStyle = color(d.value);
+                    context.fill();
+                });
             }
         } catch (e) {
             console.error("Error drawing contours:", e);
         }
 
-        // Generate cluster hulls
-        const hulls: any[] = [];
-        const unique_labels = new Set(labels);
-        let label_idx = 0;
-
-        // For each labeled cluster, draw a convex hull
-        for (const label of unique_labels) {
-            if (label === -1) continue;
-
-            const cluster_indices = processedData
-                .map((element, index) => {
-                    if (labels[index] === label) {
-                        return index;
-                    }
-                    return -1;
-                })
-                .filter((element) => element >= 0);
-
-            const cluster_data = processedData.filter((_, i) => labels[i] === label);
-            const hull = d3.polygonHull(cluster_data);
-
-            if (hull === null) continue;
-
-            const label_text = props.annotationSets && label in props.annotationSets
-                ? props.annotationSets[label]
-                : label;
-
-            hulls.push({
-                coords: hull,
-                label: label_text,
-                indices: cluster_indices,
-                idx: label_idx
-            });
-
-            label_idx++;
-        }
-
-        // Delete old convex hulls
-        view.selectAll('.convex-g').remove();
-
-        // Add convex hulls for clusters
-        const convex_g = view
-            .selectAll('path')
-            .data(hulls)
-            .enter()
-            .append('g')
-            .attr('class', 'convex-g');
-
-        // Add label text in the center of the convex hull
-        const convex_g_texts = convex_g
-            .append('text')
-            .datum((d) => {
-                return {
-                    centroid: d3.polygonCentroid(d.coords),
-                    text: d.label,
-                    idx: d.idx
-                };
-            })
-            .attr('class', 'label')
-            .attr('x', (d) => xScale(d.centroid[0]))
-            .attr('y', (d) => yScale(d.centroid[1]))
-            .attr('text-anchor', 'middle')
-            .attr('font-size', '20px')
-            .attr('font-weight', 'bold')
-            .attr('fill', '#333333')
-            .text((d) => d.text);
-
-        // Add convex hull paths
-        const convex_g_paths = convex_g
-            .append('path')
-            .attr('d', (d) => 'M' + d.coords.map((p) => [xScale(p[0]), yScale(p[1])]).join('L') + 'Z')
-            .attr('fill', (d) => {
-                const center = d3.polygonCentroid(d.coords);
-                return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-            })
-            .style('opacity', 0.4)
-            .style('pointer-events', 'visibleFill')
-            .on('mouseover', function (event) {
-                d3.select(this).style('opacity', 0.6);
-            })
-            .on('mouseout', function (event) {
-                d3.select(this).style('opacity', 0.4);
-            })
-            .on('click', function (event, data) {
-                d3.select(this).style('opacity', 0.7);
-
-                // Open text edit field to change label
-                const new_label = prompt('Please enter a new label', '');
-                if (new_label !== null && props.annotateState) {
-                    // Update label text
-                    convex_g_texts
-                        .filter((d) => d.idx === data.idx)
-                        .text(new_label);
-
-                    // Call props function to update annotation state
-                    props.annotateState(data.indices, new_label, data.label);
-                }
-            });
-
-        // Bring text to front
-        convex_g_texts.raise();
-
-        // Show/hide annotations based on mode
+        // Handle annotations based on mode
         if (annotationMode === 'annotate') {
-            convex_g_paths.style('visibility', 'visible');
-            convex_g_texts.style('visibility', 'visible');
+            const unique_labels = new Set(labels);
+
+            // For each labeled cluster, draw a convex hull
+            for (const label of unique_labels) {
+                if (label === -1) continue;
+
+                const label_g = view.append('g').attr('class', 'label-g');
+
+                const cluster_indices = processedData
+                    .map((element, index) => {
+                        if (labels[index] === label) {
+                            return index;
+                        }
+                    })
+                    .filter((element) => element !== undefined);
+
+                const cluster_data = processedData.filter((_, i) => labels[i] === label);
+                const hull = d3.polygonHull(cluster_data.map((d) => [d[0], d[1]]));
+
+                if (!hull) continue;
+
+                // Map hull points to screen coordinates
+                const mappedHull = hull.map(p => [xScale(p[0]), yScale(p[1])]);
+
+                // Add convex hull path
+                label_g
+                    .append('path')
+                    .attr('d', 'M' + mappedHull.join('L') + 'Z')
+                    .attr('fill', () => {
+                        const center = d3.polygonCentroid(mappedHull);
+                        return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
+                    })
+                    .style('opacity', 0.4)
+                    .on('mouseover', function (event) {
+                        d3.select(this).style('opacity', 0.6);
+                    })
+                    .on('mouseout', function (event) {
+                        d3.select(this).style('opacity', 0.4);
+                    })
+                    .on('click', function (event) {
+                        d3.select(this).style('opacity', 0.7);
+
+                        // Open text edit field to change label
+                        const new_label = prompt('Please enter a new label', '');
+                        if (new_label !== null && props.annotateState) {
+                            // Update label
+                            this_label_text.text(new_label);
+                            props.annotateState(cluster_indices, new_label, label);
+                        }
+                    });
+
+                // Check if label in props.annotationSets, if so, use the label in props.annotated_sets
+                const label_text = props.annotationSets && label in props.annotationSets ?
+                    props.annotationSets[label] :
+                    label;
+
+                // Add center text label
+                const center = d3.polygonCentroid(mappedHull);
+                const this_label_text = label_g
+                    .append('text')
+                    .attr('class', 'label')
+                    .attr('font-size', '20px')
+                    .attr('font-weight', 'bold')
+                    .attr('x', center[0])
+                    .attr('y', center[1])
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#333333')
+                    .text(label_text);
+            }
         } else {
-            convex_g_paths.style('visibility', 'hidden');
-            convex_g_texts.style('visibility', 'hidden');
+            // Just show annotation labels without interactive hulls
+            const unique_labels = new Set(labels);
+
+            for (const label of unique_labels) {
+                if (!(props.annotationSets && label in props.annotationSets)) continue;
+
+                const label_g = view.append('g').attr('class', 'label-g');
+                const cluster_data = processedData.filter((_, i) => labels[i] === label);
+
+                if (cluster_data.length === 0) continue;
+
+                const mappedPoints = cluster_data.map((d) => [xScale(d[0]), yScale(d[1])]);
+                const hull = d3.polygonHull(mappedPoints);
+
+                if (!hull) continue;
+
+                // Add label text in the center of the convex hull
+                const center = d3.polygonCentroid(hull);
+                const label_text = props.annotationSets[label];
+
+                label_g
+                    .append('text')
+                    .attr('class', 'label')
+                    .attr('font-size', '20px')
+                    .attr('font-weight', 'bold')
+                    .attr('x', center[0] + 35)
+                    .attr('y', center[1] + 35)
+                    .attr('text-anchor', 'center')
+                    .attr('fill', '#333333')
+                    .text(label_text);
+            }
         }
 
-        // Update text and line positions on zoom/pan
-        if (scatterplot) {
-            scatterplot.subscribe('view', ({ xScale, yScale }) => {
-                // Update label positions
-                text_labels_text
-                    .attr('x', (d) => xScale(d[0]) + 10)
-                    .attr('y', (d) => yScale(d[1]) + 10);
+        // Add step marker for current position
+        const step_marker_group = view.append('g').attr("display", "none");
 
-                text_labels_lines
-                    .attr('x1', (d) => xScale(d[0]))
-                    .attr('y1', (d) => yScale(d[1]))
-                    .attr('x2', (d) => xScale(d[0]) + 10)
-                    .attr('y2', (d) => yScale(d[1]) + 10);
+        step_marker_group
+            .append('path')
+            .datum(processedData[0] || [0, 0])
+            .attr('d', (d) => circleGenerator(xScale(d[0]), yScale(d[1]), 5))
+            .attr('fill-opacity', 0.5)
+            .attr('fill', '#ff3737')
+            .attr('stroke', '#ff3737')
+            .attr('id', 'step_marker');
 
-                // Update convex hull positions if in annotation mode
-                if (annotationMode === 'annotate') {
-                    convex_g_paths.attr(
-                        'd',
-                        (d) => 'M' + d.coords.map((p) => [xScale(p[0]), yScale(p[1])]).join('L') + 'Z'
-                    );
+        step_marker_group.append('path').attr('id', 'past_trajectory');
+        step_marker_group.append('path').attr('id', 'future_trajectory');
 
-                    // Update text at the center of the convex hull
-                    convex_g_texts
-                        .attr('x', (d) => xScale(d.centroid[0]))
-                        .attr('y', (d) => yScale(d.centroid[1]));
+        const dataLength = splitData.length;
+
+        // Zoom handler function
+        function zoomed(event) {
+            const transform = event.transform;
+            view.attr('transform', transform);
+
+            const currentHighlightedTrajectory = selectedTrajectoryRef.current;
+
+            const isZoomEnd = event.sourceEvent && 
+            (event.sourceEvent.type === 'mouseup' || event.sourceEvent.type === 'touchend');
+                
+                // Call detailed view on zoom end, but always perform the basic rendering
+                if (isZoomEnd) {
+                    drawDetailedView(transform);
                 }
-            });
+
+            const r = Math.round((5 / transform.k) * 100) / 100;
+            const width = Math.round((1 / transform.k) * 100) / 100;
+
+            if (context) {
+                // Clear and prepare canvas
+                context.save();
+                context.clearRect(0, 0, svgWidth, svgHeight);
+                context.translate(transform.x, transform.y);
+                context.scale(transform.k, transform.k);
+
+                // Create episodeToPaths mapping for efficient rendering
+                const episodeToPaths = new Map();
+
+                episodeIndices.forEach((episodeIdx, i) => {
+                    if (!episodeToPaths.has(episodeIdx)) {
+                        episodeToPaths.set(episodeIdx, []);
+                    }
+
+                    if (i < processedData.length) {
+                        episodeToPaths.get(episodeIdx).push(processedData[i]);
+                    }
+                });
+
+                // Draw paths with efficient batching
+                episodeToPaths.forEach((pathPoints, episodeIdx) => {
+                    if (pathPoints.length === 0) return;
+
+                    // Highlight the selected trajectory
+                    const isHighlighted = currentHighlightedTrajectory === episodeIdx;
+
+                    if (!isHighlighted)
+                        return;
+
+                    // Set path styling
+                    context.strokeStyle = d3.interpolateCool(episodeIdx / episodeToPaths.size);
+                    context.lineWidth = isHighlighted ? width * 3 : width;
+                    context.globalAlpha = isHighlighted ? 0.9 : 0.5;
+
+                    // Draw the path
+                    context.beginPath();
+                    context.moveTo(xScale(pathPoints[0][0]), yScale(pathPoints[0][1]));
+
+                    for (let j = 1; j < pathPoints.length; j++) {
+                        // Don't draw lines between distant points
+                        /*if (Math.hypot(pathPoints[j][0] - pathPoints[j - 1][0], pathPoints[j][1] - pathPoints[j - 1][1]) > 0.3) {
+                            context.moveTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
+                        } else {
+                            context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
+                        }*/
+                        context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
+                    }
+
+                    context.stroke();
+                });
+
+                // Batch draw points for better performance
+                context.globalAlpha = 0.5;
+                context.beginPath();
+
+                for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
+                    // Skip non-selected points if filtering is active
+                    //if (selectedPoints && !selectedPoints[i]) continue;
+
+                    // Check if point is part of highlighted trajectory
+                    const pointEpisodeIdx = episodeIndices[i] || 0;
+                    const isHighlighted = currentHighlightedTrajectory === pointEpisodeIdx;
+                    const fillStyle = d3.interpolateCool(pointEpisodeIdx / episodeToPaths.size);
+
+                    // Draw rectangle for highlighted points
+                    if (highlightedPoints && highlightedPoints[i]) {
+                        context.rect(x - r, y - r, 2 * r, 2 * r);
+                    } else {
+                        // Create a new path for each point to allow different colors
+                        context.beginPath();
+                        context.arc(x, y, isHighlighted ? r * 1.5 : r, 0, 2 * Math.PI);
+                        context.fillStyle = fillStyle;
+                        context.fill();
+                        context.closePath();
+                    }
+                }
+
+                context.restore();
+            }
+
+            // Update SVG elements visibility based on zoom level
+            if (transform.k > 2) {
+                text_labels.attr('display', 'inline');
+            } else {
+                text_labels.attr('display', 'none');
+            }
+
+            // Update text size
+            text_labels_text.attr('font-size', 16 / transform.k);
         }
+
+        // Detailed rendering for zoom end events
+        function drawDetailedView(transform) {
+            // More detailed rendering with better quality for static view
+            zoomed({ transform }); // Reuse the main rendering logic
+
+            // Add any additional detailed rendering here
+            // This is called only when zooming ends, not during active zoom
+        }
+
+        svg.call(zoom);
+
+        // Update UI state with scales
+        setUiState(prev => ({
+            ...prev,
+            x: xScale,
+            y: yScale
+        }));
     }, [
+        selectedPoints,
+        highlightedPoints,
+        selectedTrajectory, // Add dependency on highlighted trajectory
+        objectColorMode,
+        updateColorLegend,
+        splitArray,
+        circleGenerator,
         props.infos,
         props.showModels,
+        props.benchmarkedModels,
         props.annotationSets,
         props.annotateState,
-        uiState.object_color_scale,
+        props.setHoverStep,
+        props.selectDatapoint,
         uiState.object_layer_colors,
-        embeddingRef,
-        scatterplot, // Add this as a dependency
-        updateColorLegend,
-        setError, // Make sure to add this to your component state
+        activeLearningState.episodeIndices // Add dependency on episode indices
     ]);
 
     // Draw decision points visualization
@@ -1897,9 +2132,8 @@ const WebGLProjection = (props) => {
             {/* Main visualization area */}
             <EmbeddingContainer ref={embeddingRef} />
 
-            {/* Controls */}
+            {/* Controls 
             <ControlsWrapper>
-                {/* View selector */}
                 <ControlOverlay elevation={3}>
                     <ViewBoxContainer>
                         {views.map((view, i) => (
@@ -1927,7 +2161,6 @@ const WebGLProjection = (props) => {
                     </ViewBoxContainer>
                 </ControlOverlay>
 
-                {/* Mode selector */}
                 <ControlOverlay>
                     <Typography variant="subtitle1" gutterBottom>Mode</Typography>
                     <ToggleButtonGroup
@@ -1948,8 +2181,6 @@ const WebGLProjection = (props) => {
                         ))}
                     </ToggleButtonGroup>
                 </ControlOverlay>
-
-                {/* Layer controls */}
                 <ControlOverlay>
                     <Accordion defaultExpanded>
                         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -1983,15 +2214,67 @@ const WebGLProjection = (props) => {
                         </AccordionDetails>
                     </Accordion>
                 </ControlOverlay>
-
-                {/* Additional controls can be added here */}
             </ControlsWrapper>
+            */}
 
-            {/* Button to load data */}
+<Box
+        position="absolute"
+        bottom="20px"
+        left="50%"
+        sx={{ 
+          transform: 'translateX(-50%)', 
+          zIndex: 10, 
+          display: 'flex', 
+          gap: 2,
+          visibility: isLoading ? 'hidden' : 'visible' 
+        }}
+      >
+        <Tooltip title="Clear Global Selection">
+          <IconButton
+            color="default"
+            sx={{ 
+              backgroundColor: 'rgba(128, 128, 128, 0.7)',
+              '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
+            }}
+            onClick={() => {
+              activeLearningDispatch({
+                type: 'SET_SELECTION',
+                payload: []
+              });
+            }}
+          >
+            <DeleteIcon />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Add to Global Selection">
+          <IconButton
+            color="default"
+            sx={{ 
+              backgroundColor: 'rgba(128, 128, 128, 0.7)',
+              '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
+            }}
+            onClick={() => {
+                const selectedTrajectory = selectedTrajectoryRef.current;
+              if (!selectedTrajectory) return;
+              const selected = activeLearningState.selection;
+              const newSelection = [...selected, selectedTrajectory];
+              activeLearningDispatch({
+                type: 'SET_SELECTION',
+                payload: newSelection
+              });
+            }}
+          >
+            <AddIcon />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+            {/* Button to load data, should be on top left corner*/ }
             <Box
                 position="absolute"
-                top="50%"
-                left="50%"
+                top="10px"
+                left="50px"
                 sx={{ transform: 'translate(-50%, -50%)', zIndex: 10, visible: isLoading ? 'hidden' : 'visible' }}
 
             >

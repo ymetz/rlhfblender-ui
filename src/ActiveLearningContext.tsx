@@ -6,7 +6,7 @@ export interface ActiveLearningState {
   currentPhase: number;
   progressRewards: number[];
   progressUncertainties: number[];
-  selection: Episode[];
+  selection: number[];
   selectedEpisode: Episode | null;
   projectionStates: number[][];
   projectionStateValues: number[];
@@ -37,6 +37,8 @@ export interface ActiveLearningState {
   infoTypes: string[];
   actionData: any[];
   currentRewardData: number[];
+
+  episodeIndices: number[]; 
 }
 
 type ActiveLearningAction =
@@ -66,7 +68,8 @@ type ActiveLearningAction =
   | { type: "SET_EMBEDDING_METHOD"; payload: string }
   | { type: "SET_INFO_TYPES"; payload: string[] }
   | { type: "SET_ACTION_DATA"; payload: any[] }
-  | { type: "SET_CURRENT_REWARD_DATA"; payload: number[] };
+  | { type: "SET_CURRENT_REWARD_DATA"; payload: number[] }
+  | { type: 'SET_EPISODE_INDICES', payload: number[] };
 
 const initialState: ActiveLearningState = {
   // Original state
@@ -94,10 +97,11 @@ const initialState: ActiveLearningState = {
   embeddingSequenceLength: 1,
   lastDataUpdateTimestamp: 0,
   annotationMode: 'analyze',
-  embeddingMethod: 't-SNE',
+  embeddingMethod: 'UMAP',
   infoTypes: [],
   actionData: [],
-  currentRewardData: []
+  currentRewardData: [],
+  episodeIndices: [],
 };
 
 const ActiveLearningContext = createContext<ActiveLearningState | undefined>(
@@ -168,6 +172,8 @@ function activeLearningReducer(
       return { ...state, actionData: action.payload };
     case "SET_CURRENT_REWARD_DATA":
       return { ...state, currentRewardData: action.payload };
+    case "SET_EPISODE_INDICES":
+      return { ...state, episodeIndices: action.payload };
       
     default:
       throw new Error(`Unhandled action type: ${(action as any).type}`);

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
-import WebGLProjection from './WebGLProjection';
+import StateSequenceProjection from './StateSequenceProjection';
 import { useAppState } from '../AppStateContext';
 
 // Wrapper component to connect Evaluation_Embedding to the new context
@@ -37,7 +37,7 @@ const ProjectionComponent = (props) => {
         benchmarkId: 4,
     };
     
-    return <WebGLProjection {...mappedProps} />;
+    return <StateSequenceProjection {...mappedProps} />;
 };
 
 

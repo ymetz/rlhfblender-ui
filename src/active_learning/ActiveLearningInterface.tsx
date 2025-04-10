@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Paper, Typography } from '@mui/material';
+import { Box, Paper, Typography, Button } from '@mui/material';
 
 // Import dummy components
 import ProgressChart from './ProgressChart';
@@ -89,12 +89,11 @@ const ActiveLearningInterface = () => {
           elevation={2}
           sx={{
             height: '100%',
-            p: 1,
+            p: 1.2,
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          <Typography variant="h6" gutterBottom>WebGL Viewer</Typography>
           <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <ProjectionComponent
                 width="100%"
@@ -123,7 +122,6 @@ const ActiveLearningInterface = () => {
             flexDirection: 'column',
           }}
         >
-          <Typography variant="h6" gutterBottom>Feedback Panel</Typography>
           <SelectionView />
         </Paper>
 
@@ -136,8 +134,30 @@ const ActiveLearningInterface = () => {
             flexDirection: 'column',
           }}
         >
-          <Typography variant="h6" gutterBottom>Control Panel</Typography>
           <FeedbackInput />
+        </Paper>
+
+        { /* Button to finish the sessuion, and proceed to the next step */}
+        <Paper
+          elevation={2}
+          sx={{
+            p: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => {
+              // Handle finish session logic here
+              console.log('Session finished');
+            }}
+          >
+            Submit Feedback & Continue
+          </Button>
         </Paper>
       </Box>
     </Box>

@@ -469,7 +469,7 @@ const App: React.FC = () => {
           />
           <ExperimentStartModal onClose={handleExperimentStartClose} />
           <ExperimentEndModal open={state.endModalOpen} />
-          <ShortcutsInfoBox />
+          {/*<ShortcutsInfoBox />*/}
           <StudyCodeModal
             open={state.showStudyCode}
             onClose={() => dispatch({ type: "TOGGLE_STUDY_CODE" })}
