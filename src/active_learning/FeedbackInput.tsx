@@ -501,7 +501,6 @@ const FeedbackInterface = () => {
   
   return (
     <Box sx={{ mt: 4 }}>
-      <Divider sx={{ mb: 3 }} />
       {renderFeedbackInterface()}
     </Box>
   );

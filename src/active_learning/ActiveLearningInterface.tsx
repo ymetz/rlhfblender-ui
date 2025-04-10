@@ -1,14 +1,56 @@
-import React from 'react';
-import { Box, Paper, Typography, Button } from '@mui/material';
-
-// Import dummy components
+import React, { useEffect } from 'react';
+import { Box, Paper, Typography, Button, CircularProgress } from '@mui/material';
+import axios from 'axios';
+// Import components
 import ProgressChart from './ProgressChart';
 import ProjectionComponent from './ProjectionComponent';
 import SelectionView from './SelectionView';
 import FeedbackInput from './FeedbackInput';
+import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 
-const ActiveLearningInterface = () => {
 
+// define props for the active learning interface, stepSampler function
+interface ActiveLearningInterfaceProps {
+  stepSampler: () => void;
+}
+
+const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepSampler }) => {
+  
+  const [waiting, setWaiting] = React.useState(false);
+  const activeLearningState = useActiveLearningState();
+  const activeLearningDispatch = useActiveLearningDispatch();
+
+  // When we continue, the backend "trains the model" and then we can ask for the next batch of data
+  
+  // handle button press, tell server to train the model, set a loading state
+  // when the model is trained, we can ask for the next batch of data
+
+  /* sets:
+
+    | { type: "SET_CURRENT_PHASE"; payload: number }
+  | { type: "SET_PROGRESS_REWARDS"; payload: number[] }
+  | { type: "SET_PROGRESS_UNCERTAINTIES"; payload: number[] }
+
+  */
+
+  const handleContinue = async () => {
+    setWaiting(true);
+    try {
+      const response = await axios.post('http://localhost:5000/data/train_iteration');
+      const data = response.data;
+
+      // Assuming the response contains the new data
+      activeLearningDispatch({ type: 'SET_PROGRESS_REWARDS', payload: data.progressRewards });
+      activeLearningDispatch({ type: 'SET_PROGRESS_UNCERTAINTIES', payload: data.progressUncertainties });
+
+      stepSampler();
+
+    } catch (error) {
+      console.error('Error during continue:', error);
+    } finally {
+      setWaiting(false);
+    }
+  }
 
   return (
     <Box
@@ -26,20 +68,28 @@ const ActiveLearningInterface = () => {
           display: 'flex',
           flexDirection: 'column',
           p: 1,
+          gap: 1, // Use gap instead of margin-bottom for consistent spacing
+          height: '100%', // Ensure the sidebar takes the full height
         }}
       >
+        {/* First chart container - fixed height */}
         <Paper
           elevation={2}
           sx={{
-            flex: 1,
-            mb: 1,
+            height: 'calc(40% - 0.5rem)', // 50% of space minus half the gap
             p: 1,
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          <Typography variant="h6" gutterBottom>Progress Chart 1</Typography>
-          <Box sx={{ flex: 1 }}>
+          <Box 
+            sx={{ 
+              flex: 1, 
+              height: '90%', // Leave room for the title
+              position: 'relative',
+              overflow: 'hidden' // Prevent overflow
+            }}
+          >
             <ProgressChart
               data={[
                 { x: 1, y: 5 },
@@ -52,18 +102,25 @@ const ActiveLearningInterface = () => {
             />
           </Box>
         </Paper>
-
+        
+        {/* Second chart container - fixed height */}
         <Paper
           elevation={2}
           sx={{
-            flex: 1,
+            height: 'calc(40% - 0.5rem)', // 50% of space minus half the gap
             p: 1,
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          <Typography variant="h6" gutterBottom>Progress Chart 2</Typography>
-          <Box sx={{ flex: 1 }}>
+          <Box 
+            sx={{ 
+              flex: 1, 
+              height: '90%', // Leave room for the title
+              position: 'relative',
+              overflow: 'hidden' // Prevent overflow
+            }}
+          >
             <ProgressChart
               data={[
                 { x: 1, y: 8 },
@@ -77,32 +134,40 @@ const ActiveLearningInterface = () => {
           </Box>
         </Paper>
       </Box>
-
+      
       {/* Middle section - 50% width with WebGL component */}
       <Box
         sx={{
           width: '50%',
           p: 1,
+          height: '90%', // Ensure full height
         }}
       >
         <Paper
           elevation={2}
           sx={{
-            height: '100%',
+            height: '90%',
             p: 1.2,
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <Box 
+            sx={{ 
+              flex: 1, 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center' 
+            }}
+          >
             <ProjectionComponent
-                width="100%"
-                height="100%"
+              width="100%"
+              height="100%"
             />
           </Box>
         </Paper>
       </Box>
-
+      
       {/* Right section - 30% width with 2 rows */}
       <Box
         sx={{
@@ -110,13 +175,14 @@ const ActiveLearningInterface = () => {
           display: 'flex',
           flexDirection: 'column',
           p: 1,
+          gap: 1, // Use gap instead of margin for consistent spacing
+          height: '100%', // Ensure full height
         }}
       >
         <Paper
           elevation={2}
           sx={{
-            flex: 1,
-            mb: 1,
+            height: 'calc(45% - 0.5rem)', // Leave room for button at bottom
             p: 1,
             display: 'flex',
             flexDirection: 'column',
@@ -124,11 +190,11 @@ const ActiveLearningInterface = () => {
         >
           <SelectionView />
         </Paper>
-
+        
         <Paper
           elevation={2}
           sx={{
-            flex: 1,
+            height: 'calc(25% - 0.5rem)', // Leave room for button at bottom
             p: 1,
             display: 'flex',
             flexDirection: 'column',
@@ -136,12 +202,13 @@ const ActiveLearningInterface = () => {
         >
           <FeedbackInput />
         </Paper>
-
-        { /* Button to finish the sessuion, and proceed to the next step */}
+        
+        {/* Button container with fixed height */}
         <Paper
           elevation={2}
           sx={{
             p: 1,
+            height: 'calc(10% - 0.5rem)', // Fixed height for button area
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -151,15 +218,25 @@ const ActiveLearningInterface = () => {
           <Button
             variant="contained"
             color="primary"
-            onClick={() => {
-              // Handle finish session logic here
-              console.log('Session finished');
-            }}
+            onClick={handleContinue}
           >
             Submit Feedback & Continue
           </Button>
         </Paper>
       </Box>
+      {waiting && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 1000,
+          }}
+        >
+          <CircularProgress size={60} />
+        </Box>
+      )}
     </Box>
   );
 };

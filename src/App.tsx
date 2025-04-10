@@ -316,6 +316,60 @@ const App: React.FC = () => {
     }
   };
 
+  const stepSampler = async () => {
+    // Step sampler with current sessionID, but we set new episode data and clear feedback
+    // submit step feedback
+    if (state.selectedExperiment.id === -1) {
+      return;
+    }
+    
+    if (state.feedbackInterfaceReset) {
+      state.feedbackInterfaceReset();
+    }
+
+    try {
+      const stepResponse = await axios.post(
+        "/data/step_sampler?session_id=" + state.sessionId + '&experiment_id=' +
+          state.selectedExperiment.id
+      );
+
+      // Log step as meta feedback
+      const stepFeedback: Feedback = {
+        experiment_id: state.selectedExperiment.id,
+        session_id: stepResponse.data.session_id,
+        feedback_type: FeedbackType.Meta,
+        granularity: "entire",
+        timestamp: Date.now(),
+        targets: [],
+        meta_action: "step",
+      }
+      axios.post("/data/give_feedback", [stepFeedback]);
+
+      // Get episodes first and store the result
+      const episodes = await getEpisodeIDsChronologically();
+
+      // Generate UI config sequence with the fetched episodes
+      await generateUiConfigSequence(episodes);
+
+      // Fetch action labels
+      await getActionLabels(stepResponse.data.environment_id);
+    } catch (error) {
+      console.error("Error in stepSampler:", error);
+    }
+  };
+
+  const handleExperimentEndClose = async () => {
+    if (state.app_mode === "study") {
+      try {
+        await axios.post("/data/stop_experiment", {
+          study_code: state.studyCode,
+        });
+      } catch (error) {
+        console.error("Error stopping experiment:", error);
+      }
+    }
+  };
+
   // Fetch episodes
   const getEpisodeIDsChronologically = async () => {
     try {
@@ -451,7 +505,9 @@ const App: React.FC = () => {
           </Box>
           {state.app_mode === "active-learning" ? (
             <ActiveLearningProvider>
-              <ActiveLearningInterface />
+              <ActiveLearningInterface
+                stepSampler={stepSampler}
+              />
             </ActiveLearningProvider>
           ) : (
             state.selectedProject?.id >= 0 ? <FeedbackInterface /> : null
