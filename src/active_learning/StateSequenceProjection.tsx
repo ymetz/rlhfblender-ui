@@ -497,8 +497,6 @@ const WebGLProjection = (props) => {
 
         const url = '/projection/generate_projection';
         const params = {
-            env_name: props.environment,
-            benchmark_type: "random",
             benchmark_id: props.benchmarkId,
             checkpoint_step: -1,
             projection_method: embedding_method,
@@ -557,7 +555,7 @@ const WebGLProjection = (props) => {
                     background_color_scale: bgColorData.scale,
                     background_color_d3_scale: bgColorData.d3_scale,
                 }));
-                
+
                 drawChart(
                     viewMode,
                     data.projection,
@@ -580,28 +578,7 @@ const WebGLProjection = (props) => {
                 setError("Failed to load embedding data. Please try again.");
                 setIsLoading(false);
             });
-    }, [
-        embeddingSequenceLength,
-        viewMode,
-        annotationMode,
-        actionData,
-        props.embeddingMethod,
-        props.embeddingAxisOption,
-        props.reproject,
-        props.appendTimestamp,
-        props.benchmarkedModels,
-        props.embeddingSettings,
-        props.selectedCheckpoint,
-        props.timeStamp,
-        props.infos,
-        props.currentDoneData,
-        props.labelInfo,
-        computeHashFromOptions,
-        getColorsForObjects,
-        getColorsForBackground,
-        drawChart,
-        activeLearningDispatch
-    ]);
+    }, [embeddingSequenceLength, viewMode, annotationMode, props.benchmarkId, props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkedModels, props.embeddingSettings, props.timeStamp, props.infos, computeHashFromOptions, getColorsForObjects, getColorsForBackground, drawChart, activeLearningDispatch]);
 
     const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], annotationMode = 'analyze') => {
         setLastIndex(data.length - 1);
@@ -699,13 +676,13 @@ const WebGLProjection = (props) => {
                 setUiState(prev => ({ ...prev, k: event.transform.k }));
             })
             // Filter function to distinguish between zoom and click
-            .filter(function(event) {
+            .filter(function (event) {
                 // Allow wheel events
                 if (event.type === 'wheel') return true;
-                
+
                 // Allow double-click events for zoom reset
                 if (event.type === 'dblclick') return true;
-                
+
                 // For mouse events, only start zoom on right mouse button or with modifier key
                 return !event.button && event.type !== 'click';
             });
@@ -746,55 +723,55 @@ const WebGLProjection = (props) => {
         view_rect.on('click', function (event) {
             // Prevent default to avoid any interference
             event.preventDefault();
-            
+
             // Stop propagation to prevent zoom from catching it
             event.stopPropagation();
-            
+
             const mouse = d3.pointer(event);
-        
+
             // Map the clicked point to the data space
             const xClicked = xScale.invert(mouse[0]);
             const yClicked = yScale.invert(mouse[1]);
-        
+
             // Find the closest point in the dataset to the clicked point
             const closest = quadTree.find(xClicked, yClicked, 10);
-        
+
             if (closest) {
 
                 //props.setHoverStep(props.infos[closest[2]]);
                 //props.selectDatapoint(closest[2]);
-        
+
                 // Find the correct episode index
                 let episodeIdx: number | null = null;
-                
+
                 // First check if we have the episode directly in the processed data
                 if (processedData[closest[2]] && processedData[closest[2]].length > 3) {
                     episodeIdx = processedData[closest[2]][processedData[closest[2]].length - 1];
-                } 
+                }
                 // Fall back to the episodeIndices array
                 else if (episodeIndices && episodeIndices[closest[2]] !== undefined) {
                     episodeIdx = episodeIndices[closest[2]];
                 }
-                
+
                 if (episodeIdx !== null) {
                     setSelectedTrajectory(episodeIdx);
-                    selectedTrajectoryRef.current = episodeIdx;  
-                    
+                    selectedTrajectoryRef.current = episodeIdx;
+
                     // Force a redraw to show the highlighted trajectory
                     const currentTransform = d3.zoomTransform(view.node());
-                    zoomed({transform: currentTransform});
+                    zoomed({ transform: currentTransform });
                 }
             }
         });
 
-        svg.on('click', function(event) {
+        svg.on('click', function (event) {
             // Only handle clicks directly on the SVG (not on points)
             if (event.target === this) {
                 setSelectedTrajectory(null);
-                
+
                 // Force a redraw to update the visualization
                 const currentTransform = d3.zoomTransform(view.node());
-                zoomed({transform: currentTransform});
+                zoomed({ transform: currentTransform });
             }
         });
 
@@ -1077,13 +1054,13 @@ const WebGLProjection = (props) => {
 
             const currentHighlightedTrajectory = selectedTrajectoryRef.current;
 
-            const isZoomEnd = event.sourceEvent && 
-            (event.sourceEvent.type === 'mouseup' || event.sourceEvent.type === 'touchend');
-                
-                // Call detailed view on zoom end, but always perform the basic rendering
-                if (isZoomEnd) {
-                    drawDetailedView(transform);
-                }
+            const isZoomEnd = event.sourceEvent &&
+                (event.sourceEvent.type === 'mouseup' || event.sourceEvent.type === 'touchend');
+
+            // Call detailed view on zoom end, but always perform the basic rendering
+            if (isZoomEnd) {
+                drawDetailedView(transform);
+            }
 
             const r = Math.round((5 / transform.k) * 100) / 100;
             const width = Math.round((1 / transform.k) * 100) / 100;
@@ -2217,60 +2194,60 @@ const WebGLProjection = (props) => {
             </ControlsWrapper>
             */}
 
-<Box
-        position="absolute"
-        bottom="20px"
-        left="50%"
-        sx={{ 
-          transform: 'translateX(-50%)', 
-          zIndex: 10, 
-          display: 'flex', 
-          gap: 2,
-          visibility: isLoading ? 'hidden' : 'visible' 
-        }}
-      >
-        <Tooltip title="Clear Global Selection">
-          <IconButton
-            color="default"
-            sx={{ 
-              backgroundColor: 'rgba(128, 128, 128, 0.7)',
-              '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
-            }}
-            onClick={() => {
-              activeLearningDispatch({
-                type: 'SET_SELECTION',
-                payload: []
-              });
-            }}
-          >
-            <DeleteIcon />
-          </IconButton>
-        </Tooltip>
+            <Box
+                position="absolute"
+                bottom="20px"
+                left="50%"
+                sx={{
+                    transform: 'translateX(-50%)',
+                    zIndex: 10,
+                    display: 'flex',
+                    gap: 2,
+                    visibility: isLoading ? 'hidden' : 'visible'
+                }}
+            >
+                <Tooltip title="Clear Global Selection">
+                    <IconButton
+                        color="default"
+                        sx={{
+                            backgroundColor: 'rgba(128, 128, 128, 0.7)',
+                            '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
+                        }}
+                        onClick={() => {
+                            activeLearningDispatch({
+                                type: 'SET_SELECTION',
+                                payload: []
+                            });
+                        }}
+                    >
+                        <DeleteIcon />
+                    </IconButton>
+                </Tooltip>
 
-        <Tooltip title="Add to Global Selection">
-          <IconButton
-            color="default"
-            sx={{ 
-              backgroundColor: 'rgba(128, 128, 128, 0.7)',
-              '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
-            }}
-            onClick={() => {
-                const selectedTrajectory = selectedTrajectoryRef.current;
-              if (!selectedTrajectory) return;
-              const selected = activeLearningState.selection;
-              const newSelection = [...selected, selectedTrajectory];
-              activeLearningDispatch({
-                type: 'SET_SELECTION',
-                payload: newSelection
-              });
-            }}
-          >
-            <AddIcon />
-          </IconButton>
-        </Tooltip>
-      </Box>
+                <Tooltip title="Add to Global Selection">
+                    <IconButton
+                        color="default"
+                        sx={{
+                            backgroundColor: 'rgba(128, 128, 128, 0.7)',
+                            '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
+                        }}
+                        onClick={() => {
+                            const selectedTrajectory = selectedTrajectoryRef.current;
+                            if (!selectedTrajectory) return;
+                            const selected = activeLearningState.selection;
+                            const newSelection = [...selected, selectedTrajectory];
+                            activeLearningDispatch({
+                                type: 'SET_SELECTION',
+                                payload: newSelection
+                            });
+                        }}
+                    >
+                        <AddIcon />
+                    </IconButton>
+                </Tooltip>
+            </Box>
 
-            {/* Button to load data, should be on top left corner*/ }
+            {/* Button to load data, should be on top left corner*/}
             <Box
                 position="absolute"
                 top="10px"

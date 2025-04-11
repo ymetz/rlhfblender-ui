@@ -97,7 +97,7 @@ const initialState: ActiveLearningState = {
   embeddingSequenceLength: 1,
   lastDataUpdateTimestamp: 0,
   annotationMode: 'analyze',
-  embeddingMethod: 'UMAP',
+  embeddingMethod: 't-SNE',
   infoTypes: [],
   actionData: [],
   currentRewardData: [],

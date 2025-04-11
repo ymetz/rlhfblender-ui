@@ -32,9 +32,7 @@ const ProjectionComponent = (props) => {
             indices.forEach(index => { highlightedPoints[index] = true; });
             activeLearningDispatch({ type: 'SET_HIGHLIGHTED_POINTS', payload: highlightedPoints });
         },
-        environment: "Ant-v4",
-        benchmarkType: "random",
-        benchmarkId: 4,
+        benchmarkId: appState.selectedExperiment.id,
     };
     
     return <StateSequenceProjection {...mappedProps} />;
