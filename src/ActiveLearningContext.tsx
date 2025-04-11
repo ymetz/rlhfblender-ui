@@ -45,7 +45,7 @@ type ActiveLearningAction =
   | { type: "SET_CURRENT_PHASE"; payload: number }
   | { type: "SET_PROGRESS_REWARDS"; payload: number[] }
   | { type: "SET_PROGRESS_UNCERTAINTIES"; payload: number[] }
-  | { type: "SET_SELECTION"; payload: Episode[] }
+  | { type: "SET_SELECTION"; payload: number[] }
   | { type: "SET_SELECTED_EPISODE"; payload: Episode | null }
   | { type: "SET_PROJECTION_STATES"; payload: number[][] }
   | { type: "SET_PROJECTION_STATE_VALUES"; payload: number[] }
