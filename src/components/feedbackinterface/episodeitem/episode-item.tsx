@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Draggable } from "react-beautiful-dnd";
+import { Draggable } from '@hello-pangea/dnd';
 import axios from "axios";
 import { styled } from "@mui/system";
 import { IconButton } from "@mui/material";

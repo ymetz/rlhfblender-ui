@@ -1,16 +1,10 @@
-import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
     Button,
-    Accordion,
-    AccordionSummary,
-    AccordionDetails,
-    List,
     ListItem,
     ListItemButton,
     ListItemText,
     Box,
-    ToggleButtonGroup,
-    ToggleButton,
     Paper,
     Typography,
     CircularProgress,
@@ -18,14 +12,12 @@ import {
     Tooltip,
     IconButton
 } from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import axios from 'axios';
 import { arc } from 'd3-shape';
-import createScatterplot from 'regl-scatterplot';
 import { Color2D } from './projection_utils/2dcolormaps';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import { legend } from './projection_utils/Color_Legend';

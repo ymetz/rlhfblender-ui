@@ -3,7 +3,7 @@ import SmallEpisodeItem from "./episodeitem/small-episode-item";
 import Box from "@mui/material/Box";
 import { Episode } from "../../types";
 import { IDfromEpisode } from "../../id";
-import { Droppable } from "react-beautiful-dnd";
+import { Droppable } from '@hello-pangea/dnd';
 import React from "react";
 
 interface AlternativeScrollableEpisodeListProps {
