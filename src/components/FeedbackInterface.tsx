@@ -6,7 +6,7 @@ import React, {
   useEffect,
   useRef,
 } from "react";
-import { DragDropContext, DropResult } from "react-beautiful-dnd";
+import { DragDropContext, DropResult } from '@hello-pangea/dnd';
 import { Box } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { RatingInfoContext } from "../rating-info-context";

@@ -1,4 +1,4 @@
-import { Draggable } from "react-beautiful-dnd";
+import { Draggable } from '@hello-pangea/dnd';
 import Box from "@mui/material/Box";
 import { useEffect, useState, useRef } from "react";
 import { IDfromEpisode } from "../../../id";
