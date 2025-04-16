@@ -7,6 +7,7 @@ import ProjectionComponent from './ProjectionComponent';
 import SelectionView from './SelectionView';
 import FeedbackInput from './FeedbackInput';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
+import GridUncertaintyMap from './GridMap';
 
 
 // define props for the active learning interface, stepSampler function
@@ -15,13 +16,13 @@ interface ActiveLearningInterfaceProps {
 }
 
 const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepSampler }) => {
-  
+
   const [waiting, setWaiting] = React.useState(false);
   const activeLearningState = useActiveLearningState();
   const activeLearningDispatch = useActiveLearningDispatch();
 
   // When we continue, the backend "trains the model" and then we can ask for the next batch of data
-  
+
   // handle button press, tell server to train the model, set a loading state
   // when the model is trained, we can ask for the next batch of data
 
@@ -82,9 +83,9 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             flexDirection: 'column',
           }}
         >
-          <Box 
-            sx={{ 
-              flex: 1, 
+          <Box
+            sx={{
+              flex: 1,
               height: '90%', // Leave room for the title
               position: 'relative',
               overflow: 'hidden' // Prevent overflow
@@ -92,17 +93,23 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           >
             <ProgressChart
               data={[
-                { x: 1, y: 5 },
+                { x: 1, y: 14 },
                 { x: 2, y: 10 },
-                { x: 3, y: 7 },
-                { x: 4, y: 12 },
-                { x: 5, y: 9 },
+                { x: 3, y: 9 },
+                { x: 4, y: 7 },
+                { x: 5, y: 2 },
+                { x: 6, y: 4 },
+                { x: 7, y: 8 },
+                { x: 8, y: 3 },
+                { x: 9, y: 1 },
+                { x: 10, y: 5 },
+                { x: 11, y: 6 },
               ]}
-              title="Rewards"
+              title="Overall Uncertainty"
             />
           </Box>
         </Paper>
-        
+
         {/* Second chart container - fixed height */}
         <Paper
           elevation={2}
@@ -113,28 +120,28 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             flexDirection: 'column',
           }}
         >
-          <Box 
-            sx={{ 
-              flex: 1, 
+          <Box
+            sx={{
+              flex: 1,
               height: '90%', // Leave room for the title
               position: 'relative',
               overflow: 'hidden' // Prevent overflow
             }}
           >
-            <ProgressChart
-              data={[
-                { x: 1, y: 8 },
-                { x: 2, y: 3 },
-                { x: 3, y: 9 },
-                { x: 4, y: 6 },
-                { x: 5, y: 11 },
-              ]}
-              title="Uncertainty"
+            <GridUncertaintyMap
+              gridPredictionImage={activeLearningState.grid_prediction_image}
+              gridUncertaintyImage={activeLearningState.grid_uncertainty_image}
+              datapointCoordinates={activeLearningState.projectionStates}
+              gridCoordinates={undefined}
+              gridUncertainties={undefined}
+              gridUncertainty={undefined}
+              imageOpacity={0.5}
+              title="Uncertainty Map"
             />
           </Box>
         </Paper>
       </Box>
-      
+
       {/* Middle section - 50% width with WebGL component */}
       <Box
         sx={{
@@ -152,12 +159,12 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             flexDirection: 'column',
           }}
         >
-          <Box 
-            sx={{ 
-              flex: 1, 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center' 
+          <Box
+            sx={{
+              flex: 1,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
             }}
           >
             <ProjectionComponent
@@ -167,7 +174,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           </Box>
         </Paper>
       </Box>
-      
+
       {/* Right section - 30% width with 2 rows */}
       <Box
         sx={{
@@ -190,7 +197,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         >
           <SelectionView />
         </Paper>
-        
+
         <Paper
           elevation={2}
           sx={{
@@ -202,7 +209,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         >
           <FeedbackInput />
         </Paper>
-        
+
         {/* Button container with fixed height */}
         <Paper
           elevation={2}

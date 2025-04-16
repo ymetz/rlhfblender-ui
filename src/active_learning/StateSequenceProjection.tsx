@@ -1,16 +1,10 @@
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import {
     Button,
-    Accordion,
-    AccordionSummary,
-    AccordionDetails,
-    List,
     ListItem,
     ListItemButton,
     ListItemText,
     Box,
-    ToggleButtonGroup,
-    ToggleButton,
     Paper,
     Typography,
     CircularProgress,
@@ -18,17 +12,17 @@ import {
     Tooltip,
     IconButton
 } from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import axios from 'axios';
 import { arc } from 'd3-shape';
-import createScatterplot from 'regl-scatterplot';
 import { Color2D } from './projection_utils/2dcolormaps';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import { legend } from './projection_utils/Color_Legend';
+
+const canvasImageCache = new Map();
 
 // Styled components
 const EmbeddingWrapper = styled(Box)(({ theme }) => ({
@@ -450,6 +444,38 @@ const WebGLProjection = (props) => {
         setUiState(prev => ({ ...prev, draw_lasso: !prev.draw_lasso }));
     }, [uiState.draw_lasso, lasso]);
 
+    const renderGridImage = (context, imagePath, svgWidth, svgHeight) => {
+        if (!imagePath || !context) {
+            console.warn('Missing required parameters for rendering grid image');
+            return;
+        }
+
+        console.log('Rendering grid image, data length:', imagePath.length);
+
+        // Create a new image and set up handlers
+        const img = new Image();
+
+        img.onload = () => {
+            console.log('Image loaded successfully:', img.width, 'x', img.height);
+
+            // Clear the canvas area first
+            context.clearRect(0, 0, svgWidth, svgHeight);
+
+            // Draw the image with proper scaling
+            context.drawImage(
+                img,
+                0, 0, img.width, img.height,
+                0, 0, svgWidth, svgHeight
+            );
+        };
+
+        img.onerror = (e) => {
+            console.error('Failed to load grid image:', e);
+        };
+
+        // Set the source with proper template literal syntax
+        img.src = `data:image/png;base64,${imagePath}`;
+    }
 
     // Drawing function dispatches to specific visualizations
     const drawChart = useCallback((
@@ -464,24 +490,19 @@ const WebGLProjection = (props) => {
         doneData = [],
         episodeIndices = [],
         labelInfos = [],
+        gridData = {
+            prediction_image: null,
+            uncertainty_image: null,
+        },
         annotationMode = 'analyze'
     ) => {
 
         switch (mode) {
             case 'state_space':
-                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, annotationMode);
-                break;
-            case 'decision_points':
-                drawDecisionPoints(data, merged_points, connections);
-                break;
-            case 'activation_mapping':
-                drawActivationMapping(data, feature_embeddings, doneData);
-                break;
-            case 'transition_embedding':
-                drawTransitionEmbedding(transition_embeddings, actionData, data, annotationMode);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, annotationMode);
                 break;
             default:
-                drawStateSpace(data, labels, doneData, labelInfos, annotationMode);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, annotationMode);
         }
     }, []);
 
@@ -496,6 +517,8 @@ const WebGLProjection = (props) => {
         const append_time = props.appendTimestamp ? 1 : 0;
 
         const url = '/projection/generate_projection';
+        const grid_projection_url = '/projection/load_grid_projection_image';
+
         const params = {
             benchmark_id: props.benchmarkId,
             checkpoint_step: -1,
@@ -514,6 +537,7 @@ const WebGLProjection = (props) => {
                 append_time,
                 props.embeddingSettings
             ),
+            map_type: 'prediction',
         };
 
         // Convert params to query string
@@ -521,18 +545,37 @@ const WebGLProjection = (props) => {
             .map(([key, value]) => `${key}=${value}`)
             .join('&');
 
-        axios.post(`${url}?${queryString}`, {
-            benchmarks: props.benchmarkedModels,
-            embedding_props: props.embeddingSettings
-        })
-            .then(res => {
-                const data = res.data;
+        // call load_grid_projection_image a second time for uncertainty, replace map type in the querying string
+        const uncertainty_grid_projection_params = {
+            ...params,
+            map_type: 'uncertainty',
+        };
+
+        const uncertainty_grid_projection_queryString = Object.entries(uncertainty_grid_projection_params)
+            .map(([key, value]) => `${key}=${value}`)
+            .join('&');
+
+        // Use Promise.all to wait for both API calls to complete
+        Promise.all([
+            axios.post(`${url}?${queryString}`, {
+                benchmarks: props.benchmarkedModels,
+                embedding_props: props.embeddingSettings
+            }),
+            axios.post(`${grid_projection_url}?${queryString}`),
+            axios.post(`${grid_projection_url}?${uncertainty_grid_projection_queryString}`),
+        ])
+            .then(([projectionRes, gridRes, gridUncertaintyRes]) => {
+                const data = projectionRes.data;
+                const grid_data = gridRes.data;
+                const grid_uncertainty_data = gridUncertaintyRes.data;
+
+
                 const objColorData = getColorsForObjects();
                 const bgColorData = getColorsForBackground();
                 const selected_points = props.infos ? props.infos.map(i => i['selected']) : [];
                 const highlighted_points = props.infos ? props.infos.map(i => i['highlighted']) : [];
 
-                // Update global state
+                // Update global state - projection data
                 activeLearningDispatch({ type: 'SET_EMBEDDING_DATA', payload: data.embedding });
                 activeLearningDispatch({ type: 'SET_EMBEDDING_LABELS', payload: data.labels });
                 activeLearningDispatch({ type: 'SET_CLUSTER_CENTROIDS', payload: data.centroids });
@@ -545,6 +588,15 @@ const WebGLProjection = (props) => {
                 activeLearningDispatch({ type: 'SET_HIGHLIGHTED_POINTS', payload: highlighted_points });
                 activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: data.episode_indices || [] });
 
+                // Update global state - grid data
+                // activeLearningDispatch({ type: 'SET_GRID_COORDINATES', payload: grid_coordinates });
+                // activeLearningDispatch({ type: 'SET_GRID_PREDICTIONS', payload: grid_predictions });
+                // activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTIES', payload: grid_uncertainties });
+                activeLearningDispatch({ type: 'SET_GRID_PREDICTION_IMAGE', payload: grid_data.image });
+                activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTY_IMAGE', payload: grid_uncertainty_data.image });
+
+                // Update 
+
                 // Update local UI state
                 setUiState(prev => ({
                     ...prev,
@@ -556,6 +608,10 @@ const WebGLProjection = (props) => {
                     background_color_d3_scale: bgColorData.d3_scale,
                 }));
 
+                const grid_prediction_image_path = grid_data.image || '';
+                const grid_uncertainty_image_path = grid_uncertainty_data.image || '';
+
+                // Now that we have all data, draw the chart with the grid data included
                 drawChart(
                     viewMode,
                     data.projection,
@@ -568,19 +624,23 @@ const WebGLProjection = (props) => {
                     data.dones,
                     data.episode_indices,
                     [],
+                    { // Pass grid data directly as an object
+                        "prediction_image": grid_prediction_image_path,
+                        "uncertainty_image": grid_uncertainty_image_path,
+                    },
                     annotationMode
                 );
 
                 setIsLoading(false);
             })
             .catch(err => {
-                console.error("Error loading embedding data:", err);
-                setError("Failed to load embedding data. Please try again.");
+                console.error("Error loading data:", err);
+                setError("Failed to load data. Please try again.");
                 setIsLoading(false);
             });
     }, [embeddingSequenceLength, viewMode, annotationMode, props.benchmarkId, props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkedModels, props.embeddingSettings, props.timeStamp, props.infos, computeHashFromOptions, getColorsForObjects, getColorsForBackground, drawChart, activeLearningDispatch]);
 
-    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], annotationMode = 'analyze') => {
+    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null }, annotationMode = 'analyze') => {
         setLastIndex(data.length - 1);
 
         const margin = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -630,18 +690,21 @@ const WebGLProjection = (props) => {
         container.selectAll('*').remove();
         container.style('position', 'relative');
 
-        // Create canvas for background rendering (density, etc)
-        const canvas = container.append('canvas').node();
+        // Create canvas for background rendering
+        const canvas = container.append('canvas')
+            .attr('width', svgWidth)
+            .attr('height', svgHeight)
+            .style('position', 'absolute')
+            .style('top', '0px')
+            .style('left', '0px')
+            .style('z-index', '1')
+            .node();
+
         setCanvas(canvas);
 
-        if (canvas) {
-            canvas.width = svgWidth;
-            canvas.height = svgHeight;
-        }
+        const context = canvas ? canvas.getContext('2d') : null;
 
-        const context = canvas.getContext('2d');
-
-        // Create SVG overlay
+        // Create SVG overlay with higher z-index
         const svg = container
             .append('svg')
             .attr('width', svgWidth)
@@ -649,6 +712,7 @@ const WebGLProjection = (props) => {
             .style('position', 'absolute')
             .style('top', '0px')
             .style('left', '0px')
+            .style('z-index', '2')
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
 
@@ -663,6 +727,58 @@ const WebGLProjection = (props) => {
 
         // Set up color mapping
         Color2D.ranges = { x: xDomain, y: yDomain };
+
+        // Get grid data
+        const grid_prediction_image = gridData.prediction_image || activeLearningState.grid_prediction_image;
+
+        // Preload and cache grid images
+        if (grid_prediction_image && !canvasImageCache.has('prediction')) {
+            console.log('Preloading grid prediction image');
+            const img = new Image();
+            img.onload = () => {
+                console.log('Grid prediction image loaded successfully:', img.width, 'x', img.height);
+                canvasImageCache.set('prediction', img);
+
+                // Force initial draw if this is the first load
+                if (context) {
+                    const initialTransform = d3.zoomIdentity;
+                    drawImageToCanvas(context, 'prediction', initialTransform, svgWidth, svgHeight);
+                }
+            };
+
+            img.onerror = (e) => {
+                console.error('Failed to load grid prediction image:', e);
+            };
+
+            // Make sure to use template literals (backticks) for string interpolation
+            img.src = `data:image/png;base64,${grid_prediction_image}`;
+        }
+
+        // Helper function to draw image to canvas with transform
+        function drawImageToCanvas(ctx, imageKey, transform, width, height) {
+            if (!ctx) return;
+
+            const img = canvasImageCache.get(imageKey);
+            if (!img) return;
+
+            ctx.save();
+
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+
+            // Apply transformation
+            ctx.translate(transform.x, transform.y);
+            ctx.scale(transform.k, transform.k);
+
+            // Draw the image
+            ctx.drawImage(
+                img,
+                0, 0, img.width, img.height,
+                0, 0, width / transform.k, height / transform.k
+            );
+
+            ctx.restore();
+        }
 
         const zoom = d3
             .zoom()
@@ -737,12 +853,8 @@ const WebGLProjection = (props) => {
             const closest = quadTree.find(xClicked, yClicked, 10);
 
             if (closest) {
-
-                //props.setHoverStep(props.infos[closest[2]]);
-                //props.selectDatapoint(closest[2]);
-
                 // Find the correct episode index
-                let episodeIdx: number | null = null;
+                let episodeIdx = null;
 
                 // First check if we have the episode directly in the processed data
                 if (processedData[closest[2]] && processedData[closest[2]].length > 3) {
@@ -788,51 +900,6 @@ const WebGLProjection = (props) => {
 
         // Split data by episodes
         const splitData = splitArray(processedData, done_idx);
-
-        // Add observation images for data points
-        /*const step_images = view
-            .selectAll('image')
-            .data(processedData.filter((d, i) => i % Math.floor(processedData.length / 30) === 0))
-            .enter()
-            .append('svg:image')
-            .attr('x', (d) => xScale(d[0]))
-            .attr('y', (d) => yScale(d[1]))
-            .attr('width', 40)
-            .attr('height', 48)
-            .attr('class', 'datapoint_images')
-            .attr('id', (d) => {
-                return (
-                    'datapoint_image_run_' +
-                    props.infos?.[d[2]]?.['model_index'] +
-                    '_' +
-                    props.infos?.[d[2]]?.['model_data_step']
-                );
-            })
-            .attr('opacity', 0.8)
-            .attr('display', 'none')
-            .attr(
-                'xlink:href',
-                (d) => {
-                    if (!props.infos || !props.benchmarkedModels) return '';
-
-                    return '/data/get_single_obs?step=' +
-                        props.infos[d[2]]['episode step'] +
-                        '&gym_registration_id=' +
-                        props.benchmarkedModels[props.infos[d[2]]['model_index']].gym_registration_id +
-                        '&benchmark_type=' +
-                        props.benchmarkedModels[props.infos[d[2]]['model_index']].benchmark_type +
-                        '&benchmark_id=' +
-                        props.benchmarkedModels[props.infos[d[2]]['model_index']].benchmark_id +
-                        '&checkpoint_step=' +
-                        props.benchmarkedModels[props.infos[d[2]]['model_index']].checkpoint_step +
-                        '&episode_id=' +
-                        props.infos[d[2]]['model_episode'] +
-                        '&type=render&rdn=' +
-                        Math.random();
-                }
-            );
-        */
-
 
         // Create label data map
         const label_data_map = new Map();
@@ -898,31 +965,13 @@ const WebGLProjection = (props) => {
             .attr('stroke', '#a1a1a1')
             .attr('stroke-width', '1px');
 
-        // Setup density contours
-        try {
-            const densityData = d3
-                .contourDensity()
-                .x(function (d) {
-                    return xScale(d[0]);
-                })
-                .y(function (d) {
-                    return yScale(d[1]);
-                })
-                .size([svgWidth, svgHeight])
-                .bandwidth(30)(processedData.map((d, i) => [d[0], d[1], i]));
+        // Draw grid data from props or state
+        // Get grid data from the passed object or from activeLearningState
+        const grid_prediction_image_data = gridData.prediction_image || activeLearningState.grid_prediction_image;
+        const grid_uncertainty_image_path = gridData.uncertainty_image || activeLearningState.grid_uncertainty_image;
 
-            const color = d3.scaleSequential(d3.interpolateGreys).domain([0, 0.05]);
-
-            if (context) {
-                densityData.forEach((d) => {
-                    context.beginPath();
-                    d3.geoPath().context(context)(d);
-                    context.fillStyle = color(d.value);
-                    context.fill();
-                });
-            }
-        } catch (e) {
-            console.error("Error drawing contours:", e);
+        if (grid_prediction_image_data) {
+            renderGridImage(context, grid_prediction_image_data, svgWidth, svgHeight);
         }
 
         // Handle annotations based on mode
@@ -1057,93 +1106,16 @@ const WebGLProjection = (props) => {
             const isZoomEnd = event.sourceEvent &&
                 (event.sourceEvent.type === 'mouseup' || event.sourceEvent.type === 'touchend');
 
-            // Call detailed view on zoom end, but always perform the basic rendering
-            if (isZoomEnd) {
-                drawDetailedView(transform);
-            }
-
-            const r = Math.round((5 / transform.k) * 100) / 100;
-            const width = Math.round((1 / transform.k) * 100) / 100;
-
+            // First, draw the grid image to the canvas with proper transformation
             if (context) {
-                // Clear and prepare canvas
-                context.save();
-                context.clearRect(0, 0, svgWidth, svgHeight);
-                context.translate(transform.x, transform.y);
-                context.scale(transform.k, transform.k);
+                // Draw the appropriate image based on visualization mode
+                const imageKey = 'prediction'; // or 'uncertainty' based on UI state
+                drawImageToCanvas(context, imageKey, transform, svgWidth, svgHeight);
 
-                // Create episodeToPaths mapping for efficient rendering
-                const episodeToPaths = new Map();
-
-                episodeIndices.forEach((episodeIdx, i) => {
-                    if (!episodeToPaths.has(episodeIdx)) {
-                        episodeToPaths.set(episodeIdx, []);
-                    }
-
-                    if (i < processedData.length) {
-                        episodeToPaths.get(episodeIdx).push(processedData[i]);
-                    }
-                });
-
-                // Draw paths with efficient batching
-                episodeToPaths.forEach((pathPoints, episodeIdx) => {
-                    if (pathPoints.length === 0) return;
-
-                    // Highlight the selected trajectory
-                    const isHighlighted = currentHighlightedTrajectory === episodeIdx;
-
-                    if (!isHighlighted)
-                        return;
-
-                    // Set path styling
-                    context.strokeStyle = d3.interpolateCool(episodeIdx / episodeToPaths.size);
-                    context.lineWidth = isHighlighted ? width * 3 : width;
-                    context.globalAlpha = isHighlighted ? 0.9 : 0.5;
-
-                    // Draw the path
-                    context.beginPath();
-                    context.moveTo(xScale(pathPoints[0][0]), yScale(pathPoints[0][1]));
-
-                    for (let j = 1; j < pathPoints.length; j++) {
-                        // Don't draw lines between distant points
-                        /*if (Math.hypot(pathPoints[j][0] - pathPoints[j - 1][0], pathPoints[j][1] - pathPoints[j - 1][1]) > 0.3) {
-                            context.moveTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
-                        } else {
-                            context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
-                        }*/
-                        context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
-                    }
-
-                    context.stroke();
-                });
-
-                // Batch draw points for better performance
-                context.globalAlpha = 0.5;
-                context.beginPath();
-
-                for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
-                    // Skip non-selected points if filtering is active
-                    //if (selectedPoints && !selectedPoints[i]) continue;
-
-                    // Check if point is part of highlighted trajectory
-                    const pointEpisodeIdx = episodeIndices[i] || 0;
-                    const isHighlighted = currentHighlightedTrajectory === pointEpisodeIdx;
-                    const fillStyle = d3.interpolateCool(pointEpisodeIdx / episodeToPaths.size);
-
-                    // Draw rectangle for highlighted points
-                    if (highlightedPoints && highlightedPoints[i]) {
-                        context.rect(x - r, y - r, 2 * r, 2 * r);
-                    } else {
-                        // Create a new path for each point to allow different colors
-                        context.beginPath();
-                        context.arc(x, y, isHighlighted ? r * 1.5 : r, 0, 2 * Math.PI);
-                        context.fillStyle = fillStyle;
-                        context.fill();
-                        context.closePath();
-                    }
+                // Draw additional items on top if needed
+                if (isZoomEnd) {
+                    // Add any additional detailed rendering on zoom end
                 }
-
-                context.restore();
             }
 
             // Update SVG elements visibility based on zoom level
@@ -1157,16 +1129,13 @@ const WebGLProjection = (props) => {
             text_labels_text.attr('font-size', 16 / transform.k);
         }
 
-        // Detailed rendering for zoom end events
-        function drawDetailedView(transform) {
-            // More detailed rendering with better quality for static view
-            zoomed({ transform }); // Reuse the main rendering logic
-
-            // Add any additional detailed rendering here
-            // This is called only when zooming ends, not during active zoom
-        }
-
         svg.call(zoom);
+
+        // Draw initial state with identity transform
+        if (canvasImageCache.has('prediction')) {
+            const initialTransform = d3.zoomIdentity;
+            drawImageToCanvas(context, 'prediction', initialTransform, svgWidth, svgHeight);
+        }
 
         // Update UI state with scales
         setUiState(prev => ({
@@ -1174,10 +1143,15 @@ const WebGLProjection = (props) => {
             x: xScale,
             y: yScale
         }));
+
+        // Add cleanup for component unmount
+        return () => {
+            // Reset any resources that need cleanup
+        };
     }, [
         selectedPoints,
         highlightedPoints,
-        selectedTrajectory, // Add dependency on highlighted trajectory
+        selectedTrajectory,
         objectColorMode,
         updateColorLegend,
         splitArray,
@@ -1190,824 +1164,10 @@ const WebGLProjection = (props) => {
         props.setHoverStep,
         props.selectDatapoint,
         uiState.object_layer_colors,
-        activeLearningState.episodeIndices // Add dependency on episode indices
+        activeLearningState.episodeIndices,
+        activeLearningState.grid_prediction_image,
+        activeLearningState.grid_uncertainty_image,
     ]);
-
-    // Draw decision points visualization
-    const drawDecisionPoints = useCallback((data = [], merged_points = [], connections = []) => {
-        setLastIndex(data.length - 1);
-
-        if (!embeddingRef.current || !embeddingRef.current.parentElement) return;
-
-        const margin = { top: 0, right: 0, bottom: 0, left: 0 };
-        const svgHeight = embeddingRef.current.parentElement.clientHeight;
-        const svgWidth = embeddingRef.current.parentElement.clientWidth;
-
-        if (svgWidth < 0 || svgHeight < 0) return;
-
-        // Check if merged points array is empty
-        if (!merged_points.length) return;
-
-        const max_value = d3.max(merged_points, (d) => d[2]) || 1;
-
-        // Handle 1D embeddings by adding time dimension
-        let processedData = [...data];
-        if (data.length > 0 && data[0].length === 1) {
-            processedData = data.map((k, i) => [
-                props.infos?.[i]?.['episode step'] || 0,
-                ...k
-            ]);
-        }
-
-        // Create quad tree for fast point lookup
-        const quadTree = d3.quadtree(
-            processedData.map((d, i) => [d[0], d[1], i]),
-            (d) => d[0],
-            (d) => d[1]
-        );
-
-        // Clear and recreate visualization elements
-        const container = d3.select(embeddingRef.current);
-        container.selectAll('*').remove();
-        container.style('position', 'relative');
-
-        // Create canvas for drawing points and connections
-        const newCanvas = container.append('canvas').node();
-        setCanvas(newCanvas);
-
-        if (newCanvas) {
-            newCanvas.width = svgWidth;
-            newCanvas.height = svgHeight;
-        }
-
-        // Get canvas context
-        const context = newCanvas.getContext('2d');
-
-        // Create SVG for interactive elements
-        const newSvg = container
-            .append('svg')
-            .attr('width', svgWidth)
-            .attr('height', svgHeight)
-            .style('position', 'absolute')
-            .style('top', '0px')
-            .style('left', '0px')
-            .append('g')
-            .attr('transform', `translate(${margin.left},${margin.top})`);
-
-        setSvg(newSvg);
-
-        // Set up scales
-        const xDomain = [
-            d3.min(merged_points.map((d) => d[0])) || -1,
-            d3.max(merged_points.map((d) => d[0])) || 1
-        ];
-        const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
-
-        const yDomain = [
-            d3.min(merged_points.map((d) => d[1])) || -1,
-            d3.max(merged_points.map((d) => d[1])) || 1
-        ];
-        const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
-
-        // Set up color mapping
-        Color2D.ranges = { x: xDomain, y: yDomain };
-
-        // Set up zoom behavior
-        const zoom = d3
-            .zoom()
-            .scaleExtent([0.2, 15])
-            .translateExtent([
-                [-600, -600],
-                [svgWidth + 600, svgHeight + 600],
-            ])
-            .on('zoom', handleZoom)
-            .on('end', (event) => {
-                setUiState(prev => ({ ...prev, k: event.transform.k }));
-            });
-
-        // Create view group
-        const view = newSvg.append('g');
-
-        // Add invisible rect to capture events
-        const view_rect = view
-            .append('rect')
-            .attr('x', 0)
-            .attr('y', 0)
-            .attr('height', svgHeight)
-            .attr('width', svgWidth)
-            .style('opacity', '0');
-
-        // Add mouse movement handler
-        view_rect.on('mousemove', function (event) {
-            const mouse = d3.pointer(event);
-
-            // Map the clicked point to the data space
-            const xClicked = xScale.invert(mouse[0]);
-            const yClicked = yScale.invert(mouse[1]);
-
-            // Find the closest point in the dataset to the clicked point
-            const closest = quadTree.find(xClicked, yClicked, 10);
-
-            if (closest && props.setHoverStep && props.infos) {
-                props.setHoverStep(props.infos[closest[2]]);
-            }
-        });
-
-        // Add click handler
-        view_rect.on('click', function (event) {
-            const mouse = d3.pointer(event);
-
-            // Map the clicked point to the data space
-            const xClicked = xScale.invert(mouse[0]);
-            const yClicked = yScale.invert(mouse[1]);
-
-            // Find the closest point in the dataset to the clicked point
-            const closest = quadTree.find(xClicked, yClicked, 10);
-
-            if (closest && props.setHoverStep && props.selectDatapoint && props.infos) {
-                props.setHoverStep(props.infos[closest[2]]);
-                props.selectDatapoint(closest[2]);
-            }
-        });
-
-        // Create line function for curves
-        const lineFunction = d3
-            .line()
-            .curve(d3.curveCatmullRom)
-            .x((d) => xScale(d[0]))
-            .y((d) => yScale(d[1]));
-
-        // Add marker for the current step
-        view.append('g')
-            .append('path')
-            .datum(processedData[0] || [0, 0])
-            .attr('d', (d) => circleGenerator(xScale(d[0]), yScale(d[1]), 5))
-            .attr('fill-opacity', 0.5)
-            .attr('fill', '#ff3737')
-            .attr('stroke', '#ff3737')
-            .attr('id', 'step_marker');
-
-        // Set up scales for point sizes and colors
-        const radius_log = d3.scaleLog().domain([1, max_value]).range([1, 2]);
-
-        // Color scale for merged points based on type
-        const merged_points_color = function (d) {
-            const color_scale = d3.scaleSequential(d3.interpolateOrRd).domain([0, 1]);
-            if (d < 1) return 'grey';
-            else if (d === 1) return color_scale(0.5);
-            else if (d === 2) return color_scale(0.75);
-            else if (d === 3) return color_scale(1);
-            else return '#ff0000';
-        };
-
-        // Set up scales for connection lines
-        const max_line_value = d3.max(connections.map((d) => d[2])) || 1;
-        const line_width_log = d3.scaleLog().domain([1, max_line_value]).range([1, 4]);
-        const line_color_scale = d3.scaleSequential(d3.interpolateViridis).domain([0, max_line_value]);
-
-        // Zoom handler function
-        function handleZoom(event) {
-            const transform = event.transform;
-            view.attr('transform', transform);
-
-            if (!context) return;
-
-            context.save();
-            context.clearRect(0, 0, svgWidth, svgHeight);
-            context.translate(transform.x, transform.y);
-            context.scale(transform.k, transform.k);
-
-            // Draw the original points
-            const r = Math.round((2 / transform.k) * 100) / 100;
-            for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
-                if (selectedPoints && !selectedPoints[i]) continue;
-
-                // Set opacity
-                context.globalAlpha = 0.5;
-                context.beginPath();
-                context.moveTo(x + r, y);
-
-                // Draw highlighted points as rectangles
-                if (highlightedPoints && highlightedPoints[i]) {
-                    context.rect(x - r, y - r, 2 * r, 2 * r);
-                    context.lineWidth = 1 / transform.k;
-                    context.strokeStyle = '#000000';
-                    context.stroke();
-                } else {
-                    context.arc(x, y, r, 0, 2 * Math.PI);
-                }
-
-                context.fillStyle = '#666666';
-                context.fill();
-                context.closePath();
-            }
-
-            // Draw the merged points
-            const base_radius = Math.round((5 / transform.k) * 100) / 100;
-            for (const [x, y, r, c, i] of merged_points.map((d, i) => [
-                xScale(d[0]),
-                yScale(d[1]),
-                d[2],
-                d[5] || 0,
-                i
-            ])) {
-                context.beginPath();
-                context.moveTo(x + radius_log(r) * base_radius, y);
-                context.arc(x, y, radius_log(r) * base_radius, 0, 2 * Math.PI);
-                context.fillStyle = merged_points_color(c);
-                context.globalAlpha = 0.95;
-                context.fill();
-                context.closePath();
-            }
-
-            // Draw connections between points
-            for (const [start, end, value] of connections) {
-                const start_point = merged_points[start];
-                const end_point = merged_points[end];
-
-                if (!start_point || !end_point) continue;
-
-                context.beginPath();
-                context.moveTo(xScale(start_point[0]), yScale(start_point[1]));
-                context.lineTo(xScale(end_point[0]), yScale(end_point[1]));
-                context.lineWidth = line_width_log(value);
-                context.strokeStyle = line_color_scale(value);
-                context.stroke();
-            }
-
-            context.restore();
-        }
-
-        // Apply zoom behavior
-        newSvg.call(zoom);
-
-        // Initialize view
-        handleZoom({ transform: d3.zoomIdentity });
-
-        // Update UI state with scales
-        setUiState(prev => ({
-            ...prev,
-            x: xScale,
-            y: yScale
-        }));
-
-    }, [highlightedPoints, selectedPoints, props.infos, props.setHoverStep, props.selectDatapoint, circleGenerator]);
-
-    // Draw activation mapping visualization
-    const drawActivationMapping = useCallback((data = [], feature_embeddings = [], doneData = []) => {
-        setLastIndex(data.length - 1);
-
-        if (!embeddingRef.current || !embeddingRef.current.parentElement) return;
-
-        const margin = { top: 0, right: 0, bottom: 0, left: 0 };
-        const done_idx = doneData.reduce((a, elem, i) => (elem === true && a.push(i), a), []);
-        const svgHeight = embeddingRef.current.parentElement.clientHeight;
-        const svgWidth = embeddingRef.current.parentElement.clientWidth;
-
-        if (svgWidth < 0 || svgHeight < 0) return;
-
-        // Handle 1D embeddings by adding time dimension
-        let processedData = [...data];
-        if (data.length > 0 && data[0].length === 1) {
-            processedData = data.map((k, i) => [
-                props.infos?.[i]?.['episode step'] || 0,
-                ...k
-            ]);
-        }
-
-        // Create quad trees for fast point lookup
-        const quadTree = d3.quadtree(
-            processedData.map((d, i) => [d[0], d[1], i]),
-            (d) => d[0],
-            (d) => d[1]
-        );
-
-        const featureQuadTree = d3.quadtree(
-            feature_embeddings.map((d, i) => [d[0], d[1], i]),
-            (d) => d[0],
-            (d) => d[1]
-        );
-
-        // Shift feature embeddings for side-by-side view
-        const shiftedFeatureEmbeddings = feature_embeddings.map((e, i) => [e[0] + 1, e[1], i]);
-
-        // Clear and recreate visualization elements
-        const container = d3.select(embeddingRef.current);
-        container.selectAll('*').remove();
-        container.style('position', 'relative');
-
-        // Create canvas for drawing points
-        const newCanvas = container.append('canvas').node();
-        setCanvas(newCanvas);
-
-        if (newCanvas) {
-            newCanvas.width = svgWidth;
-            newCanvas.height = svgHeight;
-        }
-
-        // Get canvas context
-        const context = newCanvas.getContext('2d');
-
-        // Create SVG for interactive elements
-        const newSvg = container
-            .append('svg')
-            .attr('width', svgWidth)
-            .attr('height', svgHeight)
-            .style('position', 'absolute')
-            .style('top', '0px')
-            .style('left', '0px')
-            .append('g')
-            .attr('transform', `translate(${margin.left},${margin.top})`);
-
-        setSvg(newSvg);
-
-        // Set up scales
-        const xDomain = [0, 2];
-        const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
-
-        const yDomain = [0, 1];
-        const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
-
-        // Set up color mapping
-        Color2D.ranges = { x: xDomain, y: yDomain };
-
-        // Set up zoom behavior
-        const zoom = d3
-            .zoom()
-            .scaleExtent([0.2, 15])
-            .translateExtent([
-                [-600, -600],
-                [svgWidth + 600, svgHeight + 600],
-            ])
-            .on('zoom', handleZoom)
-            .on('end', (event) => {
-                setUiState(prev => ({ ...prev, k: event.transform.k }));
-            })
-            .filter(function (event) {
-                return !event.ctrlKey && !event.metaKey;
-            });
-
-        // Set up brush for selection
-        const brush = d3
-            .brush()
-            .extent([
-                [0, 0],
-                [svgWidth, svgHeight],
-            ])
-            .filter(function (event) {
-                return (event.ctrlKey || event.metaKey) && event.type === 'mousedown';
-            })
-            .on('start', brushStart)
-            .on('end', brushEnd);
-
-        function brushStart() {
-            // Clear the brush
-            newSvg.selectAll('.brush').call(brush.move, null);
-        }
-
-        function brushEnd(event) {
-            const selection = event.selection;
-
-            const selected = [];
-            if (selection) {
-                let [[xmin, ymin], [xmax, ymax]] = selection;
-                xmin = xScale.invert(xmin);
-                xmax = xScale.invert(xmax);
-                ymin = yScale.invert(ymin);
-                ymax = yScale.invert(ymax);
-
-                quadTree.visit((node, x1, y1, x2, y2) => {
-                    if (!node.length) {
-                        do {
-                            const d = node.data;
-                            if (d[0] >= xmin && d[0] < xmax && d[1] <= ymin && d[1] > ymax) {
-                                selected.push(d);
-                            }
-                        } while ((node = node.next));
-                    }
-                    return;
-                });
-            }
-
-            if (props.highlightIndices) {
-                props.highlightIndices(selected.map((d) => d[2]));
-            }
-
-            // Clear the brush
-            newSvg.selectAll('.brush').call(brush.move, null);
-        }
-
-        // Create view group
-        const view = newSvg.append('g');
-
-        // Add invisible rect to capture events
-        const view_rect = view
-            .append('rect')
-            .attr('x', 0)
-            .attr('y', 0)
-            .attr('height', svgHeight)
-            .attr('width', svgWidth)
-            .style('opacity', '0');
-
-        // Draw a vertical line to separate the two canvases
-        view.append('line')
-            .attr('x1', svgWidth / 2)
-            .attr('y1', 0)
-            .attr('x2', svgWidth / 2)
-            .attr('y2', svgHeight)
-            .attr('stroke', 'black')
-            .attr('stroke-width', 1);
-
-        // Add titles for the two sections
-        view.append('text')
-            .attr('x', svgWidth / 4)
-            .attr('y', 20)
-            .attr('text-anchor', 'middle')
-            .attr('font-size', '20px')
-            .attr('font-weight', 'bold')
-            .text('Observations');
-
-        view.append('text')
-            .attr('x', (svgWidth / 4) * 3)
-            .attr('y', 20)
-            .attr('text-anchor', 'middle')
-            .attr('font-size', '20px')
-            .attr('font-weight', 'bold')
-            .text('Latents');
-
-        // Add click handler
-        view_rect.on('click', function (event) {
-            if (event.ctrlKey || event.metaKey) {
-                // If ctrl is pressed, ignore click (for brush)
-                return;
-            }
-
-            const mouse = d3.pointer(event);
-
-            // Map the clicked point to the data space
-            const xClicked = xScale.invert(mouse[0]);
-            const yClicked = yScale.invert(mouse[1]);
-
-            // Find the closest point in the appropriate dataset
-            let closest = null;
-            if (xClicked < 1) {
-                closest = quadTree.find(xClicked, yClicked, 10);
-            } else {
-                closest = featureQuadTree.find(xClicked - 1.0, yClicked, 10);
-            }
-
-            if (closest && props.setHoverStep && props.selectDatapoint && props.infos) {
-                props.setHoverStep(props.infos[closest[2]]);
-                props.selectDatapoint(closest[2]);
-            }
-        });
-
-        // Update color legend
-        updateColorLegend();
-
-        // Add marker for the current step
-        view.append('g')
-            .append('path')
-            .datum(processedData[0] || [0, 0])
-            .attr('d', (d) => circleGenerator(xScale(d[0]), yScale(d[1]), 5))
-            .attr('fill-opacity', 0.5)
-            .attr('fill', '#ff3737')
-            .attr('stroke', '#ff3737')
-            .attr('id', 'step_marker');
-
-        // Draw connecting lines between observations and latents
-        const lines = view
-            .selectAll('line.connector')
-            .data(processedData.map((d, i) => [d[0], d[1], i]))
-            .enter()
-            .append('line')
-            .attr('class', 'connector')
-            .attr('x1', (d) => xScale(d[0]))
-            .attr('y1', (d) => yScale(d[1]))
-            .attr('x2', (d) => xScale(shiftedFeatureEmbeddings[d[2]][0]))
-            .attr('y2', (d) => yScale(shiftedFeatureEmbeddings[d[2]][1]))
-            .attr('stroke', 'black')
-            .attr('stroke-width', 1)
-            .attr('stroke-opacity', 0.5)
-            .attr('id', (d) => 'line_' + d[2])
-            .style('visibility', 'hidden');
-
-        // Zoom handler function
-        function handleZoom(event) {
-            const transform = event.transform;
-            view.attr('transform', transform);
-
-            if (!context) return;
-
-            const r = Math.round((5 / transform.k) * 100) / 100;
-            const width = Math.round((1 / transform.k) * 100) / 100;
-
-            context.save();
-            context.clearRect(0, 0, svgWidth, svgHeight);
-            context.translate(transform.x, transform.y);
-            context.scale(transform.k, transform.k);
-
-            // Draw observation points
-            for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
-                context.beginPath();
-                context.moveTo(x + r, y);
-                context.arc(x, y, r, 0, 2 * Math.PI);
-                context.fillStyle = uiState.object_layer_colors[i] || '#aaaaaa';
-                context.globalAlpha = 0.5;
-                context.fill();
-                context.closePath();
-            }
-
-            // Draw latent points
-            for (const [x, y, i] of shiftedFeatureEmbeddings.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
-                context.beginPath();
-                context.moveTo(x + r, y);
-                context.arc(x, y, r, 0, 2 * Math.PI);
-                context.fillStyle = highlightedPoints && highlightedPoints[i]
-                    ? uiState.object_layer_colors[i] || '#aaaaaa'
-                    : '#cccccc';
-                context.globalAlpha = 0.5;
-                context.fill();
-                context.closePath();
-            }
-
-            context.restore();
-
-            // Update visibility of connecting lines based on highlighted state
-            lines.style('visibility', (d) =>
-                highlightedPoints && highlightedPoints[d[2]] ? 'visible' : 'hidden'
-            );
-
-            lines.attr('stroke', (d) =>
-                highlightedPoints && highlightedPoints[d[2]]
-                    ? uiState.object_layer_colors[d[2]] || '#aaaaaa'
-                    : '#cccccc'
-            );
-        }
-
-        // Apply zoom behavior
-        newSvg.call(zoom);
-
-        // Initialize view
-        handleZoom({ transform: d3.zoomIdentity });
-
-        // Update UI state with scales
-        setUiState(prev => ({
-            ...prev,
-            x: xScale,
-            y: yScale
-        }));
-
-    }, [
-        highlightedPoints,
-        uiState.object_layer_colors,
-        updateColorLegend,
-        props.infos,
-        props.setHoverStep,
-        props.selectDatapoint,
-        props.highlightIndices,
-        circleGenerator
-    ]);
-
-    // Draw transition embedding visualization
-    const drawTransitionEmbedding = useCallback((transition_embeddings = [], actions = [], data = [], annotationMode = 'analyze') => {
-        setLastIndex(transition_embeddings.length - 1);
-
-        if (!embeddingRef.current || !embeddingRef.current.parentElement) return;
-
-        const margin = { top: 0, right: 0, bottom: 0, left: 0 };
-        const svgHeight = embeddingRef.current.parentElement.clientHeight;
-        const svgWidth = embeddingRef.current.parentElement.clientWidth;
-
-        if (svgWidth < 0 || svgHeight < 0) return;
-
-        // Set object layer colors to action
-        activeLearningDispatch({
-            type: 'SET_OBJECT_COLOR_MODE',
-            payload: 'action'
-        });
-
-        // Handle 1D embeddings by adding time dimension
-        let processedTransitions = [...transition_embeddings];
-        if (transition_embeddings.length > 0 && transition_embeddings[0].length === 1) {
-            processedTransitions = transition_embeddings.map((k, i) => [
-                props.infos?.[i]?.['episode step'] || 0,
-                ...k
-            ]);
-        }
-
-        // Create quad tree for fast point lookup
-        const quadTree = d3.quadtree(
-            processedTransitions.map((d, i) => [d[0], d[1], i]),
-            (d) => d[0],
-            (d) => d[1]
-        );
-
-        // Clear and recreate visualization elements
-        const container = d3.select(embeddingRef.current);
-        container.selectAll('*').remove();
-        container.style('position', 'relative');
-
-        // Create canvas for drawing points
-        const newCanvas = container.append('canvas').node();
-        setCanvas(newCanvas);
-
-        if (newCanvas) {
-            newCanvas.width = svgWidth;
-            newCanvas.height = svgHeight;
-        }
-
-        // Get canvas context
-        const context = newCanvas.getContext('2d');
-
-        // Create SVG for interactive elements
-        const newSvg = container
-            .append('svg')
-            .attr('width', svgWidth)
-            .attr('height', svgHeight)
-            .style('position', 'absolute')
-            .style('top', '0px')
-            .style('left', '0px')
-            .append('g')
-            .attr('transform', `translate(${margin.left},${margin.top})`);
-
-        setSvg(newSvg);
-
-        // Set up scales
-        const xDomain = [
-            d3.min(processedTransitions.map((d) => d[0])) || -1,
-            d3.max(processedTransitions.map((d) => d[0])) || 1
-        ];
-        const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
-
-        const yDomain = [
-            d3.min(processedTransitions.map((d) => d[1])) || -1,
-            d3.max(processedTransitions.map((d) => d[1])) || 1
-        ];
-        const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
-
-        // Set up color mapping
-        Color2D.ranges = { x: xDomain, y: yDomain };
-
-        // Set up zoom behavior
-        const zoom = d3
-            .zoom()
-            .scaleExtent([0.2, 15])
-            .translateExtent([
-                [-600, -600],
-                [svgWidth + 600, svgHeight + 600],
-            ])
-            .on('zoom', handleZoom)
-            .on('end', (event) => {
-                setUiState(prev => ({ ...prev, k: event.transform.k }));
-            });
-
-        // Create view group
-        const view = newSvg.append('g');
-
-        // Add invisible rect to capture events
-        const view_rect = view
-            .append('rect')
-            .attr('x', 0)
-            .attr('y', 0)
-            .attr('height', svgHeight)
-            .attr('width', svgWidth)
-            .style('opacity', '0');
-
-        // Add click handler
-        view_rect.on('click', function (event) {
-            const mouse = d3.pointer(event);
-
-            // Map the clicked point to the data space
-            const xClicked = xScale.invert(mouse[0]);
-            const yClicked = yScale.invert(mouse[1]);
-
-            // Find the closest point
-            const closest = quadTree.find(xClicked, yClicked, 10);
-
-            if (closest && props.setHoverStep && props.selectDatapoint && props.infos) {
-                props.setHoverStep(props.infos[closest[2]]);
-                props.selectDatapoint(closest[2]);
-            }
-        });
-
-        // Create line function for curves
-        const lineFunction = d3
-            .line()
-            .curve(d3.curveCatmullRom)
-            .x((d) => xScale(d[0]))
-            .y((d) => yScale(d[1]));
-
-        // Add marker for the current step
-        view.append('g')
-            .append('path')
-            .datum(processedTransitions[0] || [0, 0])
-            .attr('d', (d) => circleGenerator(xScale(d[0]), yScale(d[1]), 5))
-            .attr('fill-opacity', 0.5)
-            .attr('fill', '#ff3737')
-            .attr('stroke', '#ff3737')
-            .attr('id', 'step_marker');
-
-        // Create color scale for actions
-        const action_color_scale = d3.scaleOrdinal(d3.schemeSet3)
-            .domain(d3.extent(actions) || [0, 1]);
-
-        // Draw connecting lines between data points and transitions
-        const lines = view
-            .selectAll('line.connector')
-            .data(data.map((d, i) => [d[0], d[1], i]))
-            .enter()
-            .append('line')
-            .attr('class', 'connector')
-            .attr('x1', (d) => xScale(d[0]))
-            .attr('y1', (d) => yScale(d[1]))
-            .attr('x2', (d) => xScale(processedTransitions[d[2]][0]))
-            .attr('y2', (d) => yScale(processedTransitions[d[2]][1]))
-            .attr('stroke', 'black')
-            .attr('stroke-width', 1)
-            .attr('stroke-opacity', 0.5)
-            .attr('id', (d) => 'line_' + d[2])
-            .style('visibility', 'hidden');
-
-        // Zoom handler function
-        function handleZoom(event) {
-            const transform = event.transform;
-            view.attr('transform', transform);
-
-            if (!context) return;
-
-            context.save();
-            context.clearRect(0, 0, svgWidth, svgHeight);
-            context.translate(transform.x, transform.y);
-            context.scale(transform.k, transform.k);
-
-            // Draw transitions as diamond glyphs
-            const base_radius = Math.round((10 / transform.k) * 100) / 100;
-            for (const [x, y, i] of processedTransitions.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
-                // Draw diamond shape
-                context.beginPath();
-                context.moveTo(x, y - base_radius * 0.75);
-                context.lineTo(x + base_radius * 0.75, y);
-                context.lineTo(x, y + base_radius * 0.75);
-                context.lineTo(x - base_radius * 0.75, y);
-                context.globalAlpha = 0.75;
-                context.closePath();
-                context.lineWidth = 1 / transform.k;
-                context.strokeStyle = '#000000';
-                context.stroke();
-                context.fillStyle = action_color_scale(actions[i] || 0);
-                context.fill();
-            }
-
-            // Draw original data points as smaller opaque circles
-            const base_radius2 = Math.round((3 / transform.k) * 100) / 100;
-            context.globalAlpha = 0.5;
-            for (const [x, y, i] of data.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
-                context.beginPath();
-                context.arc(x, y, base_radius2, 0, 2 * Math.PI);
-                context.fillStyle = '#cccccc';
-                context.fill();
-                context.closePath();
-            }
-
-            context.restore();
-
-            // Update connecting lines visibility based on highlighting
-            lines.style('visibility', (d) =>
-                highlightedPoints && highlightedPoints[d[2]] ? 'visible' : 'hidden'
-            );
-
-            lines.attr('stroke', (d) =>
-                highlightedPoints && highlightedPoints[d[2]]
-                    ? uiState.object_layer_colors[d[2]] || '#aaaaaa'
-                    : '#cccccc'
-            );
-        }
-
-        // Apply zoom behavior
-        newSvg.call(zoom);
-
-        // Initialize view
-        handleZoom({ transform: d3.zoomIdentity });
-
-        // Update UI state with scales
-        setUiState(prev => ({
-            ...prev,
-            x: xScale,
-            y: yScale
-        }));
-
-    }, [
-        highlightedPoints,
-        uiState.object_layer_colors,
-        activeLearningDispatch,
-        props.infos,
-        props.setHoverStep,
-        props.selectDatapoint,
-        circleGenerator
-    ]);
-
-    // Handler functions for UI interactions
 
     // Handler for setting background layer color mode
     const handleBackgroundLayerColorMode = useCallback((mode) => {

@@ -10,6 +10,13 @@ export interface ActiveLearningState {
   selectedEpisode: Episode | null;
   projectionStates: number[][];
   projectionStateValues: number[];
+
+  // grid points and predictions
+  //grid_coordinates: number[][];
+  //grid_predictions: number[];
+  //grid_uncertainties: number[];
+  grid_prediction_image: string | null; // New property for the grid prediction image
+  grid_uncertainty_image: string | null; // New property for the grid uncertainty image
   
   // New properties from Evaluation_Embedding
   embeddingData: any[]; // Formerly rawdat
@@ -49,6 +56,10 @@ type ActiveLearningAction =
   | { type: "SET_SELECTED_EPISODE"; payload: Episode | null }
   | { type: "SET_PROJECTION_STATES"; payload: number[][] }
   | { type: "SET_PROJECTION_STATE_VALUES"; payload: number[] }
+  // grid points and predictions
+  | { type: "SET_GRID_PREDICTION_IMAGE"; payload: string | null }
+  | { type: "SET_GRID_UNCERTAINTY_IMAGE"; payload: string | null }
+
   // New actions
   | { type: "SET_EMBEDDING_DATA"; payload: any[] }
   | { type: "SET_EMBEDDING_LABELS"; payload: any[] }
@@ -80,6 +91,10 @@ const initialState: ActiveLearningState = {
   selectedEpisode: null,
   projectionStates: [],
   projectionStateValues: [],
+
+  // grid points and predictions
+  grid_prediction_image: null, // Initialize with null or appropriate default
+  grid_uncertainty_image: null, // Initialize with null or appropriate default
   
   // New state
   embeddingData: [],
@@ -97,7 +112,7 @@ const initialState: ActiveLearningState = {
   embeddingSequenceLength: 1,
   lastDataUpdateTimestamp: 0,
   annotationMode: 'analyze',
-  embeddingMethod: 't-SNE',
+  embeddingMethod: 'UMAP',
   infoTypes: [],
   actionData: [],
   currentRewardData: [],
@@ -132,7 +147,12 @@ function activeLearningReducer(
       return { ...state, projectionStates: action.payload };
     case "SET_PROJECTION_STATE_VALUES":
       return { ...state, projectionStateValues: action.payload };
-      
+    // grid points and predictions
+    case "SET_GRID_PREDICTION_IMAGE":
+      return { ...state, grid_prediction_image: action.payload };
+    case "SET_GRID_UNCERTAINTY_IMAGE":
+      return { ...state, grid_uncertainty_image: action.payload };
+
     // New cases
     case "SET_EMBEDDING_DATA":
       return { ...state, embeddingData: action.payload };
@@ -173,8 +193,7 @@ function activeLearningReducer(
     case "SET_CURRENT_REWARD_DATA":
       return { ...state, currentRewardData: action.payload };
     case "SET_EPISODE_INDICES":
-      return { ...state, episodeIndices: action.payload };
-      
+      return { ...state, episodeIndices: action.payload };   
     default:
       throw new Error(`Unhandled action type: ${(action as any).type}`);
   }
