@@ -529,14 +529,6 @@ const WebGLProjection = (props) => {
             use_one_d_projection: use_one_d_embedding,
             append_time: append_time,
             projection_props: props.embeddingSettings,
-            projection_hash: computeHashFromOptions(
-                props.benchmarkedModels,
-                embedding_method,
-                use_one_d_embedding,
-                reproject,
-                append_time,
-                props.embeddingSettings
-            ),
             map_type: 'prediction',
         };
 
@@ -558,17 +550,32 @@ const WebGLProjection = (props) => {
         // Use Promise.all to wait for both API calls to complete
         Promise.all([
             axios.post(`${url}?${queryString}`, {
-                benchmarks: props.benchmarkedModels,
-                embedding_props: props.embeddingSettings
+              benchmarks: props.benchmarkedModels,
+              embedding_props: props.embeddingSettings
             }),
             axios.post(`${grid_projection_url}?${queryString}`),
             axios.post(`${grid_projection_url}?${uncertainty_grid_projection_queryString}`),
-        ])
+          ])
             .then(([projectionRes, gridRes, gridUncertaintyRes]) => {
-                const data = projectionRes.data;
-                const grid_data = gridRes.data;
-                const grid_uncertainty_data = gridUncertaintyRes.data;
-
+              const data = projectionRes.data;
+              const grid_data = gridRes.data;
+              const grid_uncertainty_data = gridUncertaintyRes.data;
+          
+              console.log("Grid data received:", {
+                prediction: grid_data.image ? grid_data.image.substring(0, 50) + "..." : "null", 
+                uncertainty: grid_uncertainty_data.image ? grid_uncertainty_data.image.substring(0, 50) + "..." : "null"
+              });
+          
+              // Update state with projection data
+              activeLearningDispatch({ type: 'SET_EMBEDDING_DATA', payload: data.embedding });
+              
+              // Set projectionStates to be used by GridUncertaintyMap
+              activeLearningDispatch({ type: 'SET_PROJECTION_STATES', payload: data.projection });
+              
+              // Update grid image data
+              activeLearningDispatch({ type: 'SET_GRID_PREDICTION_IMAGE', payload: grid_data.image });
+              activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTY_IMAGE', payload: grid_uncertainty_data.image });
+              
 
                 const objColorData = getColorsForObjects();
                 const bgColorData = getColorsForBackground();
@@ -576,7 +583,6 @@ const WebGLProjection = (props) => {
                 const highlighted_points = props.infos ? props.infos.map(i => i['highlighted']) : [];
 
                 // Update global state - projection data
-                activeLearningDispatch({ type: 'SET_EMBEDDING_DATA', payload: data.embedding });
                 activeLearningDispatch({ type: 'SET_EMBEDDING_LABELS', payload: data.labels });
                 activeLearningDispatch({ type: 'SET_CLUSTER_CENTROIDS', payload: data.centroids });
                 activeLearningDispatch({ type: 'SET_MERGED_POINTS', payload: data.merged_points });
@@ -592,8 +598,6 @@ const WebGLProjection = (props) => {
                 // activeLearningDispatch({ type: 'SET_GRID_COORDINATES', payload: grid_coordinates });
                 // activeLearningDispatch({ type: 'SET_GRID_PREDICTIONS', payload: grid_predictions });
                 // activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTIES', payload: grid_uncertainties });
-                activeLearningDispatch({ type: 'SET_GRID_PREDICTION_IMAGE', payload: grid_data.image });
-                activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTY_IMAGE', payload: grid_uncertainty_data.image });
 
                 // Update 
 

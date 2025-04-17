@@ -128,16 +128,15 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
               overflow: 'hidden' // Prevent overflow
             }}
           >
-            <GridUncertaintyMap
-              gridPredictionImage={activeLearningState.grid_prediction_image}
-              gridUncertaintyImage={activeLearningState.grid_uncertainty_image}
-              datapointCoordinates={activeLearningState.projectionStates}
-              gridCoordinates={undefined}
-              gridUncertainties={undefined}
-              gridUncertainty={undefined}
-              imageOpacity={0.5}
-              title="Uncertainty Map"
-            />
+              <GridUncertaintyMap
+                gridPredictionImage={activeLearningState.grid_prediction_image}
+                gridUncertaintyImage={activeLearningState.grid_uncertainty_image}
+                datapointCoordinates={activeLearningState.projectionStates || []}
+                gridCoordinates={undefined}
+                gridUncertainties={undefined}
+                imageOpacity={0.5}
+                title="Uncertainty Map"
+              />
           </Box>
         </Paper>
       </Box>

@@ -98,11 +98,6 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
     // If we have grid coordinates, use them, otherwise use datapointCoordinates
     const boundCoordinates = gridCoordinates?.length ? gridCoordinates : datapointCoordinates;
     
-    // Don't render if we don't have valid dimensions or data
-    if (innerWidth < 0 || innerHeight < 0 || !boundCoordinates || boundCoordinates.length === 0) {
-      return null;
-    }
-
     // Process base64 image data to a data URL
     useEffect(() => {
       if (gridPredictionImage) {
@@ -130,8 +125,14 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
       }
     }, [gridPredictionImage, gridUncertaintyImage]);
 
-    // Compute scales based on the data
+    // Compute scales based on the data - MOVED AFTER ALL HOOKS
     const xScale = useMemo(() => {
+      if (!boundCoordinates || boundCoordinates.length === 0) {
+        return scaleLinear({
+          domain: [0, 1],
+          range: [margin.left, innerWidth + margin.left],
+        });
+      }
       const xExtent = extent(boundCoordinates, d => d[0]) as [number, number];
       return scaleLinear({
         domain: [xExtent[0], xExtent[1]],
@@ -140,6 +141,12 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
     }, [boundCoordinates, innerWidth, margin.left]);
 
     const yScale = useMemo(() => {
+      if (!boundCoordinates || boundCoordinates.length === 0) {
+        return scaleLinear({
+          domain: [0, 1],
+          range: [innerHeight + margin.top, margin.top],
+        });
+      }
       const yExtent = extent(boundCoordinates, d => d[1]) as [number, number];
       return scaleLinear({
         domain: [yExtent[0], yExtent[1]],
@@ -147,6 +154,49 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
       });
     }, [boundCoordinates, innerHeight, margin.top]);
 
+    // Handle image loading
+    useEffect(() => {
+      if (processedUncertaintyUrl) {
+        const img = new Image();
+        img.onload = () => setImageLoaded(true);
+        img.onerror = (e) => {
+          console.error('Error loading uncertainty image:', e);
+          setImageLoaded(false);
+        };
+        img.src = processedUncertaintyUrl;
+      }
+    }, [processedUncertaintyUrl]);
+
+    // Determine which image to use (uncertainty is preferred)
+    const imageToUse = processedUncertaintyUrl || processedPredictionUrl;
+
+    // NOW we can do our early return, after all hooks are declared
+    if (innerWidth < 0 || innerHeight < 0 || !boundCoordinates || boundCoordinates.length === 0) {
+      return (
+        <svg width={width} height={height}>
+          <rect
+            x={0}
+            y={0}
+            width={width}
+            height={height}
+            fill={background}
+            rx={6}
+          />
+          <text
+            x={width / 2}
+            y={height / 2}
+            textAnchor="middle"
+            fontSize={14}
+            fill="#666"
+          >
+            No data available
+          </text>
+        </svg>
+      );
+    }
+
+    console.log("GridUncertaintyMap rendered");
+    
     // Tooltip handler
     const handleTooltip = (event: React.TouchEvent<SVGRectElement> | React.MouseEvent<SVGRectElement>) => {
       // Only provide tooltips if we have grid coordinates and uncertainties
@@ -189,22 +239,6 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
         hideTooltip();
       }
     };
-
-    // Handle image loading
-    useEffect(() => {
-      if (processedUncertaintyUrl) {
-        const img = new Image();
-        img.onload = () => setImageLoaded(true);
-        img.onerror = (e) => {
-          console.error('Error loading uncertainty image:', e);
-          setImageLoaded(false);
-        };
-        img.src = processedUncertaintyUrl;
-      }
-    }, [processedUncertaintyUrl]);
-
-    // Determine which image to use (uncertainty is preferred)
-    const imageToUse = processedUncertaintyUrl || processedPredictionUrl;
 
     return (
       <>

@@ -152,6 +152,11 @@ function activeLearningReducer(
       return { ...state, grid_prediction_image: action.payload };
     case "SET_GRID_UNCERTAINTY_IMAGE":
       return { ...state, grid_uncertainty_image: action.payload };
+    case 'SET_PROJECTION_STATES':
+        return {
+          ...state,
+          projectionStates: action.payload
+        };
 
     // New cases
     case "SET_EMBEDDING_DATA":
