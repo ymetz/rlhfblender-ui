@@ -521,7 +521,7 @@ const WebGLProjection = (props) => {
 
         const params = {
             benchmark_id: props.benchmarkId,
-            checkpoint_step: -1,
+            checkpoint_step: 160000,
             projection_method: embedding_method,
             sequence_length: embeddingSequenceLength,
             step_range: '[]',

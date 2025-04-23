@@ -293,7 +293,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
                 fill="black"
                 stroke="white"
                 strokeWidth={1}
-                opacity={0.8}
+                opacity={0.1}
               />
             );
           })}
