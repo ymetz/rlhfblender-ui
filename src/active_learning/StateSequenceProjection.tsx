@@ -15,10 +15,8 @@ import CreateIcon from '@mui/icons-material/Create';
 import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import axios from 'axios';
-import { arc } from 'd3-shape';
 import { Color2D } from './projection_utils/2dcolormaps';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
-import { legend } from './projection_utils/Color_Legend';
 
 const canvasImageCache = new Map();
 
@@ -122,7 +120,6 @@ const ObjectLegend = styled(LegendContainer)(({ theme }) => ({
 }));
 
 const WebGLProjection = (props) => {
-    const [annotationMode, setAnnotationMode] = useState('analyze');
     // Get state and dispatch from context
     const activeLearningState = useActiveLearningState();
     const activeLearningDispatch = useActiveLearningDispatch();
@@ -137,7 +134,7 @@ const WebGLProjection = (props) => {
     const [error, setError] = useState(null);
     const [selectedTrajectory, setSelectedTrajectory] = useState(null);
     const [selectedState, setSelectedState] = useState(null);
-    const [selectedCoordinate, setSelectedCoordinate] = useState({x: null, y: null});
+    const [selectedCoordinate, setSelectedCoordinate] = useState({ x: null, y: null });
     const [selectedCluster, setSelectedCluster] = useState(null);
     const selectedTrajectoryRef = useRef(null);
     const selectedStateRef = useRef(null);
@@ -200,15 +197,14 @@ const WebGLProjection = (props) => {
             uncertainty_image: null,
             bounds: null,
         },
-        annotationMode = 'analyze'
     ) => {
 
         switch (mode) {
             case 'state_space':
-                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, annotationMode);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData);
                 break;
             default:
-                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, annotationMode);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData);
         }
     }, []);
 
@@ -323,7 +319,6 @@ const WebGLProjection = (props) => {
                         "uncertainty_image": grid_uncertainty_image_path,
                         "bounds": grid_data.projection_bounds
                     },
-                    annotationMode
                 );
 
                 setIsLoading(false);
@@ -333,9 +328,9 @@ const WebGLProjection = (props) => {
                 setError("Failed to load data. Please try again.");
                 setIsLoading(false);
             });
-    }, [embeddingSequenceLength, viewMode, annotationMode, props.benchmarkId, props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkedModels, props.embeddingSettings, props.timeStamp, props.infos, drawChart, activeLearningDispatch]);
+    }, [embeddingSequenceLength, viewMode, props.benchmarkId, props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkedModels, props.embeddingSettings, props.timeStamp, props.infos, drawChart, activeLearningDispatch]);
 
-    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }, annotationMode = 'analyze') => {
+    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }) => {
 
         const margin = { top: 0, right: 0, bottom: 0, left: 0 };
         const done_idx = doneData.reduce((a, elem, i) => (elem === true && a.push(i), a), []);
@@ -351,7 +346,7 @@ const WebGLProjection = (props) => {
 
         // Handle 1D embeddings by adding time dimension
         let processedData = [...data];
-        if (data.length > 0 && data[0].length === 1) {
+        if (data?.length > 0 && data[0].length === 1) {
             processedData = processedData.map((k, i) => [
                 props.infos?.[i]?.['episode step'] || 0,
                 ...k,
@@ -412,14 +407,14 @@ const WebGLProjection = (props) => {
         // Set up scales
         const xExtent = d3.extent(processedData.map((d) => d[0]));
         const yExtent = d3.extent(processedData.map((d) => d[1]));
-        
+
         // Add padding to the domains to show surrounding area
         const xPadding = (xExtent[1] - xExtent[0]) * 0.1; // 10% padding
         const yPadding = (yExtent[1] - yExtent[0]) * 0.1; // 10% padding
-        
+
         const xDomain = [xExtent[0] - xPadding, xExtent[1] + xPadding];
         const yDomain = [yExtent[0] - yPadding, yExtent[1] + yPadding];
-        
+
         const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
         const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
 
@@ -454,7 +449,7 @@ const WebGLProjection = (props) => {
 
             img.src = `data:image/png;base64,${grid_prediction_image}`;
         }
-        
+
         // Similarly for uncertainty image
         if (gridData.uncertainty_image && !canvasImageCache.has('uncertainty')) {
             console.log('Preloading grid uncertainty image');
@@ -481,7 +476,7 @@ const WebGLProjection = (props) => {
                 // Add some padding to the bounds to show surrounding area
                 const xPadding = (bounds.x_max - bounds.x_min) * 0.1; // 10% padding
                 const yPadding = (bounds.y_max - bounds.y_min) * 0.1; // 10% padding
-                
+
                 return {
                     x: xScale(bounds.x_min - xPadding),
                     y: yScale(bounds.y_max + yPadding), // Note: y axis is flipped
@@ -489,7 +484,7 @@ const WebGLProjection = (props) => {
                     height: yScale(bounds.y_min - yPadding) - yScale(bounds.y_max + yPadding)
                 };
             }
-            
+
             // Fallback to using the chart dimensions
             return {
                 x: 0,
@@ -649,7 +644,7 @@ const WebGLProjection = (props) => {
                 selectedCoordinateRef.current = { x: xClicked, y: yClicked };
 
                 // draw an svg maeker at the position
-                view.append("circle").attr("cx", xClicked).attr("cy", yClicked).attr("r","5px").style('fill', 'red');  
+                view.append("circle").attr("cx", xScale(xClicked)).attr("cy", yScale(yClicked)).attr("r", "5px").style('fill', 'red');
 
             }
         });
@@ -780,7 +775,7 @@ const WebGLProjection = (props) => {
                     .style('stroke', () => {
                         const center = d3.polygonCentroid(mappedHull);
                         return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-                    }) 
+                    })
                     .style('stroke-width', 2.5)
                     .on('mouseover', function (event) {
                         d3.select(this).style('opacity', 0.6);
@@ -846,46 +841,46 @@ const WebGLProjection = (props) => {
                 if (isZoomEnd) {
                     const r = Math.round((5 / transform.k) * 100) / 100;
                     const width = Math.round((1 / transform.k) * 100) / 100;
-        
+
                     // Save current context
                     context.save();
-                    
+
                     // Apply the same transformation as the background image
                     context.translate(transform.x, transform.y);
                     context.scale(transform.k, transform.k);
-    
+
                     // Create episodeToPaths mapping for efficient rendering
                     const episodeToPaths = new Map();
-    
+
                     episodeIndices.forEach((episodeIdx, i) => {
                         if (!episodeToPaths.has(episodeIdx)) {
                             episodeToPaths.set(episodeIdx, []);
                         }
-    
+
                         if (i < processedData.length) {
                             episodeToPaths.get(episodeIdx).push(processedData[i]);
                         }
                     });
-    
+
                     // Draw paths with efficient batching
                     episodeToPaths.forEach((pathPoints, episodeIdx) => {
                         if (pathPoints.length === 0) return;
-    
+
                         // Highlight the selected trajectory
                         const isHighlighted = currentHighlightedTrajectory === episodeIdx;
-    
+
                         if (!isHighlighted)
                             return;
-    
+
                         // Set path styling
                         context.strokeStyle = d3.interpolateCool(episodeIdx / episodeToPaths.size);
                         context.lineWidth = isHighlighted ? width * 3 : width;
                         context.globalAlpha = isHighlighted ? 0.9 : 0.5;
-    
+
                         // Draw the path
                         context.beginPath();
                         context.moveTo(xScale(pathPoints[0][0]), yScale(pathPoints[0][1]));
-    
+
                         for (let j = 1; j < pathPoints.length; j++) {
                             // Don't draw lines between distant points
                             /*if (Math.hypot(pathPoints[j][0] - pathPoints[j - 1][0], pathPoints[j][1] - pathPoints[j - 1][1]) > 0.3) {
@@ -895,23 +890,23 @@ const WebGLProjection = (props) => {
                             }*/
                             context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
                         }
-    
+
                         context.stroke();
                     });
-    
+
                     // Batch draw points for better performance
                     context.globalAlpha = 0.5;
                     context.beginPath();
 
                     const selectedStateIndex = selectedStateRef.current ? selectedStateRef.current[2] : null;
-    
+
                     for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
-    
+
                         // Check if point is part of highlighted trajectory
                         const pointEpisodeIdx = episodeIndices[i] || 0;
                         const isHighlighted = currentHighlightedTrajectory === pointEpisodeIdx;
                         const fillStyle = d3.interpolateCool(pointEpisodeIdx / episodeToPaths.size);
-    
+
                         // Draw rectangle for highlighted points
                         if (selectedStateIndex && selectedStateIndex === i) {
                             context.rect(x - r, y - r, 5 * r, 5 * r);
@@ -924,13 +919,20 @@ const WebGLProjection = (props) => {
                             context.closePath();
                         }
                     }
-    
+
                     context.restore();
                 }
             }
 
-            if (selectedCoordinateRef.current?.x || null)
-                view.append("circle").attr("cx", selectedCoordinateRef.current.x).attr("cy", selectedCoordinateRef.current.y).attr("r","5px").style('fill', 'red');  
+
+            if (selectedCoordinateRef.current?.x) {
+                view
+                    .append("circle")
+                    .attr("cx", xScale(selectedCoordinateRef.current.x))
+                    .attr("cy", yScale(selectedCoordinateRef.current.y))
+                    .attr("r", "5px")
+                    .style('fill', 'red');
+            }
 
             // Update SVG elements visibility based on zoom level
             if (transform.k > 2) {
@@ -1027,12 +1029,12 @@ const WebGLProjection = (props) => {
                             const selectedCluster = selectedClusterRef.current;
 
                             // add to combined selected if selected
-                            const combinedSelection = [];
+                            const combinedSelection: { type: string, data: any }[] = [];
                             if (selectedTrajectory) {
-                                combinedSelection.push(selectedTrajectory);
+                                combinedSelection.push({ type: "trajectory", data: selectedTrajectory });
                             }
-                            if (selectedCluster) {
-                                combinedSelection.push(selectedCluster);
+                            else if (selectedCluster) {
+                                combinedSelection.push({ type: "cluster", data: selectedCluster });
                             }
                             if (combinedSelection.length === 0) {
                                 return;
@@ -1058,20 +1060,17 @@ const WebGLProjection = (props) => {
                             '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
                         }}
                         onClick={() => {
-
-                            console.log(selectedStateRef.current, selectedCoordinateRef.current);
-
                             const selectedState = selectedStateRef.current;
 
                             const selectedCoordinate = selectedCoordinateRef.current;
 
                             // add to combined selected if selected
-                            const combinedSelection = [];
+                            const combinedSelection: { type: string, data: any }[] = [];
                             if (selectedState) {
-                                combinedSelection.push(selectedState);
+                                combinedSelection.push({ type: "state", data: selectedState });
                             }
-                            if (selectedCoordinate) {
-                                combinedSelection.push(selectedCoordinate);
+                            else if (selectedCoordinate) {
+                                combinedSelection.push({ type: "coordinate", data: selectedCoordinate });
                             }
 
                             if (combinedSelection.length === 0) {

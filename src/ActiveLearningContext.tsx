@@ -6,7 +6,7 @@ export interface ActiveLearningState {
   currentPhase: number;
   progressRewards: number[];
   progressUncertainties: number[];
-  selection: number[];
+  selection: {type: string, data: any[]}[];
   selectedEpisode: Episode | null;
   projectionStates: number[][];
   projectionStateValues: number[];
@@ -52,7 +52,7 @@ type ActiveLearningAction =
   | { type: "SET_CURRENT_PHASE"; payload: number }
   | { type: "SET_PROGRESS_REWARDS"; payload: number[] }
   | { type: "SET_PROGRESS_UNCERTAINTIES"; payload: number[] }
-  | { type: "SET_SELECTION"; payload: number[] }
+  | { type: "SET_SELECTION"; payload: {type: string, data: any[]}[]}
   | { type: "SET_SELECTED_EPISODE"; payload: Episode | null }
   | { type: "SET_PROJECTION_STATES"; payload: number[][] }
   | { type: "SET_PROJECTION_STATE_VALUES"; payload: number[] }
@@ -112,7 +112,7 @@ const initialState: ActiveLearningState = {
   embeddingSequenceLength: 1,
   lastDataUpdateTimestamp: 0,
   annotationMode: 'analyze',
-  embeddingMethod: 'UMAP',
+  embeddingMethod: 'PCA',
   infoTypes: [],
   actionData: [],
   currentRewardData: [],
