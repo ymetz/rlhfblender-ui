@@ -1,11 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
     Button,
-    ListItem,
-    ListItemButton,
-    ListItemText,
     Box,
-    Paper,
     Typography,
     CircularProgress,
     Alert,
@@ -14,6 +10,8 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+//import RebaseEditIcon from '@mui/icons-material/RebaseEdit';
+import CreateIcon from '@mui/icons-material/Create';
 import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import axios from 'axios';
@@ -38,54 +36,6 @@ const EmbeddingContainer = styled(Box)(({ theme }) => ({
     position: 'relative',
 }));
 
-const ControlsWrapper = styled(Box)(({ theme }) => ({
-    width: 'max(15%, 300px)',
-    position: 'absolute',
-    right: theme.spacing(2),
-    top: theme.spacing(2),
-    zIndex: 10,
-}));
-
-const ControlOverlay = styled(Paper)(({ theme }) => ({
-    padding: theme.spacing(2),
-    marginBottom: theme.spacing(2),
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-}));
-
-const ViewBoxContainer = styled(Box)(({ theme }) => ({
-    display: 'flex',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-}));
-
-const ViewBox = styled(Box)(({ theme, selected }) => ({
-    width: '100px',
-    height: '100px',
-    margin: theme.spacing(1),
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-    border: selected ? `5px solid ${theme.palette.primary.main}` : `1px solid ${theme.palette.divider}`,
-    borderRadius: theme.shape.borderRadius,
-    transition: theme.transitions.create(['border'], {
-        duration: theme.transitions.duration.short,
-    }),
-}));
-
-// Improved circle generator function
-const circleGenerator = (cx = 0, cy = 0, r = 5) => {
-    const circlePath = arc()
-        .innerRadius(r)
-        .outerRadius(r)
-        .startAngle(0)
-        .endAngle(Math.PI * 2)();
-
-    // Transform to the correct position if cx/cy aren't 0
-    return cx || cy ? `translate(${cx}, ${cy}) ${circlePath}` : circlePath;
-};
 
 // Color Legend component 
 const ColorLegend = ({ colorScale, width, title }) => {
@@ -183,30 +133,16 @@ const WebGLProjection = (props) => {
     const objectColorLegendRef = useRef(null);
 
     // Component state variables
-    const [canvas, setCanvas] = useState(null);
-    const [svg, setSvg] = useState<SVGSVGElement | null>(null);
-    const [scatterplot, setScatterplot] = useState<any>(null);
-    const [lasso, setLasso] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [lastIndex, setLastIndex] = useState(0);
     const [selectedTrajectory, setSelectedTrajectory] = useState(null);
+    const [selectedState, setSelectedState] = useState(null);
+    const [selectedCoordinate, setSelectedCoordinate] = useState({x: null, y: null});
+    const [selectedCluster, setSelectedCluster] = useState(null);
     const selectedTrajectoryRef = useRef(null);
-
-    // Local UI state
-    const [uiState, setUiState] = useState({
-        object_layer_colors: [],
-        background_layer_colors: [],
-        object_color_scale: undefined,
-        object_color_d3_scale: undefined,
-        background_color_scale: undefined,
-        background_color_d3_scale: undefined,
-        draw_lasso: false,
-        step_images: ['/files/base.jpeg', '/files/traj.jpeg', '/files/latent.jpeg', '/files/transitions.jpeg'],
-        x: undefined,
-        y: undefined,
-        k: 1.0,
-    });
+    const selectedStateRef = useRef(null);
+    const selectedCoordinateRef = useRef();
+    const selectedClusterRef = useRef(null);
 
     // Extract props from activeLearningState
     const {
@@ -238,244 +174,13 @@ const WebGLProjection = (props) => {
         selectedTrajectoryRef.current = selectedTrajectory;
     }, [selectedTrajectory]);
 
-    // React to color mode changes
     useEffect(() => {
-        // Calculate color scales
-        const objColorData = getColorsForObjects();
-        const bgColorData = getColorsForBackground();
+        selectedStateRef.current = selectedState
+    }, [selectedState]);
 
-        setUiState(prev => ({
-            ...prev,
-            object_layer_colors: objColorData.colors,
-            background_layer_colors: bgColorData.colors,
-            object_color_scale: objColorData.scale,
-            object_color_d3_scale: objColorData.d3_scale,
-            background_color_scale: bgColorData.scale,
-            background_color_d3_scale: bgColorData.d3_scale,
-        }));
-
-        updateColorLegend();
-    }, [objectColorMode, backgroundColorMode, currentRewardData]);
-
-    // Function to calculate a hash from options
-    const computeHashFromOptions = useCallback((
-        scheduled_benchmarks,
-        embedding_method,
-        use_one_d_embedding,
-        reproject,
-        append_time,
-        embedding_settings
-    ) => {
-        // Create unique non-secure hash from options without the crypto library
-        // This is used to cache the embeddings
-        const hash =
-            JSON.stringify(scheduled_benchmarks) +
-            embedding_method +
-            use_one_d_embedding +
-            reproject +
-            append_time +
-            JSON.stringify(embedding_settings);
-        let hashValue = 0;
-        for (let i = 0; i < hash.length; i++) {
-            hashValue += hash.charCodeAt(i);
-        }
-        return hashValue;
-    }, []);
-
-    // Function to get color data based on mode
-    const getColorData = useCallback((mode) => {
-        if (mode === 'none') {
-            const color_scale = d3
-                .scaleLinear()
-                .domain(d3.extent(currentRewardData))
-                .range(['grey', 'grey']);
-            return {
-                data: currentRewardData,
-                colors: currentRewardData.map(c => 'grey'),
-                scale: color_scale,
-            };
-        }
-
-        if (mode === 'step_reward') {
-            if (currentRewardData.length > 0) {
-                const data = props.currentRewardData || currentRewardData;
-                // Quantize the reward data into 100 buckets
-                const quantize = d3.scaleQuantize().domain(d3.extent(data)).range(d3.range(100));
-
-                // Get the color as a 100 element array for the quantized reward data with d3.interpolateOrRd(t * 0.85 + 0.15)
-                const color_scale = d3.scaleSequential((t) => d3.interpolateOrRd(t * 0.85 + 0.15)).domain([0, 100]);
-                const colors_array = Array.from({ length: 100 }, (_, i) => d3.color(color_scale(i)));
-
-                return {
-                    data: data,
-                    colors: data.map((c) => quantize(c)),
-                    scale: colors_array.map((d) => [d.r, d.g, d.b, 200]),
-                    d3_scale: color_scale,
-                };
-            } else {
-                return {
-                    data: [],
-                    colors: ['ffffff'],
-                    scale: uiState.object_color_scale,
-                    d3_scale: uiState.object_color_d3_scale,
-                };
-            }
-        }
-        const data = props.infos ? props.infos.map((i) => i[mode]) : [];
-        let interpolator = function (t) {
-            return d3.interpolateOrRd(t * 0.85 + 0.15);
-        };
-        if (mode === 'action') {
-            const color_scale = d3.scaleOrdinal(d3.schemeSet3).domain(d3.extent(data));
-            const colors_array = Array.from({ length: d3.max(data) || 1 }, (_, i) => d3.color(color_scale(i)));
-            return {
-                data: data,
-                colors: data,
-                scale: colors_array.map((d) => [d.r, d.g, d.b, 200]),
-                d3_scale: color_scale,
-            };
-        } else if (mode === 'episode index') {
-            interpolator = d3.interpolateCool;
-        }
-
-        const quantize = d3.scaleQuantize().domain(d3.extent(data)).range(d3.range(100));
-        const color_scale = d3.scaleSequential(interpolator).domain([0, 100]);
-        const colors_array = Array.from({ length: 100 }, (_, i) => d3.color(color_scale(i)));
-
-        return {
-            data: data,
-            colors: data.map((c) => quantize(c)),
-            scale: colors_array.map((d) => [d.r, d.g, d.b, 200]),
-            d3_scale: color_scale,
-        };
-    }, [currentRewardData, props.currentRewardData, props.infos, uiState.object_color_scale, uiState.object_color_d3_scale]);
-
-    // Function to get colors for objects
-    const getColorsForObjects = useCallback(() => {
-        return getColorData(objectColorMode);
-    }, [getColorData, objectColorMode]);
-
-    // Function to get colors for background
-    const getColorsForBackground = useCallback(() => {
-        return getColorData(backgroundColorMode);
-    }, [getColorData, backgroundColorMode]);
-
-    // Update color legend
-    const updateColorLegend = useCallback(() => {
-        if (uiState.object_color_d3_scale === undefined || !objectColorLegendRef.current) return;
-        d3.select(objectColorLegendRef.current).select('*').remove();
-
-        if (objectColorLegendRef.current && objectColorLegendRef.current.parentElement) {
-            d3.select(objectColorLegendRef.current)
-                .node()
-                .appendChild(
-                    legend({
-                        color: uiState.object_color_d3_scale,
-                        width: objectColorLegendRef.current.parentElement.clientWidth,
-                    })
-                );
-        }
-
-        if (uiState.background_color_d3_scale === undefined || !backgroundColorLegendRef.current) return;
-        d3.select(backgroundColorLegendRef.current).select('*').remove();
-
-        if (backgroundColorLegendRef.current && backgroundColorLegendRef.current.parentElement) {
-            d3.select(backgroundColorLegendRef.current)
-                .node()
-                .appendChild(
-                    legend({
-                        color: uiState.background_color_d3_scale,
-                        width: backgroundColorLegendRef.current.parentElement.clientWidth,
-                    })
-                );
-        }
-    }, [uiState.object_color_d3_scale, uiState.background_color_d3_scale]);
-
-    // Split array
-    const splitArray = useCallback((arr, indices) => {
-        var result = [];
-        var lastIndex = 0;
-        for (var i = 0; i < indices.length; i++) {
-            // Note that the last observations of an episode is already from the next episode (i.e. the one give the done flag, so omit drawing the path)
-            result.push(arr.slice(lastIndex, indices[i] + 1));
-            lastIndex = indices[i] + 1;
-        }
-        result.push(arr.slice(Math.min(lastIndex, arr.length - 1)));
-        return result;
-    }, []);
-
-    // Get random color
-    const getRandomColor = useCallback(() => {
-        const letters = '0123456789ABCDEF';
-        let color = '#';
-        for (let i = 0; i < 6; i++) {
-            color += letters[Math.floor(Math.random() * 16)];
-        }
-        return color;
-    }, []);
-
-    // Polar to Cartesian
-    const polarToCartesian = useCallback((centerX, centerY, radius, angleInDegrees) => {
-        const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0;
-        return {
-            x: centerX + radius * Math.cos(angleInRadians),
-            y: centerY + radius * Math.sin(angleInRadians),
-        };
-    }, []);
-
-    // Update chart colors
-    const updateChartColors = useCallback((highlightSteps, visibleEpisodes) => {
-        updateColorLegend();
-        if (!highlightSteps || !scatterplot) return;
-
-        const currentStep = highlightSteps.new?.value;
-        if (lastDataUpdateTimestamp === 0 || currentStep === undefined) return;
-
-        scatterplot.select([currentStep], { preventEvent: true });
-    }, [updateColorLegend, lastDataUpdateTimestamp, scatterplot]);
-
-    // Toggle lasso
-    const toggleLasso = useCallback(() => {
-        if (uiState.draw_lasso) {
-            d3.select(embeddingRef.current).select('svg').remove('lasso');
-        } else if (lasso !== null) {
-            d3.select(embeddingRef.current).select('svg').call(lasso);
-        }
-        setUiState(prev => ({ ...prev, draw_lasso: !prev.draw_lasso }));
-    }, [uiState.draw_lasso, lasso]);
-
-    const renderGridImage = (context, imagePath, svgWidth, svgHeight) => {
-        if (!imagePath || !context) {
-            console.warn('Missing required parameters for rendering grid image');
-            return;
-        }
-
-        console.log('Rendering grid image, data length:', imagePath.length);
-
-        // Create a new image and set up handlers
-        const img = new Image();
-
-        img.onload = () => {
-            console.log('Image loaded successfully:', img.width, 'x', img.height);
-
-            // Clear the canvas area first
-            context.clearRect(0, 0, svgWidth, svgHeight);
-
-            // Draw the image with proper scaling
-            context.drawImage(
-                img,
-                0, 0, img.width, img.height,
-                0, 0, svgWidth, svgHeight
-            );
-        };
-
-        img.onerror = (e) => {
-            console.error('Failed to load grid image:', e);
-        };
-
-        // Set the source with proper template literal syntax
-        img.src = `data:image/png;base64,${imagePath}`;
-    }
+    useEffect(() => {
+        selectedCoordinateRef.current = selectedCoordinate
+    }, [selectedCoordinate]);
 
     // Drawing function dispatches to specific visualizations
     const drawChart = useCallback((
@@ -493,6 +198,7 @@ const WebGLProjection = (props) => {
         gridData = {
             prediction_image: null,
             uncertainty_image: null,
+            bounds: null,
         },
         annotationMode = 'analyze'
     ) => {
@@ -529,7 +235,7 @@ const WebGLProjection = (props) => {
             use_one_d_projection: use_one_d_embedding,
             append_time: append_time,
             projection_props: props.embeddingSettings,
-            map_type: 'prediction',
+            map_type: 'both',
         };
 
         // Convert params to query string
@@ -550,35 +256,32 @@ const WebGLProjection = (props) => {
         // Use Promise.all to wait for both API calls to complete
         Promise.all([
             axios.post(`${url}?${queryString}`, {
-              benchmarks: props.benchmarkedModels,
-              embedding_props: props.embeddingSettings
+                benchmarks: props.benchmarkedModels,
+                embedding_props: props.embeddingSettings
             }),
             axios.post(`${grid_projection_url}?${queryString}`),
             axios.post(`${grid_projection_url}?${uncertainty_grid_projection_queryString}`),
-          ])
+        ])
             .then(([projectionRes, gridRes, gridUncertaintyRes]) => {
-              const data = projectionRes.data;
-              const grid_data = gridRes.data;
-              const grid_uncertainty_data = gridUncertaintyRes.data;
-          
-              console.log("Grid data received:", {
-                prediction: grid_data.image ? grid_data.image.substring(0, 50) + "..." : "null", 
-                uncertainty: grid_uncertainty_data.image ? grid_uncertainty_data.image.substring(0, 50) + "..." : "null"
-              });
-          
-              // Update state with projection data
-              activeLearningDispatch({ type: 'SET_EMBEDDING_DATA', payload: data.embedding });
-              
-              // Set projectionStates to be used by GridUncertaintyMap
-              activeLearningDispatch({ type: 'SET_PROJECTION_STATES', payload: data.projection });
-              
-              // Update grid image data
-              activeLearningDispatch({ type: 'SET_GRID_PREDICTION_IMAGE', payload: grid_data.image });
-              activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTY_IMAGE', payload: grid_uncertainty_data.image });
-              
+                const data = projectionRes.data;
+                const grid_data = gridRes.data;
+                const grid_uncertainty_data = gridUncertaintyRes.data;
 
-                const objColorData = getColorsForObjects();
-                const bgColorData = getColorsForBackground();
+                console.log("Grid data received:", {
+                    prediction: grid_data.image ? grid_data.image.substring(0, 50) + "..." : "null",
+                    uncertainty: grid_uncertainty_data.image ? grid_uncertainty_data.image.substring(0, 50) + "..." : "null"
+                });
+
+                // Update state with projection data
+                activeLearningDispatch({ type: 'SET_EMBEDDING_DATA', payload: data.embedding });
+
+                // Set projectionStates to be used by GridUncertaintyMap
+                activeLearningDispatch({ type: 'SET_PROJECTION_STATES', payload: data.projection });
+
+                // Update grid image data
+                activeLearningDispatch({ type: 'SET_GRID_PREDICTION_IMAGE', payload: grid_data.image });
+                activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTY_IMAGE', payload: grid_uncertainty_data.image });
+
                 const selected_points = props.infos ? props.infos.map(i => i['selected']) : [];
                 const highlighted_points = props.infos ? props.infos.map(i => i['highlighted']) : [];
 
@@ -599,19 +302,6 @@ const WebGLProjection = (props) => {
                 // activeLearningDispatch({ type: 'SET_GRID_PREDICTIONS', payload: grid_predictions });
                 // activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTIES', payload: grid_uncertainties });
 
-                // Update 
-
-                // Update local UI state
-                setUiState(prev => ({
-                    ...prev,
-                    object_layer_colors: objColorData.colors,
-                    background_layer_colors: bgColorData.colors,
-                    object_color_scale: objColorData.scale,
-                    object_color_d3_scale: objColorData.d3_scale,
-                    background_color_scale: bgColorData.scale,
-                    background_color_d3_scale: bgColorData.d3_scale,
-                }));
-
                 const grid_prediction_image_path = grid_data.image || '';
                 const grid_uncertainty_image_path = grid_uncertainty_data.image || '';
 
@@ -631,6 +321,7 @@ const WebGLProjection = (props) => {
                     { // Pass grid data directly as an object
                         "prediction_image": grid_prediction_image_path,
                         "uncertainty_image": grid_uncertainty_image_path,
+                        "bounds": grid_data.projection_bounds
                     },
                     annotationMode
                 );
@@ -642,10 +333,9 @@ const WebGLProjection = (props) => {
                 setError("Failed to load data. Please try again.");
                 setIsLoading(false);
             });
-    }, [embeddingSequenceLength, viewMode, annotationMode, props.benchmarkId, props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkedModels, props.embeddingSettings, props.timeStamp, props.infos, computeHashFromOptions, getColorsForObjects, getColorsForBackground, drawChart, activeLearningDispatch]);
+    }, [embeddingSequenceLength, viewMode, annotationMode, props.benchmarkId, props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkedModels, props.embeddingSettings, props.timeStamp, props.infos, drawChart, activeLearningDispatch]);
 
-    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null }, annotationMode = 'analyze') => {
-        setLastIndex(data.length - 1);
+    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }, annotationMode = 'analyze') => {
 
         const margin = { top: 0, right: 0, bottom: 0, left: 0 };
         const done_idx = doneData.reduce((a, elem, i) => (elem === true && a.push(i), a), []);
@@ -704,7 +394,6 @@ const WebGLProjection = (props) => {
             .style('z-index', '1')
             .node();
 
-        setCanvas(canvas);
 
         const context = canvas ? canvas.getContext('2d') : null;
 
@@ -720,13 +409,18 @@ const WebGLProjection = (props) => {
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
 
-        setSvg(svg);
-
         // Set up scales
-        const xDomain = [d3.min(processedData.map((d) => d[0])) || -1, d3.max(processedData.map((d) => d[0])) || 1];
+        const xExtent = d3.extent(processedData.map((d) => d[0]));
+        const yExtent = d3.extent(processedData.map((d) => d[1]));
+        
+        // Add padding to the domains to show surrounding area
+        const xPadding = (xExtent[1] - xExtent[0]) * 0.1; // 10% padding
+        const yPadding = (yExtent[1] - yExtent[0]) * 0.1; // 10% padding
+        
+        const xDomain = [xExtent[0] - xPadding, xExtent[1] + xPadding];
+        const yDomain = [yExtent[0] - yPadding, yExtent[1] + yPadding];
+        
         const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
-
-        const yDomain = [d3.min(processedData.map((d) => d[1])) || -1, d3.max(processedData.map((d) => d[1])) || 1];
         const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
 
         // Set up color mapping
@@ -735,13 +429,17 @@ const WebGLProjection = (props) => {
         // Get grid data
         const grid_prediction_image = gridData.prediction_image || activeLearningState.grid_prediction_image;
 
-        // Preload and cache grid images
+        // Preload and cache grid images with their bounds
         if (grid_prediction_image && !canvasImageCache.has('prediction')) {
             console.log('Preloading grid prediction image');
             const img = new Image();
             img.onload = () => {
                 console.log('Grid prediction image loaded successfully:', img.width, 'x', img.height);
-                canvasImageCache.set('prediction', img);
+                // Store image with metadata
+                canvasImageCache.set('prediction', {
+                    image: img,
+                    bounds: gridData.bounds
+                });
 
                 // Force initial draw if this is the first load
                 if (context) {
@@ -754,16 +452,59 @@ const WebGLProjection = (props) => {
                 console.error('Failed to load grid prediction image:', e);
             };
 
-            // Make sure to use template literals (backticks) for string interpolation
             img.src = `data:image/png;base64,${grid_prediction_image}`;
+        }
+        
+        // Similarly for uncertainty image
+        if (gridData.uncertainty_image && !canvasImageCache.has('uncertainty')) {
+            console.log('Preloading grid uncertainty image');
+            const img = new Image();
+            img.onload = () => {
+                console.log('Grid uncertainty image loaded successfully:', img.width, 'x', img.height);
+                canvasImageCache.set('uncertainty', {
+                    image: img,
+                    bounds: gridData.bounds
+                });
+            };
+
+            img.onerror = (e) => {
+                console.error('Failed to load grid uncertainty image:', e);
+            };
+
+            img.src = `data:image/png;base64,${gridData.uncertainty_image}`;
+        }
+
+        // Helper function to calculate image bounds matching the projection space
+        function calculateImageBounds(xScale, yScale, bounds) {
+            // If we have grid data with bounds, use them
+            if (bounds) {
+                // Add some padding to the bounds to show surrounding area
+                const xPadding = (bounds.x_max - bounds.x_min) * 0.1; // 10% padding
+                const yPadding = (bounds.y_max - bounds.y_min) * 0.1; // 10% padding
+                
+                return {
+                    x: xScale(bounds.x_min - xPadding),
+                    y: yScale(bounds.y_max + yPadding), // Note: y axis is flipped
+                    width: xScale(bounds.x_max + xPadding) - xScale(bounds.x_min - xPadding),
+                    height: yScale(bounds.y_min - yPadding) - yScale(bounds.y_max + yPadding)
+                };
+            }
+            
+            // Fallback to using the chart dimensions
+            return {
+                x: 0,
+                y: 0,
+                width: svgWidth,
+                height: svgHeight
+            };
         }
 
         // Helper function to draw image to canvas with transform
         function drawImageToCanvas(ctx, imageKey, transform, width, height) {
             if (!ctx) return;
 
-            const img = canvasImageCache.get(imageKey);
-            if (!img) return;
+            const imgData = canvasImageCache.get(imageKey);
+            if (!imgData || !imgData.image) return;
 
             ctx.save();
 
@@ -774,11 +515,15 @@ const WebGLProjection = (props) => {
             ctx.translate(transform.x, transform.y);
             ctx.scale(transform.k, transform.k);
 
-            // Draw the image
+            // Calculate image bounds in projection space
+            const imageBounds = calculateImageBounds(xScale, yScale, imgData.bounds);
+
+            // Draw the image with proper scaling
+            ctx.globalAlpha = 0.7; // Slightly transparent so we can see points on top
             ctx.drawImage(
-                img,
-                0, 0, img.width, img.height,
-                0, 0, width / transform.k, height / transform.k
+                imgData.image,
+                0, 0, imgData.image.width, imgData.image.height,
+                imageBounds.x, imageBounds.y, imageBounds.width, imageBounds.height
             );
 
             ctx.restore();
@@ -788,23 +533,23 @@ const WebGLProjection = (props) => {
             .zoom()
             .scaleExtent([0.2, 15])
             .translateExtent([
-                [-600, -600],
-                [svgWidth + 600, svgHeight + 600],
+                [-svgWidth * 2, -svgHeight * 2],
+                [svgWidth * 3, svgHeight * 3],
             ])
             .on('zoom', zoomed)
-            .on('end', (event) => {
-                setUiState(prev => ({ ...prev, k: event.transform.k }));
-            })
             // Filter function to distinguish between zoom and click
             .filter(function (event) {
-                // Allow wheel events
+                // Allow wheel events (mousewheel zoom)
                 if (event.type === 'wheel') return true;
 
                 // Allow double-click events for zoom reset
                 if (event.type === 'dblclick') return true;
 
-                // For mouse events, only start zoom on right mouse button or with modifier key
-                return !event.button && event.type !== 'click';
+                // For mouse events, allow zoom with left mouse button + drag
+                if (event.type === 'mousedown' || event.type === 'mousemove') return true;
+
+                // Block single clicks to allow selection
+                return false;
             });
 
         // Create view group
@@ -854,11 +599,19 @@ const WebGLProjection = (props) => {
             const yClicked = yScale.invert(mouse[1]);
 
             // Find the closest point in the dataset to the clicked point
-            const closest = quadTree.find(xClicked, yClicked, 10);
+            const closest = quadTree.find(xClicked, yClicked, 0.01);
 
             if (closest) {
                 // Find the correct episode index
                 let episodeIdx = null;
+
+                // Clear the references
+                setSelectedCoordinate(null);
+                selectedCoordinateRef.current = null;
+
+                setSelectedCluster(null);
+                selectedClusterRef.current = null;
+                // d3.selectAll(".cluster_hull").style("stroke", "none");
 
                 // First check if we have the episode directly in the processed data
                 if (processedData[closest[2]] && processedData[closest[2]].length > 3) {
@@ -877,6 +630,27 @@ const WebGLProjection = (props) => {
                     const currentTransform = d3.zoomTransform(view.node());
                     zoomed({ transform: currentTransform });
                 }
+
+                // also save selected point
+                const selectedState = processedData[closest[2]];
+                setSelectedState(selectedState);
+                selectedStateRef.current = selectedState;
+            } else {
+
+                // clear the other refs
+                setSelectedTrajectory(null);
+                selectedTrajectoryRef.current = null;
+
+                setSelectedState(null);
+                selectedStateRef.current = null;
+
+                // in case we click in an empty region, just save the coordinate
+                setSelectedCoordinate({ x: xClicked, y: yClicked });
+                selectedCoordinateRef.current = { x: xClicked, y: yClicked };
+
+                // draw an svg maeker at the position
+                view.append("circle").attr("cx", xClicked).attr("cy", yClicked).attr("r","5px").style('fill', 'red');  
+
             }
         });
 
@@ -901,9 +675,6 @@ const WebGLProjection = (props) => {
             .y(function (d) {
                 return yScale(d[1]);
             });
-
-        // Split data by episodes
-        const splitData = splitArray(processedData, done_idx);
 
         // Create label data map
         const label_data_map = new Map();
@@ -943,9 +714,6 @@ const WebGLProjection = (props) => {
             .attr('class', 'label-g')
             .attr('id', (d) => 'label-g_' + d[2]);
 
-        // Update color legend
-        updateColorLegend();
-
         // Add text labels
         const text_labels_text = text_labels
             .append('text')
@@ -969,17 +737,11 @@ const WebGLProjection = (props) => {
             .attr('stroke', '#a1a1a1')
             .attr('stroke-width', '1px');
 
-        // Draw grid data from props or state
-        // Get grid data from the passed object or from activeLearningState
-        const grid_prediction_image_data = gridData.prediction_image || activeLearningState.grid_prediction_image;
-        const grid_uncertainty_image_path = gridData.uncertainty_image || activeLearningState.grid_uncertainty_image;
-
-        if (grid_prediction_image_data) {
-            renderGridImage(context, grid_prediction_image_data, svgWidth, svgHeight);
-        }
+        // Grid data is handled by the preloading section above
+        // No need to render it here as it's handled by the zoom function
 
         // Handle annotations based on mode
-        if (annotationMode === 'annotate') {
+        if (true) {
             const unique_labels = new Set(labels);
 
             // For each labeled cluster, draw a convex hull
@@ -1007,12 +769,19 @@ const WebGLProjection = (props) => {
                 // Add convex hull path
                 label_g
                     .append('path')
+                    .attr('class', "cluster_hull")
                     .attr('d', 'M' + mappedHull.join('L') + 'Z')
-                    .attr('fill', () => {
+                    /*.attr('fill', () => {
                         const center = d3.polygonCentroid(mappedHull);
                         return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-                    })
-                    .style('opacity', 0.4)
+                    })*/
+                    .attr('fill', 'none')
+                    .style('opacity', 0.8)
+                    .style('stroke', () => {
+                        const center = d3.polygonCentroid(mappedHull);
+                        return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
+                    }) 
+                    .style('stroke-width', 2.5)
                     .on('mouseover', function (event) {
                         d3.select(this).style('opacity', 0.6);
                     })
@@ -1020,15 +789,20 @@ const WebGLProjection = (props) => {
                         d3.select(this).style('opacity', 0.4);
                     })
                     .on('click', function (event) {
-                        d3.select(this).style('opacity', 0.7);
+                        d3.selectAll(".cluster_hull").style('stroke', "none");
+                        d3.select(this).style('opacity', 0.7).style('stroke', "white");
+
+                        setSelectedCluster(label);
+                        selectedClusterRef.current = label;
+
 
                         // Open text edit field to change label
-                        const new_label = prompt('Please enter a new label', '');
+                        /*const new_label = prompt('Please enter a new label', '');
                         if (new_label !== null && props.annotateState) {
                             // Update label
                             this_label_text.text(new_label);
                             props.annotateState(cluster_indices, new_label, label);
-                        }
+                        }*/
                     });
 
                 // Check if label in props.annotationSets, if so, use the label in props.annotated_sets
@@ -1049,56 +823,7 @@ const WebGLProjection = (props) => {
                     .attr('fill', '#333333')
                     .text(label_text);
             }
-        } else {
-            // Just show annotation labels without interactive hulls
-            const unique_labels = new Set(labels);
-
-            for (const label of unique_labels) {
-                if (!(props.annotationSets && label in props.annotationSets)) continue;
-
-                const label_g = view.append('g').attr('class', 'label-g');
-                const cluster_data = processedData.filter((_, i) => labels[i] === label);
-
-                if (cluster_data.length === 0) continue;
-
-                const mappedPoints = cluster_data.map((d) => [xScale(d[0]), yScale(d[1])]);
-                const hull = d3.polygonHull(mappedPoints);
-
-                if (!hull) continue;
-
-                // Add label text in the center of the convex hull
-                const center = d3.polygonCentroid(hull);
-                const label_text = props.annotationSets[label];
-
-                label_g
-                    .append('text')
-                    .attr('class', 'label')
-                    .attr('font-size', '20px')
-                    .attr('font-weight', 'bold')
-                    .attr('x', center[0] + 35)
-                    .attr('y', center[1] + 35)
-                    .attr('text-anchor', 'center')
-                    .attr('fill', '#333333')
-                    .text(label_text);
-            }
         }
-
-        // Add step marker for current position
-        const step_marker_group = view.append('g').attr("display", "none");
-
-        step_marker_group
-            .append('path')
-            .datum(processedData[0] || [0, 0])
-            .attr('d', (d) => circleGenerator(xScale(d[0]), yScale(d[1]), 5))
-            .attr('fill-opacity', 0.5)
-            .attr('fill', '#ff3737')
-            .attr('stroke', '#ff3737')
-            .attr('id', 'step_marker');
-
-        step_marker_group.append('path').attr('id', 'past_trajectory');
-        step_marker_group.append('path').attr('id', 'future_trajectory');
-
-        const dataLength = splitData.length;
 
         // Zoom handler function
         function zoomed(event) {
@@ -1107,8 +832,9 @@ const WebGLProjection = (props) => {
 
             const currentHighlightedTrajectory = selectedTrajectoryRef.current;
 
-            const isZoomEnd = event.sourceEvent &&
-                (event.sourceEvent.type === 'mouseup' || event.sourceEvent.type === 'touchend');
+            //const isZoomEnd = event.sourceEvent &&
+            //    (event.sourceEvent.type === 'mouseup' || event.sourceEvent.type === 'touchend');
+            const isZoomEnd = true;
 
             // First, draw the grid image to the canvas with proper transformation
             if (context) {
@@ -1118,9 +844,93 @@ const WebGLProjection = (props) => {
 
                 // Draw additional items on top if needed
                 if (isZoomEnd) {
-                    // Add any additional detailed rendering on zoom end
+                    const r = Math.round((5 / transform.k) * 100) / 100;
+                    const width = Math.round((1 / transform.k) * 100) / 100;
+        
+                    // Save current context
+                    context.save();
+                    
+                    // Apply the same transformation as the background image
+                    context.translate(transform.x, transform.y);
+                    context.scale(transform.k, transform.k);
+    
+                    // Create episodeToPaths mapping for efficient rendering
+                    const episodeToPaths = new Map();
+    
+                    episodeIndices.forEach((episodeIdx, i) => {
+                        if (!episodeToPaths.has(episodeIdx)) {
+                            episodeToPaths.set(episodeIdx, []);
+                        }
+    
+                        if (i < processedData.length) {
+                            episodeToPaths.get(episodeIdx).push(processedData[i]);
+                        }
+                    });
+    
+                    // Draw paths with efficient batching
+                    episodeToPaths.forEach((pathPoints, episodeIdx) => {
+                        if (pathPoints.length === 0) return;
+    
+                        // Highlight the selected trajectory
+                        const isHighlighted = currentHighlightedTrajectory === episodeIdx;
+    
+                        if (!isHighlighted)
+                            return;
+    
+                        // Set path styling
+                        context.strokeStyle = d3.interpolateCool(episodeIdx / episodeToPaths.size);
+                        context.lineWidth = isHighlighted ? width * 3 : width;
+                        context.globalAlpha = isHighlighted ? 0.9 : 0.5;
+    
+                        // Draw the path
+                        context.beginPath();
+                        context.moveTo(xScale(pathPoints[0][0]), yScale(pathPoints[0][1]));
+    
+                        for (let j = 1; j < pathPoints.length; j++) {
+                            // Don't draw lines between distant points
+                            /*if (Math.hypot(pathPoints[j][0] - pathPoints[j - 1][0], pathPoints[j][1] - pathPoints[j - 1][1]) > 0.3) {
+                                context.moveTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
+                            } else {
+                                context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
+                            }*/
+                            context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
+                        }
+    
+                        context.stroke();
+                    });
+    
+                    // Batch draw points for better performance
+                    context.globalAlpha = 0.5;
+                    context.beginPath();
+
+                    const selectedStateIndex = selectedStateRef.current ? selectedStateRef.current[2] : null;
+    
+                    for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
+    
+                        // Check if point is part of highlighted trajectory
+                        const pointEpisodeIdx = episodeIndices[i] || 0;
+                        const isHighlighted = currentHighlightedTrajectory === pointEpisodeIdx;
+                        const fillStyle = d3.interpolateCool(pointEpisodeIdx / episodeToPaths.size);
+    
+                        // Draw rectangle for highlighted points
+                        if (selectedStateIndex && selectedStateIndex === i) {
+                            context.rect(x - r, y - r, 5 * r, 5 * r);
+                        } else {
+                            // Create a new path for each point to allow different colors
+                            context.beginPath();
+                            context.arc(x, y, isHighlighted ? r * 1.5 : r, 0, 2 * Math.PI);
+                            context.fillStyle = fillStyle;
+                            context.fill();
+                            context.closePath();
+                        }
+                    }
+    
+                    context.restore();
                 }
             }
+
+            if (selectedCoordinateRef.current?.x || null)
+                view.append("circle").attr("cx", selectedCoordinateRef.current.x).attr("cy", selectedCoordinateRef.current.y).attr("r","5px").style('fill', 'red');  
 
             // Update SVG elements visibility based on zoom level
             if (transform.k > 2) {
@@ -1139,121 +949,22 @@ const WebGLProjection = (props) => {
         if (canvasImageCache.has('prediction')) {
             const initialTransform = d3.zoomIdentity;
             drawImageToCanvas(context, 'prediction', initialTransform, svgWidth, svgHeight);
+        } else {
+            // If image is not cached yet but we have the data, trigger a redraw when the image loads
+            if (grid_prediction_image) {
+                console.log('Waiting for image to load before initial render');
+            }
         }
-
-        // Update UI state with scales
-        setUiState(prev => ({
-            ...prev,
-            x: xScale,
-            y: yScale
-        }));
 
         // Add cleanup for component unmount
         return () => {
             // Reset any resources that need cleanup
         };
-    }, [
-        selectedPoints,
-        highlightedPoints,
-        selectedTrajectory,
-        objectColorMode,
-        updateColorLegend,
-        splitArray,
-        circleGenerator,
-        props.infos,
-        props.showModels,
-        props.benchmarkedModels,
-        props.annotationSets,
-        props.annotateState,
-        props.setHoverStep,
-        props.selectDatapoint,
-        uiState.object_layer_colors,
-        activeLearningState.episodeIndices,
-        activeLearningState.grid_prediction_image,
-        activeLearningState.grid_uncertainty_image,
-    ]);
-
-    // Handler for setting background layer color mode
-    const handleBackgroundLayerColorMode = useCallback((mode) => {
-        activeLearningDispatch({
-            type: 'SET_BACKGROUND_COLOR_MODE',
-            payload: mode
-        });
-    }, [activeLearningDispatch]);
-
-    // Handler for setting object layer color mode
-    const handleObjectLayerColorMode = useCallback((mode) => {
-        activeLearningDispatch({
-            type: 'SET_OBJECT_COLOR_MODE',
-            payload: mode
-        });
-    }, [activeLearningDispatch]);
-
-    // Generate list items for object layer controls
-    const getObjectLayerListItems = useCallback(() => {
-        const infoTypes = props.infoTypes || [];
-        return ['none', 'step_reward', ...infoTypes].map(type => (
-            <ListItem key={type} disablePadding>
-                <ListItemButton
-                    selected={objectColorMode === type}
-                    onClick={() => handleObjectLayerColorMode(type)}
-                >
-                    <ListItemText primary={type} />
-                </ListItemButton>
-            </ListItem>
-        ));
-    }, [objectColorMode, props.infoTypes, handleObjectLayerColorMode]);
-
-    // Generate list items for background layer controls
-    const getBackgroundLayerListItems = useCallback(() => {
-        const infoTypes = props.infoTypes || [];
-        return ['none', 'step_reward', ...infoTypes].map(type => (
-            <ListItem key={type} disablePadding>
-                <ListItemButton
-                    selected={backgroundColorMode === type}
-                    onClick={() => handleBackgroundLayerColorMode(type)}
-                >
-                    <ListItemText primary={type} />
-                </ListItemButton>
-            </ListItem>
-        ));
-    }, [backgroundColorMode, props.infoTypes, handleBackgroundLayerColorMode]);
+    }, [props, activeLearningState.grid_prediction_image]);
 
     // If there's an error, display it
     if (error) {
         return <Alert severity="error">{error}</Alert>;
-    }
-
-    // Define view modes and annotation modes
-    const modes = [
-        { name: 'Analyze', value: 'analyze' },
-        { name: 'Annotate', value: 'annotate' },
-    ];
-
-    const views = [
-        { name: 'State Space', value: 'state_space' },
-        { name: 'Decision Points', value: 'decision_points' },
-        { name: 'Activation Mapping', value: 'activation_mapping' },
-        { name: 'Transition Embedding', value: 'transition_embedding' },
-    ];
-
-    const handleViewModeChange = (newMode) => {
-        //setViewMode(newMode);
-
-        activeLearningDispatch({
-            type: 'SET_VIEW_MODE',
-            payload: newMode
-        });
-    }
-
-    const handleAnnotationModeChange = (event, newMode) => {
-        if (newMode !== null) {
-            setAnnotationMode(newMode);
-            activeLearningDispatch({
-                type: 'SET_ANNOTATION_MODE',
-                payload: newMode
-            });
-        }
     }
 
     return (
@@ -1273,91 +984,6 @@ const WebGLProjection = (props) => {
             {/* Main visualization area */}
             <EmbeddingContainer ref={embeddingRef} />
 
-            {/* Controls 
-            <ControlsWrapper>
-                <ControlOverlay elevation={3}>
-                    <ViewBoxContainer>
-                        {views.map((view, i) => (
-                            <ViewBox
-                                key={i}
-                                selected={viewMode === view.value}
-                                onClick={() => handleViewModeChange(view.value)}
-                                sx={{
-                                    backgroundImage: `url(${uiState.step_images[i]})`,
-                                    opacity: viewMode === view.value ? 1 : 0.7
-                                }}
-                            >
-                                <Typography
-                                    variant="subtitle2"
-                                    sx={{
-                                        backgroundColor: 'rgba(255,255,255,0.7)',
-                                        padding: '4px 8px',
-                                        borderRadius: '4px'
-                                    }}
-                                >
-                                    {view.name}
-                                </Typography>
-                            </ViewBox>
-                        ))}
-                    </ViewBoxContainer>
-                </ControlOverlay>
-
-                <ControlOverlay>
-                    <Typography variant="subtitle1" gutterBottom>Mode</Typography>
-                    <ToggleButtonGroup
-                        value={annotationMode}
-                        exclusive
-                        onChange={handleAnnotationModeChange}
-                        aria-label="annotation mode"
-                        fullWidth
-                    >
-                        {modes.map((mode) => (
-                            <ToggleButton
-                                key={mode.value}
-                                value={mode.value}
-                                aria-label={mode.name}
-                            >
-                                {mode.name}
-                            </ToggleButton>
-                        ))}
-                    </ToggleButtonGroup>
-                </ControlOverlay>
-                <ControlOverlay>
-                    <Accordion defaultExpanded>
-                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                            <Typography>Object Layer</Typography>
-                        </AccordionSummary>
-                        <AccordionDetails sx={{ p: 0 }}>
-                            <List
-                                sx={{
-                                    maxHeight: '250px',
-                                    overflowY: 'auto'
-                                }}
-                            >
-                                {getObjectLayerListItems()}
-                            </List>
-                        </AccordionDetails>
-                    </Accordion>
-
-                    <Accordion defaultExpanded>
-                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                            <Typography>Background Layer</Typography>
-                        </AccordionSummary>
-                        <AccordionDetails sx={{ p: 0 }}>
-                            <List
-                                sx={{
-                                    maxHeight: '250px',
-                                    overflowY: 'auto'
-                                }}
-                            >
-                                {getBackgroundLayerListItems()}
-                            </List>
-                        </AccordionDetails>
-                    </Accordion>
-                </ControlOverlay>
-            </ControlsWrapper>
-            */}
-
             <Box
                 position="absolute"
                 bottom="20px"
@@ -1370,7 +996,7 @@ const WebGLProjection = (props) => {
                     visibility: isLoading ? 'hidden' : 'visible'
                 }}
             >
-                <Tooltip title="Clear Global Selection">
+                <Tooltip title="Clear Selection">
                     <IconButton
                         color="default"
                         sx={{
@@ -1388,7 +1014,7 @@ const WebGLProjection = (props) => {
                     </IconButton>
                 </Tooltip>
 
-                <Tooltip title="Add to Global Selection">
+                <Tooltip title="Add to Selection">
                     <IconButton
                         color="default"
                         sx={{
@@ -1397,9 +1023,23 @@ const WebGLProjection = (props) => {
                         }}
                         onClick={() => {
                             const selectedTrajectory = selectedTrajectoryRef.current;
-                            if (!selectedTrajectory) return;
+
+                            const selectedCluster = selectedClusterRef.current;
+
+                            // add to combined selected if selected
+                            const combinedSelection = [];
+                            if (selectedTrajectory) {
+                                combinedSelection.push(selectedTrajectory);
+                            }
+                            if (selectedCluster) {
+                                combinedSelection.push(selectedCluster);
+                            }
+                            if (combinedSelection.length === 0) {
+                                return;
+                            }
+
                             const selected = activeLearningState.selection;
-                            const newSelection = [...selected, selectedTrajectory];
+                            const newSelection = [...selected, ...combinedSelection];
                             activeLearningDispatch({
                                 type: 'SET_SELECTION',
                                 payload: newSelection
@@ -1407,6 +1047,46 @@ const WebGLProjection = (props) => {
                         }}
                     >
                         <AddIcon />
+                    </IconButton>
+                </Tooltip>
+
+                <Tooltip title="Mark to Correct/Generate">
+                    <IconButton
+                        color="default"
+                        sx={{
+                            backgroundColor: 'rgba(128, 128, 128, 0.7)',
+                            '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
+                        }}
+                        onClick={() => {
+
+                            console.log(selectedStateRef.current, selectedCoordinateRef.current);
+
+                            const selectedState = selectedStateRef.current;
+
+                            const selectedCoordinate = selectedCoordinateRef.current;
+
+                            // add to combined selected if selected
+                            const combinedSelection = [];
+                            if (selectedState) {
+                                combinedSelection.push(selectedState);
+                            }
+                            if (selectedCoordinate) {
+                                combinedSelection.push(selectedCoordinate);
+                            }
+
+                            if (combinedSelection.length === 0) {
+                                return;
+                            }
+
+                            const selected = activeLearningState.selection;
+                            const newSelection = [...selected, ...combinedSelection];
+                            activeLearningDispatch({
+                                type: 'SET_SELECTION',
+                                payload: newSelection
+                            });
+                        }}
+                    >
+                        <CreateIcon />
                     </IconButton>
                 </Tooltip>
             </Box>
