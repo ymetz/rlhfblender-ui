@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -20,6 +20,7 @@ import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLear
 import * as d3 from 'd3';
 import { IDfromEpisode } from "../id";
 import { useGetter } from "../getter-context";
+import { Episode } from '../types';
 
 const SelectionView = () => {
   const appState = useAppState();
@@ -36,9 +37,9 @@ const SelectionView = () => {
   const { getVideoURL } = useGetter();
 
   // Get selected items from state
-  const selection = activeLearningState.selection || [];
+  const selection = useMemo(() => activeLearningState.selection || [], [activeLearningState.selection]);
   // Get all episodes for color calculation
-  const allEpisodes = appState.episodeIDsChronologically || [];
+  const allEpisodes = useMemo(() => appState.episodeIDsChronologically || [], [appState.episodeIDsChronologically]);
 
   // Extract selection type and data
   const getSelectionData = () => {
@@ -57,6 +58,35 @@ const SelectionView = () => {
   };
 
   const selectionData = getSelectionData();
+
+  // set videoURLs for selected episodes, be aware that getVideoURL is async promise
+  useEffect(() => {
+    if (selection.length === 0 || selection[0].type !== "trajectory")
+      return;
+    const fetchVideoURLs = async () => {
+      const videoURLmap = new Map<string, string>();
+      const urls = await Promise.all(
+        selection.map(async (elem: {type: string, data: number}) => {
+          const theEpisode: Episode = allEpisodes[elem.data];
+          const episodeID = IDfromEpisode(theEpisode);
+          if (!videoURLmap.has(episodeID)) {
+            const url = await getVideoURL(episodeID);
+            videoURLmap.set(episodeID, url);
+          }
+          return videoURLmap.get(episodeID) || '';
+        })
+      );
+      setVideoURLs(videoURLmap);
+    };
+    fetchVideoURLs();
+  }
+    , [selection, getVideoURL, allEpisodes]);
+
+  // Initialize refs array when selection changes
+  useEffect(() => {
+    videoRefs.current = videoRefs.current.slice(0, selection.length);
+  }, [selection.length]);
+
 
   // Handle video playback
   const handlePlayPause = (index: number) => {
@@ -86,14 +116,6 @@ const SelectionView = () => {
       type: 'SET_SELECTION',
       payload: newSelection
     });
-
-    // Reset video player if the current video is removed
-    if (currentVideoIndex === index) {
-      setCurrentVideoIndex(null);
-      setIsPlaying(false);
-    } else if (currentVideoIndex !== null && currentVideoIndex > index) {
-      setCurrentVideoIndex(currentVideoIndex - 1);
-    }
   };
 
   // Get color for an episode based on its index
@@ -102,10 +124,6 @@ const SelectionView = () => {
     return d3.interpolateCool(episodeIdx / Math.max(1, allEpisodes.length - 1));
   };
 
-  // Create a reference for a video element
-  const setVideoRef = (el: HTMLVideoElement | null, index: number) => {
-    videoRefs.current[index] = el;
-  };
 
   // Render placeholder image for states
   const renderStatePlaceholder = () => (
@@ -125,6 +143,11 @@ const SelectionView = () => {
     </Box>
   );
 
+  // Create a reference for a video element
+  const setVideoRef = (el: HTMLVideoElement | null, index: number) => {
+    videoRefs.current[index] = el;
+  };
+
   // Render based on selection type
   const renderSelection = () => {
     switch (selectionData.type) {
@@ -139,95 +162,104 @@ const SelectionView = () => {
 
       case 'trajectory':
       case 'multi_trajectory':
-        const trajectories = selectionData.data;
         return (
-          <Grid container spacing={2}>
-            {trajectories.map((trajectoryIdx, index) => {
-              const episodeColor = getEpisodeColor(trajectoryIdx);
-              // TODO: Get actual episode data for trajectory
-              const episode = allEpisodes[trajectoryIdx];
-              const videoURL = episode ? videoURLs.get(IDfromEpisode(episode)) : null;
-
-              return (
-                <Grid item xs={12} sm={6} md={trajectories.length === 1 ? 12 : 4} key={index}>
-                  <Card
-                    sx={{
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      border: `3px solid ${episodeColor}`,
-                      position: 'relative'
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: 0,
-                        right: 0,
-                        zIndex: 1,
-                        m: 1
-                      }}
-                    >
-                      <IconButton
-                        size="small"
-                        onClick={() => removeFromSelection(index)}
-                        sx={{ bgcolor: 'rgba(255,255,255,0.7)' }}
+              <Grid container spacing={2}>
+                {selection.map((datapoint, index) => {
+                  const theEpisode: Episode = allEpisodes[datapoint.data];
+                  const episodeColor = getEpisodeColor(theEpisode.selectionIndex);
+                  const videoURL = videoURLs.get(IDfromEpisode(theEpisode));
+      
+                  return (
+                    <Grid item xs={12} sm={6} md={4} key={index}>
+                      <Card
+                        sx={{
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          border: `3px solid ${episodeColor}`,
+                          position: 'relative'
+                        }}
                       >
-                        <DeleteOutline />
-                      </IconButton>
-                    </Box>
-
-                    <CardActionArea onClick={() => handlePlayPause(index)}>
-                      {videoURL ? (
-                        <Box sx={{ height: 200, overflow: 'hidden' }}>
-                          <video
-                            ref={(el) => setVideoRef(el, index)}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover'
-                            }}
-                            muted
-                          >
-                            <source src={videoURL} type="video/mp4" />
-                          </video>
-                        </Box>
-                      ) : (
                         <Box
                           sx={{
-                            height: 200,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            bgcolor: 'background.paper'
+                            position: 'absolute',
+                            top: 0,
+                            right: 0,
+                            zIndex: 1,
+                            m: 1
                           }}
                         >
-                          <VideoLibrary sx={{ fontSize: 60, color: 'text.secondary' }} />
+                          <IconButton
+                            size="small"
+                            onClick={() => removeFromSelection(index)}
+                            sx={{ bgcolor: 'rgba(255,255,255,0.7)' }}
+                          >
+                            <DeleteOutline />
+                          </IconButton>
                         </Box>
-                      )}
-                    </CardActionArea>
-
-                    <CardContent sx={{ flexGrow: 1 }}>
-                      <Box sx={{ mt: 2 }}>
-                        <Chip
-                          label={`Trajectory ${trajectoryIdx}`}
-                          size="small"
-                          sx={{
-                            bgcolor: episodeColor,
-                            color: 'white',
-                            mr: 1,
-                            mb: 1
+      
+                        <CardActionArea
+                          onClick={() => handlePlayPause(index)}
+                          onMouseEnter={() => {
+                            if (!isPlaying || currentVideoIndex !== index) {
+                              videoRefs.current[index]?.play();
+                            }
                           }}
-                        />
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              );
-            })}
-          </Grid>
+                          onMouseLeave={() => {
+                            if (currentVideoIndex !== index) {
+                              videoRefs.current[index]?.pause();
+                            }
+                          }}
+                        >
+                          {videoURL ? (
+                            <Box sx={{ height: 200, overflow: 'hidden' }}>
+                              <video
+                                ref={(el) => setVideoRef(el, index)}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'cover'
+                                }}
+                                muted
+                              >
+                                <source src={videoURL} type="video/mp4" />
+                              </video>
+                            </Box>
+                          ) : (
+                            <Box
+                              sx={{
+                                height: 200,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                bgcolor: 'background.paper'
+                              }}
+                            >
+                              <VideoLibrary sx={{ fontSize: 60, color: 'text.secondary' }} />
+                            </Box>
+                          )}
+                        </CardActionArea>
+      
+                        <CardContent sx={{ flexGrow: 1 }}>
+                          <Box sx={{ mt: 2 }}>
+                            <Chip
+                              label={`Episode ID: ${theEpisode.episode_num}`}
+                              size="small"
+                              sx={{
+                                bgcolor: episodeColor,
+                                color: 'white',
+                                mr: 1,
+                                mb: 1
+                              }}
+                            />
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  );
+                })}
+              </Grid>
         );
-
       case 'state':
         const state = selectionData.data[0];
         return (

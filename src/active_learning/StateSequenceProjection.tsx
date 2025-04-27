@@ -144,28 +144,13 @@ const WebGLProjection = (props) => {
     // Extract props from activeLearningState
     const {
         viewMode = 'state_space',
-        highlightedPoints = [],
-        selectedPoints = [],
         objectColorMode = 'step_reward',
         backgroundColorMode = 'none',
         embeddingSequenceLength = 1,
-        lastDataUpdateTimestamp = 0,
         currentRewardData = [],
         actionData = []
     } = activeLearningState;
 
-    // Initialize chart on mount
-    useEffect(() => {
-        drawChart(viewMode || 'state_space', []);
-    }, [viewMode]);
-
-
-    // React to selection changes
-    useEffect(() => {
-        if (props.selectionTimestamp !== props.prevSelectionTimestamp) {
-            updateChartColors(props.highlightSteps, props.visibleEpisodes);
-        }
-    }, [props.selectionTimestamp]);
 
     useEffect(() => {
         selectedTrajectoryRef.current = selectedTrajectory;
@@ -184,10 +169,6 @@ const WebGLProjection = (props) => {
         mode = 'state_space',
         data = [],
         labels = [],
-        merged_points = [],
-        connections = [],
-        feature_embeddings = [],
-        transition_embeddings = [],
         actionData = [],
         doneData = [],
         episodeIndices = [],
@@ -306,10 +287,6 @@ const WebGLProjection = (props) => {
                     viewMode,
                     data.projection,
                     data.labels,
-                    data.merged_points,
-                    data.connections,
-                    data.feature_projection,
-                    data.transition_projection,
                     data.actions,
                     data.dones,
                     data.episode_indices,
@@ -344,23 +321,7 @@ const WebGLProjection = (props) => {
 
         if (svgWidth < 0 || svgHeight < 0) return;
 
-        // Handle 1D embeddings by adding time dimension
-        let processedData = [...data];
-        if (data?.length > 0 && data[0].length === 1) {
-            processedData = processedData.map((k, i) => [
-                props.infos?.[i]?.['episode step'] || 0,
-                ...k,
-            ]);
-        }
-
-        processedData = processedData.map((k, i) => [...k, episodeIndices[i] || 0]);
-
-        // Filter data to only include visible models if needed
-        if (props.showModels && props.infos) {
-            processedData = processedData.filter((k, i) =>
-                props.showModels[props.infos[i]['model_index']]
-            );
-        }
+        let processedData = processedData.map((k, i) => [...k, episodeIndices[i] || 0]);
 
         // Create quad tree for fast point lookup
         const quadTree = d3.quadtree(
@@ -426,10 +387,8 @@ const WebGLProjection = (props) => {
 
         // Preload and cache grid images with their bounds
         if (grid_prediction_image && !canvasImageCache.has('prediction')) {
-            console.log('Preloading grid prediction image');
             const img = new Image();
             img.onload = () => {
-                console.log('Grid prediction image loaded successfully:', img.width, 'x', img.height);
                 // Store image with metadata
                 canvasImageCache.set('prediction', {
                     image: img,
@@ -452,7 +411,6 @@ const WebGLProjection = (props) => {
 
         // Similarly for uncertainty image
         if (gridData.uncertainty_image && !canvasImageCache.has('uncertainty')) {
-            console.log('Preloading grid uncertainty image');
             const img = new Image();
             img.onload = () => {
                 console.log('Grid uncertainty image loaded successfully:', img.width, 'x', img.height);
@@ -720,104 +678,77 @@ const WebGLProjection = (props) => {
             .attr('font-size', '12px')
             .text((d) => label_data_map.get(d[2]).join('/'));
 
-        // Add connector lines for labels
-        const text_labels_lines = text_labels
-            .append('line')
-            .attr('class', 'label-line')
-            .attr('vector-effect', 'non-scaling-stroke')
-            .attr('x1', (d) => xScale(d[0]))
-            .attr('y1', (d) => yScale(d[1]))
-            .attr('x2', (d) => xScale(d[0]) + 10)
-            .attr('y2', (d) => yScale(d[1]) + 10)
-            .attr('stroke', '#a1a1a1')
-            .attr('stroke-width', '1px');
+        const unique_labels = new Set(labels);
 
-        // Grid data is handled by the preloading section above
-        // No need to render it here as it's handled by the zoom function
+        // For each labeled cluster, draw a convex hull
+        for (const label of unique_labels) {
+            if (label === -1) continue;
 
-        // Handle annotations based on mode
-        if (true) {
-            const unique_labels = new Set(labels);
+            const label_g = view.append('g').attr('class', 'label-g');
 
-            // For each labeled cluster, draw a convex hull
-            for (const label of unique_labels) {
-                if (label === -1) continue;
+            const cluster_indices = processedData
+                .map((element, index) => {
+                    if (labels[index] === label) {
+                        return index;
+                    }
+                })
+                .filter((element) => element !== undefined);
 
-                const label_g = view.append('g').attr('class', 'label-g');
+            const cluster_data = processedData.filter((_, i) => labels[i] === label);
+            const hull = d3.polygonHull(cluster_data.map((d) => [d[0], d[1]]));
 
-                const cluster_indices = processedData
-                    .map((element, index) => {
-                        if (labels[index] === label) {
-                            return index;
-                        }
-                    })
-                    .filter((element) => element !== undefined);
+            if (!hull) continue;
 
-                const cluster_data = processedData.filter((_, i) => labels[i] === label);
-                const hull = d3.polygonHull(cluster_data.map((d) => [d[0], d[1]]));
+            // Map hull points to screen coordinates
+            const mappedHull = hull.map(p => [xScale(p[0]), yScale(p[1])]);
 
-                if (!hull) continue;
+            // Add convex hull path
+            label_g
+                .append('path')
+                .attr('class', "cluster_hull")
+                .attr('d', 'M' + mappedHull.join('L') + 'Z')
+                /*.attr('fill', () => {
+                    const center = d3.polygonCentroid(mappedHull);
+                    return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
+                })*/
+                .attr('fill', 'none')
+                .style('opacity', 0.8)
+                .style('stroke', () => {
+                    const center = d3.polygonCentroid(mappedHull);
+                    return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
+                })
+                .style('stroke-width', 2.5)
+                .on('mouseover', function (event) {
+                    d3.select(this).style('opacity', 0.6);
+                })
+                .on('mouseout', function (event) {
+                    d3.select(this).style('opacity', 0.4);
+                })
+                .on('click', function (event) {
+                    d3.selectAll(".cluster_hull").style('stroke', "none");
+                    d3.select(this).style('opacity', 0.7).style('stroke', "white");
 
-                // Map hull points to screen coordinates
-                const mappedHull = hull.map(p => [xScale(p[0]), yScale(p[1])]);
+                    setSelectedCluster(label);
+                    selectedClusterRef.current = label;
+                });
 
-                // Add convex hull path
-                label_g
-                    .append('path')
-                    .attr('class', "cluster_hull")
-                    .attr('d', 'M' + mappedHull.join('L') + 'Z')
-                    /*.attr('fill', () => {
-                        const center = d3.polygonCentroid(mappedHull);
-                        return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-                    })*/
-                    .attr('fill', 'none')
-                    .style('opacity', 0.8)
-                    .style('stroke', () => {
-                        const center = d3.polygonCentroid(mappedHull);
-                        return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-                    })
-                    .style('stroke-width', 2.5)
-                    .on('mouseover', function (event) {
-                        d3.select(this).style('opacity', 0.6);
-                    })
-                    .on('mouseout', function (event) {
-                        d3.select(this).style('opacity', 0.4);
-                    })
-                    .on('click', function (event) {
-                        d3.selectAll(".cluster_hull").style('stroke', "none");
-                        d3.select(this).style('opacity', 0.7).style('stroke', "white");
+            // Check if label in props.annotationSets, if so, use the label in props.annotated_sets
+            const label_text = props.annotationSets && label in props.annotationSets ?
+                props.annotationSets[label] :
+                label;
 
-                        setSelectedCluster(label);
-                        selectedClusterRef.current = label;
-
-
-                        // Open text edit field to change label
-                        /*const new_label = prompt('Please enter a new label', '');
-                        if (new_label !== null && props.annotateState) {
-                            // Update label
-                            this_label_text.text(new_label);
-                            props.annotateState(cluster_indices, new_label, label);
-                        }*/
-                    });
-
-                // Check if label in props.annotationSets, if so, use the label in props.annotated_sets
-                const label_text = props.annotationSets && label in props.annotationSets ?
-                    props.annotationSets[label] :
-                    label;
-
-                // Add center text label
-                const center = d3.polygonCentroid(mappedHull);
-                const this_label_text = label_g
-                    .append('text')
-                    .attr('class', 'label')
-                    .attr('font-size', '20px')
-                    .attr('font-weight', 'bold')
-                    .attr('x', center[0])
-                    .attr('y', center[1])
-                    .attr('text-anchor', 'middle')
-                    .attr('fill', '#333333')
-                    .text(label_text);
-            }
+            // Add center text label
+            const center = d3.polygonCentroid(mappedHull);
+            label_g
+                .append('text')
+                .attr('class', 'label')
+                .attr('font-size', '20px')
+                .attr('font-weight', 'bold')
+                .attr('x', center[0])
+                .attr('y', center[1])
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#333333')
+                .text(label_text);
         }
 
         // Zoom handler function
@@ -1090,7 +1021,6 @@ const WebGLProjection = (props) => {
                 </Tooltip>
             </Box>
 
-            {/* Button to load data, should be on top left corner*/}
             <Box
                 position="absolute"
                 top="10px"

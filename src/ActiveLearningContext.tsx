@@ -6,7 +6,7 @@ export interface ActiveLearningState {
   currentPhase: number;
   progressRewards: number[];
   progressUncertainties: number[];
-  selection: {type: string, data: any[]}[];
+  selection: {type: string, data: any[] | any}[];
   selectedEpisode: Episode | null;
   projectionStates: number[][];
   projectionStateValues: number[];
