@@ -56,7 +56,7 @@ type Experiment = {
   env_id: string;
   framework: string;
   env_config: string;
-  checkpoint_list: string[];
+  checkpoint_list: number[];
 };
 
 type UIConfig = {
@@ -102,7 +102,7 @@ type GymSpaceInfo = {
   high?: number | number[];
 };
 
-type AppMode = "study" | "configure" | "active-learning";
+type AppMode = "study" | "configure" | "active-learning" | "study-active-learning";
 
 type AppState = {
   // Drag and drop
@@ -123,6 +123,7 @@ type AppState = {
   filtered_experiments: Experiment[];
   selectedProject: Project;
   selectedExperiment: Experiment;
+  selectedCheckpoint: number;
   sliderValue: number;
   rankeableEpisodeIDs: string[];
   episodeIDsChronologically: Episode[];

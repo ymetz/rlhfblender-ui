@@ -46,6 +46,8 @@ const SelectionView = () => {
     if (selection.length === 0) return { type: 'none', data: [] };
     if (selection.length === 1) {
       const item = selection[0];
+      if (item.type === 'cluster')
+        return { type: 'cluster', label: item.label, data: item.data };
       return { type: item.type, data: [item.data] };
     }
     // For multiple selections, check if all are trajectories
@@ -166,7 +168,7 @@ const SelectionView = () => {
               <Grid container spacing={2}>
                 {selection.map((datapoint, index) => {
                   const theEpisode: Episode = allEpisodes[datapoint.data];
-                  const episodeColor = getEpisodeColor(theEpisode.selectionIndex);
+                  const episodeColor = getEpisodeColor(datapoint.data);
                   const videoURL = videoURLs.get(IDfromEpisode(theEpisode));
       
                   return (
@@ -277,23 +279,21 @@ const SelectionView = () => {
         );
 
       case 'cluster':
-        const clusterId: number = selectionData.data[0];
-        // TODO: Get actual states in cluster
+        const clusterLabel: number = selectionData.label;
+       const clusterIndices: number[] = selectionData.data;
+       console.log(clusterIndices);
         return (
           <Box>
             <Typography variant="h6" gutterBottom>
-              Cluster {clusterId} Selected
+              Cluster {clusterLabel} Selected
             </Typography>
             <Grid container spacing={2}>
               {/* Placeholder for cluster states */}
-              {[1, 2, 3, 4].map((i) => (
+              {clusterIndices.map((i) => (
                 <Grid item xs={6} key={i}>
                   <Card>
                     <CardContent>
                       {renderStatePlaceholder()}
-                      <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
-                        State {i} in Cluster {clusterId}
-                      </Typography>
                     </CardContent>
                   </Card>
                 </Grid>

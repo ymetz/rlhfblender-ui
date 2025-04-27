@@ -33,6 +33,7 @@ const ProjectionComponent = (props) => {
             activeLearningDispatch({ type: 'SET_HIGHLIGHTED_POINTS', payload: highlightedPoints });
         },
         benchmarkId: appState.selectedExperiment.id,
+        checkpointStep: appState.selectedCheckpoint,
     };
     
     return <StateSequenceProjection {...mappedProps} />;

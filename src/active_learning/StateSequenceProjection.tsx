@@ -128,6 +128,10 @@ const WebGLProjection = (props) => {
     const embeddingRef = useRef(null);
     const backgroundColorLegendRef = useRef(null);
     const objectColorLegendRef = useRef(null);
+    
+    // State for color scales
+    const [backgroundColorScale, setBackgroundColorScale] = useState(null);
+    const [objectColorScale, setObjectColorScale] = useState(null);
 
     // Component state variables
     const [isLoading, setIsLoading] = useState(false);
@@ -282,6 +286,23 @@ const WebGLProjection = (props) => {
                 const grid_prediction_image_path = grid_data.image || '';
                 const grid_uncertainty_image_path = grid_uncertainty_data.image || '';
 
+                // Create color scales based on grid bounds
+                if (grid_data.projection_bounds) {
+                    const bounds = grid_data.projection_bounds;
+                    // Create a color scale for predictions (e.g., interpolateViridis)
+                    const predictionScale = d3.scaleSequential(d3.interpolateViridis)
+                        .domain([bounds.min_val, bounds.max_val]);
+                    setBackgroundColorScale(() => predictionScale);
+                }
+
+                if (grid_uncertainty_data.projection_bounds) {
+                    const uncertaintyBounds = grid_uncertainty_data.projection_bounds;
+                    // Create a color scale for uncertainty (e.g., interpolateInferno)
+                    const uncertaintyScale = d3.scaleSequential(d3.interpolateInferno)
+                        .domain([uncertaintyBounds.min_val, uncertaintyBounds.max_val]);
+                    setObjectColorScale(() => uncertaintyScale);
+                }
+
                 // Now that we have all data, draw the chart with the grid data included
                 drawChart(
                     viewMode,
@@ -321,7 +342,7 @@ const WebGLProjection = (props) => {
 
         if (svgWidth < 0 || svgHeight < 0) return;
 
-        let processedData = processedData.map((k, i) => [...k, episodeIndices[i] || 0]);
+        let processedData = data.map((k, i) => [...k, episodeIndices[i] || 0]);
 
         // Create quad tree for fast point lookup
         const quadTree = d3.quadtree(
@@ -558,13 +579,20 @@ const WebGLProjection = (props) => {
                 // Find the correct episode index
                 let episodeIdx = null;
 
-                // Clear the references
+                // Clear all other selections
                 setSelectedCoordinate(null);
                 selectedCoordinateRef.current = null;
-
                 setSelectedCluster(null);
                 selectedClusterRef.current = null;
-                // d3.selectAll(".cluster_hull").style("stroke", "none");
+                
+                // Clear any existing coordinate marker
+                view.selectAll('.coordinate-marker').remove();
+                
+                // Reset cluster hull strokes
+                /*d3.selectAll(".cluster_hull").style("stroke", function() {
+                    const center = d3.polygonCentroid()
+                    return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
+                });*/
 
                 // First check if we have the episode directly in the processed data
                 if (processedData[closest[2]] && processedData[closest[2]].length > 3) {
@@ -589,21 +617,49 @@ const WebGLProjection = (props) => {
                 setSelectedState(selectedState);
                 selectedStateRef.current = selectedState;
             } else {
-
-                // clear the other refs
+                // Clear all selections
                 setSelectedTrajectory(null);
                 selectedTrajectoryRef.current = null;
-
                 setSelectedState(null);
                 selectedStateRef.current = null;
+                setSelectedCluster(null);
+                selectedClusterRef.current = null;
+                
+                // Reset cluster hull strokes
+                /*d3.selectAll(".cluster_hull").style("stroke", function() {
+                    const center = d3.polygonCentroid(
+                    return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
+                });*/
 
-                // in case we click in an empty region, just save the coordinate
+                // Clear any existing coordinate marker
+                view.selectAll('.coordinate-marker').remove();
+
+                // Save the coordinate and draw a cross marker
                 setSelectedCoordinate({ x: xClicked, y: yClicked });
                 selectedCoordinateRef.current = { x: xClicked, y: yClicked };
 
-                // draw an svg maeker at the position
-                view.append("circle").attr("cx", xScale(xClicked)).attr("cy", yScale(yClicked)).attr("r", "5px").style('fill', 'red');
-
+                // Draw a cross marker at the position
+                const crossSize = 10;
+                const markerGroup = view.append("g")
+                    .attr("class", "coordinate-marker");
+                
+                // Horizontal line
+                markerGroup.append("line")
+                    .attr("x1", xScale(xClicked) - crossSize)
+                    .attr("y1", yScale(yClicked))
+                    .attr("x2", xScale(xClicked) + crossSize)
+                    .attr("y2", yScale(yClicked))
+                    .style("stroke", "red")
+                    .style("stroke-width", 2);
+                
+                // Vertical line
+                markerGroup.append("line")
+                    .attr("x1", xScale(xClicked))
+                    .attr("y1", yScale(yClicked) - crossSize)
+                    .attr("x2", xScale(xClicked))
+                    .attr("y2", yScale(yClicked) + crossSize)
+                    .style("stroke", "red")
+                    .style("stroke-width", 2);
             }
         });
 
@@ -725,11 +781,38 @@ const WebGLProjection = (props) => {
                     d3.select(this).style('opacity', 0.4);
                 })
                 .on('click', function (event) {
-                    d3.selectAll(".cluster_hull").style('stroke', "none");
+                    // Clear other selections
+                    setSelectedTrajectory(null);
+                    selectedTrajectoryRef.current = null;
+                    setSelectedState(null);
+                    selectedStateRef.current = null;
+                    setSelectedCoordinate(null);
+                    selectedCoordinateRef.current = null;
+                    
+                    // Clear any existing coordinate marker
+                    view.selectAll('.coordinate-marker').remove();
+                    
+                    // Reset all cluster strokes first
+                    /*d3.selectAll(".cluster_hull").style('stroke', function() {
+                        const center = d3.polygonCentroid(d3.select(this).data()[0]);
+                        return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
+                    });*/
+                    
+                    // Highlight this cluster
                     d3.select(this).style('opacity', 0.7).style('stroke', "white");
 
-                    setSelectedCluster(label);
-                    selectedClusterRef.current = label;
+                    // Get all indices belonging to this cluster
+                    const clusterIndices = processedData
+                        .map((element, index) => {
+                            if (labels[index] === label) {
+                                return index;
+                            }
+                        })
+                        .filter((element) => element !== undefined);
+
+                    // Store both the label and the indices
+                    setSelectedCluster({ label: label, indices: clusterIndices });
+                    selectedClusterRef.current = { label: label, indices: clusterIndices };
                 });
 
             // Check if label in props.annotationSets, if so, use the label in props.annotated_sets
@@ -857,12 +940,27 @@ const WebGLProjection = (props) => {
 
 
             if (selectedCoordinateRef.current?.x) {
-                view
-                    .append("circle")
-                    .attr("cx", xScale(selectedCoordinateRef.current.x))
-                    .attr("cy", yScale(selectedCoordinateRef.current.y))
-                    .attr("r", "5px")
-                    .style('fill', 'red');
+                const crossSize = 10;
+                const markerGroup = view.append("g")
+                    .attr("class", "coordinate-marker");
+                
+                // Horizontal line
+                markerGroup.append("line")
+                    .attr("x1", xScale(selectedCoordinateRef.current.x) - crossSize)
+                    .attr("y1", yScale(selectedCoordinateRef.current.y))
+                    .attr("x2", xScale(selectedCoordinateRef.current.x) + crossSize)
+                    .attr("y2", yScale(selectedCoordinateRef.current.y))
+                    .style("stroke", "red")
+                    .style("stroke-width", 2);
+                
+                // Vertical line
+                markerGroup.append("line")
+                    .attr("x1", xScale(selectedCoordinateRef.current.x))
+                    .attr("y1", yScale(selectedCoordinateRef.current.y) - crossSize)
+                    .attr("x2", xScale(selectedCoordinateRef.current.x))
+                    .attr("y2", yScale(selectedCoordinateRef.current.y) + crossSize)
+                    .style("stroke", "red")
+                    .style("stroke-width", 2);
             }
 
             // Update SVG elements visibility based on zoom level
@@ -959,13 +1057,19 @@ const WebGLProjection = (props) => {
 
                             const selectedCluster = selectedClusterRef.current;
 
+                            const selectedCoordinate = selectedCoordinateRef.current;
+
                             // add to combined selected if selected
                             const combinedSelection: { type: string, data: any }[] = [];
                             if (selectedTrajectory) {
                                 combinedSelection.push({ type: "trajectory", data: selectedTrajectory });
                             }
                             else if (selectedCluster) {
-                                combinedSelection.push({ type: "cluster", data: selectedCluster });
+                                // Pass the cluster indices, not just the label
+                                combinedSelection.push({ type: "cluster", data: selectedCluster.indices, label: selectedCluster.label });
+                            }
+                            else if (selectedCoordinate) {
+                                combinedSelection.push({ type: "coordinate", data: selectedCoordinate });
                             }
                             if (combinedSelection.length === 0) {
                                 return;
@@ -993,15 +1097,10 @@ const WebGLProjection = (props) => {
                         onClick={() => {
                             const selectedState = selectedStateRef.current;
 
-                            const selectedCoordinate = selectedCoordinateRef.current;
-
                             // add to combined selected if selected
                             const combinedSelection: { type: string, data: any }[] = [];
                             if (selectedState) {
                                 combinedSelection.push({ type: "state", data: selectedState });
-                            }
-                            else if (selectedCoordinate) {
-                                combinedSelection.push({ type: "coordinate", data: selectedCoordinate });
                             }
 
                             if (combinedSelection.length === 0) {
@@ -1034,20 +1133,26 @@ const WebGLProjection = (props) => {
             </Box>
 
             {/* Legend for background color */}
-            <BackgroundLegend>
-                <Typography variant="caption" fontWeight="bold">
-                    Background: {backgroundColorMode}
-                </Typography>
-                <Box ref={backgroundColorLegendRef} />
-            </BackgroundLegend>
+            {backgroundColorScale && (
+                <BackgroundLegend>
+                    <ColorLegend 
+                        colorScale={backgroundColorScale}
+                        width={200}
+                        title="Prediction Values"
+                    />
+                </BackgroundLegend>
+            )}
 
             {/* Legend for object color */}
-            <ObjectLegend>
-                <Typography variant="caption" fontWeight="bold">
-                    Objects: {objectColorMode}
-                </Typography>
-                <Box ref={objectColorLegendRef} />
-            </ObjectLegend>
+            {objectColorScale && (
+                <ObjectLegend>
+                    <ColorLegend 
+                        colorScale={objectColorScale}
+                        width={200}
+                        title="Uncertainty Values"
+                    />
+                </ObjectLegend>
+            )}
         </EmbeddingWrapper>
     );
 

@@ -36,7 +36,6 @@ import { EpisodeFromID } from "./id";
 import { BackendConfig, UIConfig, SequenceElement, Feedback, FeedbackType } from "./types";
 import { getConfigSequence } from "./components/modals/backend-config-sequence-generator";
 import { ShortcutsProvider } from "./ShortCutProvider";
-import { ShortcutsInfoBox } from "./components/shortcut-info-box";
 import StudyCodeModal from "./components/modals/study-code-modal";
 
 const App: React.FC = () => {
@@ -50,15 +49,18 @@ const App: React.FC = () => {
       const url = new URL(window.location.href);
       const study_mode = url.searchParams.get("study_mode") || "";
       const study_code = url.searchParams.get("study") || "";
-      if (study_code !== "") {
-        dispatch({ type: "SET_STUDY_CODE", payload: study_code });
-        //dispatch({ type: 'TOGGLE_STATUS_BAR' });
-        dispatch({ type: "SET_APP_MODE", payload: "study" });
-      } else if (study_mode === "active-learning") {
+      if (study_mode === "active-learning") {
         dispatch({ type: "SET_APP_MODE", payload: "active-learning" });
         dispatch({ type: "TOGGLE_STATUS_BAR" });
-      }
-      else {
+      } if (study_code !== "") {
+        dispatch({ type: "SET_STUDY_CODE", payload: study_code });
+        //dispatch({ type: 'TOGGLE_STATUS_BAR' });
+        if (study_mode === "active-learning") {
+        dispatch({ type: "SET_APP_MODE", payload: "study-active-learning" });
+        } else {
+          dispatch({ type: "SET_APP_MODE", payload: "study" });
+        }
+      } else {
         dispatch({ type: "SET_APP_MODE", payload: "configure" });
         dispatch({ type: "TOGGLE_STATUS_BAR" });
       }
@@ -394,7 +396,7 @@ const App: React.FC = () => {
   };
 
   const handleExperimentStartClose = async () => {
-    if (state.app_mode === "study") {
+    if (state.app_mode === "study" || state.app_mode === "study-active-learning") {
       try {
         const res = await axios.post("/load_setup", {
           study_code: state.studyCode,
@@ -407,6 +409,10 @@ const App: React.FC = () => {
         await dispatch({
           type: "SET_SELECTED_EXPERIMENT",
           payload: res.data.experiment,
+        });
+        await dispatch({
+          type: "SET_SELECTED_CHECKPOINT",
+          payload: res.data.checkpoint,
         });
         await configDispatch({
           type: "SET_ACTIVE_UI_CONFIG",
@@ -489,7 +495,7 @@ const App: React.FC = () => {
                       ).palette.text.primary,
                     }}
                   >
-                    RLHF-Blender
+                    Active Feedback Generation for RL
                   </Typography>
                   <IconButton
                     onClick={() =>
@@ -503,7 +509,7 @@ const App: React.FC = () => {
               )}
             </Box>
           </Box>
-          {state.app_mode === "active-learning" ? (
+          {state.app_mode === "active-learning" || state.app_mode === "study-active-learning" ? (
             <ActiveLearningProvider>
               <ActiveLearningInterface
                 stepSampler={stepSampler}

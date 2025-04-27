@@ -33,6 +33,9 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
   const dispatch = useAppDispatch();
   const setupConfigState = useSetupConfigState();
   const configDispatch = useSetupConfigDispatch();
+  const [availableCheckpoints, setAvailableCheckpoints] = React.useState<
+    { id: number; name: string }[]
+  >([]);
   const theme = useTheme();
 
   // Handle project selection
@@ -62,8 +65,20 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
         (experiment) => experiment.id === Number(event.target.value),
       ) || state.selectedExperiment;
 
+      // Filter checkpoints related to the selected experiment
+    const experimentCheckpoints = selectedExperiment.checkpoint_list || [];
+    setAvailableCheckpoints(experimentCheckpoints.map((checkpoint) => ({
+      id: checkpoint,
+      name: checkpoint !== -1 ? `Checkpoint ${checkpoint}` : "Random",
+    })));
+
     dispatch({ type: "SET_SELECTED_EXPERIMENT", payload: selectedExperiment });
   };
+
+  const selectCheckpoint = (event: SelectChangeEvent) => {
+    const selectedCheckpoint = Number(event.target.value);
+    dispatch({ type: "SET_SELECTED_CHECKPOINT", payload: selectedCheckpoint });
+  }
 
   // Handle UI config selection
   const selectUIConfig = (event: SelectChangeEvent) => {
@@ -154,6 +169,23 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
             {state.filtered_experiments.map((experiment) => (
               <MenuItem key={experiment.id} value={experiment.id.toString()}>
                 {experiment.exp_name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ width: "10vw", marginRight: "2vw" }}>
+          <InputLabel id="checkpoint-select-label">Checkpoint</InputLabel>
+          <Select
+            labelId="checkpoint-select-label"
+            id="checkpoint-select"
+            value={state.selectedCheckpoint.toString()}
+            label="Checkpoint"
+            onChange={selectCheckpoint}
+          >
+            {availableCheckpoints.map((checkpoint) => (
+              <MenuItem key={checkpoint.id} value={checkpoint.id.toString()}>
+                {checkpoint.name}
               </MenuItem>
             ))}
           </Select>
@@ -256,7 +288,6 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
             marginTop: "1vh",
             fontSize: "0.8rem",
             width: "10vw",
-            visibility: state.app_mode === "configure" ? "visible" : "hidden",
           }}
           variant="contained"
           color="success"
@@ -268,6 +299,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
               .post("/save_setup", {
                 project: state.selectedProject,
                 experiment: state.selectedExperiment,
+                checkpoint: state.selectedCheckpoint,
                 ui_config: setupConfigState.activeUIConfig,
                 backend_config: setupConfigState.activeBackendConfig,
               })
