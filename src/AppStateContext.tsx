@@ -48,7 +48,7 @@ const initialState: AppState = {
   actionLabels: [],
   highlightedEpisodes: [],
   selectedProject: { id: -1, project_name: "", project_experiments: [] },
-  selectedExperiment: { id: -1, exp_name: "", env_id: "", framework: ""},
+  selectedExperiment: { id: -1, exp_name: "", env_id: "", env_config: "",  framework: "", checkpoint_list: []},
   selectedCheckpoint: -1,
   sliderValue: 0,
   uiConfigModalOpen: false,

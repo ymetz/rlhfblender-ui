@@ -50,18 +50,20 @@ const App: React.FC = () => {
       const study_mode = url.searchParams.get("study_mode") || "";
       const study_code = url.searchParams.get("study") || "";
       if (study_mode === "active-learning") {
-        dispatch({ type: "SET_APP_MODE", payload: "active-learning" });
-        dispatch({ type: "TOGGLE_STATUS_BAR" });
-      } if (study_code !== "") {
-        dispatch({ type: "SET_STUDY_CODE", payload: study_code });
-        //dispatch({ type: 'TOGGLE_STATUS_BAR' });
-        if (study_mode === "active-learning") {
-        dispatch({ type: "SET_APP_MODE", payload: "study-active-learning" });
+        if (study_code !== "") {
+          dispatch({ type: "SET_STUDY_CODE", payload: study_code });
+          dispatch({ type: "SET_APP_MODE", payload: "study-active-learning" });
         } else {
-          dispatch({ type: "SET_APP_MODE", payload: "study" });
+        dispatch({ type: "SET_APP_MODE", payload: "active-learning" });
         }
+        //dispatch({ type: "TOGGLE_STATUS_BAR" });
       } else {
-        dispatch({ type: "SET_APP_MODE", payload: "configure" });
+        if (study_code !== "") {
+          dispatch({ type: "SET_STUDY_CODE", payload: study_code });
+          dispatch({ type: "SET_APP_MODE", payload: "study" });
+        } else {
+          dispatch({ type: "SET_APP_MODE", payload: "configure" });
+        }
         dispatch({ type: "TOGGLE_STATUS_BAR" });
       }
 
@@ -269,7 +271,7 @@ const App: React.FC = () => {
     });
   };
 
-  const resetSampler = async () => {
+  const resetSampler = useCallback(async () => {
     if (state.selectedExperiment.id === -1) {
       return;
     }
@@ -316,7 +318,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Error in resetSampler:", error);
     }
-  };
+  });
 
   const stepSampler = async () => {
     // Step sampler with current sessionID, but we set new episode data and clear feedback
@@ -437,8 +439,9 @@ const App: React.FC = () => {
       // Reset the flag after calling resetSampler
       dispatch({ type: "SET_SETUP_COMPLETE", payload: false });
     }
-  }, [state.setupComplete, dispatch]);
+  }, [state.setupComplete, dispatch, resetSampler]);
 
+  console.log(state.app_mode);
   return (
     <ThemeProvider
       theme={createTheme(getDesignTokens(state.theme as "light" | "dark"))}
