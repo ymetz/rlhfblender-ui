@@ -10,6 +10,8 @@ export interface ActiveLearningState {
   selectedEpisode: Episode | null;
   projectionStates: number[][];
   projectionStateValues: number[];
+  predicted_rewards: number[];
+  predicted_uncertainties: number[];
 
   // grid points and predictions
   //grid_coordinates: number[][];
@@ -56,6 +58,8 @@ type ActiveLearningAction =
   | { type: "SET_SELECTED_EPISODE"; payload: Episode | null }
   | { type: "SET_PROJECTION_STATES"; payload: number[][] }
   | { type: "SET_PROJECTION_STATE_VALUES"; payload: number[] }
+  | { type: "SET_PREDICTED_REWARDS"; payload: number[] }
+  | { type: "SET_PREDICTED_UNCERTAINTIES"; payload: number[] }
   // grid points and predictions
   | { type: "SET_GRID_PREDICTION_IMAGE"; payload: string | null }
   | { type: "SET_GRID_UNCERTAINTY_IMAGE"; payload: string | null }
@@ -91,6 +95,8 @@ const initialState: ActiveLearningState = {
   selectedEpisode: null,
   projectionStates: [],
   projectionStateValues: [],
+  predicted_rewards: [],
+  predicted_uncertainties: [],
 
   // grid points and predictions
   grid_prediction_image: null, // Initialize with null or appropriate default
@@ -147,6 +153,10 @@ function activeLearningReducer(
       return { ...state, projectionStates: action.payload };
     case "SET_PROJECTION_STATE_VALUES":
       return { ...state, projectionStateValues: action.payload };
+    case "SET_PREDICTED_REWARDS":
+      return { ...state, predicted_rewards: action.payload };
+    case "SET_PREDICTED_UNCERTAINTIES":
+      return { ...state, predicted_uncertainties: action.payload };
     // grid points and predictions
     case "SET_GRID_PREDICTION_IMAGE":
       return { ...state, grid_prediction_image: action.payload };

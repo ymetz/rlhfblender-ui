@@ -16,6 +16,8 @@ import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import axios from 'axios';
 import { Color2D } from './projection_utils/2dcolormaps';
+// import vsup
+import * as vsup from 'vsup';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 
 const canvasImageCache = new Map();
@@ -36,61 +38,59 @@ const EmbeddingContainer = styled(Box)(({ theme }) => ({
 
 
 // Color Legend component 
-const ColorLegend = ({ colorScale, width, title }) => {
+const ColorLegend = ({ minMax, width, title }) => {
     const legendRef = useRef(null);
 
     useEffect(() => {
-        if (legendRef.current && colorScale) {
+        if (legendRef.current && minMax) {
             d3.select(legendRef.current).select('*').remove();
 
-            const margin = { top: 20, right: 20, bottom: 20, left: 20 };
-            const height = 60 - margin.top - margin.bottom;
+            const margin = { top: 0, right: 0, bottom: 0, left: 0 };
+            const height = 190 - margin.top - margin.bottom;
 
             const svg = d3.select(legendRef.current)
                 .append('svg')
                 .attr('width', width)
-                .attr('height', 60)
+                .attr('height', height)
                 .append('g')
                 .attr('transform', `translate(${margin.left},${margin.top})`);
 
-            // Create gradient
-            const defs = svg.append('defs');
-            const linearGradient = defs.append('linearGradient')
-                .attr('id', `linear-gradient-${title.replace(/\s+/g, '-').toLowerCase()}`)
-                .attr('x1', '0%')
-                .attr('y1', '0%')
-                .attr('x2', '100%')
-                .attr('y2', '0%');
+            const quantization = vsup.quantization().branching(2).layers(4).valueDomain([minMax[0], minMax[1]]).uncertaintyDomain([1.0, 0.01]);
+            const scale = vsup.scale().quantize(quantization).range(d3.interpolateBrBG);
 
-            // Set the color for the start (0%)
-            linearGradient.append('stop')
-                .attr('offset', '0%')
-                .attr('stop-color', colorScale(0));
+            const arc_legend = vsup.legend.arcmapLegend()
+                //.title("Reward Model: Predictions/Uncertainty")
+                .size(160)
+                .scale(scale)
+                .x(10)
+                .y(25)
+                .format(".2f")
+                
 
-            // Set the color for the end (100%)
-            linearGradient.append('stop')
-                .attr('offset', '100%')
-                .attr('stop-color', colorScale(1));
+            svg.call(arc_legend);
 
-            // Draw the rectangle and fill with gradient
-            svg.append('rect')
-                .attr('width', width - margin.left - margin.right)
-                .attr('height', height)
-                .style('fill', `url(#linear-gradient-${title.replace(/\s+/g, '-').toLowerCase()})`);
-
-            // Create axis
-            const x = d3.scaleLinear()
-                .domain(colorScale.domain())
-                .range([0, width - margin.left - margin.right]);
-
-            const xAxis = d3.axisBottom(x)
-                .ticks(5);
-
-            svg.append('g')
-                .attr('transform', `translate(0,${height})`)
-                .call(xAxis);
+            svg.selectAll('.arc-label text')
+                .style('font-size', '9px');
+    
+            // 2. Keep only a subset of the labels (approximately 4)
+            const arcLabels = svg.selectAll('.arc-label');
+            const totalLabels = arcLabels.size();
+            
+            if (totalLabels > 4) {
+            // We want to show ~4 labels, so hide the rest
+            const keepEveryNth = Math.ceil(totalLabels / 4);
+            
+            arcLabels.each(function(d, i) {
+                // also hide last label
+                if (i % keepEveryNth !== 1 && i !== totalLabels -2) {
+                // Hide this label and its tick line
+                d3.select(this).select('text').style('display', 'none');
+                d3.select(this).select('line').style('display', 'none');
+                }
+            });
+            }
         }
-    }, [colorScale, width, title]);
+    }, [minMax, width, title]);
 
     return (
         <Box>
@@ -109,14 +109,11 @@ const LegendContainer = styled(Box)(({ theme }) => ({
     borderRadius: theme.shape.borderRadius,
 }));
 
-// Legend positioned on the left side
-const BackgroundLegend = styled(LegendContainer)(({ theme }) => ({
-    left: theme.spacing(2),
-}));
 
 // Legend positioned on the right side
 const ObjectLegend = styled(LegendContainer)(({ theme }) => ({
-    right: theme.spacing(2),
+    right: theme.spacing(1),
+    zIndex: 15,
 }));
 
 const WebGLProjection = (props) => {
@@ -126,12 +123,9 @@ const WebGLProjection = (props) => {
 
     // Refs
     const embeddingRef = useRef(null);
-    const backgroundColorLegendRef = useRef(null);
-    const objectColorLegendRef = useRef(null);
+    const scaleMinMaxRef = useRef(null);
     
-    // State for color scales
-    const [backgroundColorScale, setBackgroundColorScale] = useState(null);
-    const [objectColorScale, setObjectColorScale] = useState(null);
+    const [minMaxScale, setMinMaxScale] = useState(null);
 
     // Component state variables
     const [isLoading, setIsLoading] = useState(false);
@@ -161,12 +155,16 @@ const WebGLProjection = (props) => {
     }, [selectedTrajectory]);
 
     useEffect(() => {
-        selectedStateRef.current = selectedState
+        selectedStateRef.current = selectedState;
     }, [selectedState]);
 
     useEffect(() => {
-        selectedCoordinateRef.current = selectedCoordinate
+        selectedCoordinateRef.current = selectedCoordinate;
     }, [selectedCoordinate]);
+    
+    useEffect(() => {
+        selectedClusterRef.current = selectedCluster;
+    }, [selectedCluster]);
 
     // Drawing function dispatches to specific visualizations
     const drawChart = useCallback((
@@ -177,6 +175,8 @@ const WebGLProjection = (props) => {
         doneData = [],
         episodeIndices = [],
         labelInfos = [],
+        predictedRewards = [],
+        predictedUncertainties = [],
         gridData = {
             prediction_image: null,
             uncertainty_image: null,
@@ -186,10 +186,10 @@ const WebGLProjection = (props) => {
 
         switch (mode) {
             case 'state_space':
-                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, predictedRewards, predictedUncertainties);
                 break;
             default:
-                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, predictedRewards, predictedUncertainties);
         }
     }, []);
 
@@ -208,7 +208,7 @@ const WebGLProjection = (props) => {
 
         const params = {
             benchmark_id: props.benchmarkId,
-            checkpoint_step: 160000,
+            checkpoint_step: 400000,//props.checkpointStep,
             projection_method: embedding_method,
             sequence_length: embeddingSequenceLength,
             step_range: '[]',
@@ -248,11 +248,6 @@ const WebGLProjection = (props) => {
                 const grid_data = gridRes.data;
                 const grid_uncertainty_data = gridUncertaintyRes.data;
 
-                console.log("Grid data received:", {
-                    prediction: grid_data.image ? grid_data.image.substring(0, 50) + "..." : "null",
-                    uncertainty: grid_uncertainty_data.image ? grid_uncertainty_data.image.substring(0, 50) + "..." : "null"
-                });
-
                 // Update state with projection data
                 activeLearningDispatch({ type: 'SET_EMBEDDING_DATA', payload: data.embedding });
 
@@ -277,6 +272,8 @@ const WebGLProjection = (props) => {
                 activeLearningDispatch({ type: 'SET_SELECTED_POINTS', payload: selected_points });
                 activeLearningDispatch({ type: 'SET_HIGHLIGHTED_POINTS', payload: highlighted_points });
                 activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: data.episode_indices || [] });
+                activeLearningDispatch({ type: 'SET_PREDICTED_REWARDS', payload: grid_data.original_predictions || [] });
+                activeLearningDispatch({ type: 'SET_PREDICTED_UNCERTAINTIES', payload: grid_data.original_uncertainties || [] });
 
                 // Update global state - grid data
                 // activeLearningDispatch({ type: 'SET_GRID_COORDINATES', payload: grid_coordinates });
@@ -289,19 +286,16 @@ const WebGLProjection = (props) => {
                 // Create color scales based on grid bounds
                 if (grid_data.projection_bounds) {
                     const bounds = grid_data.projection_bounds;
-                    // Create a color scale for predictions (e.g., interpolateViridis)
-                    const predictionScale = d3.scaleSequential(d3.interpolateViridis)
-                        .domain([bounds.min_val, bounds.max_val]);
-                    setBackgroundColorScale(() => predictionScale);
+                    setMinMaxScale([bounds.min_val, bounds.max_val]);
                 }
 
-                if (grid_uncertainty_data.projection_bounds) {
+                /*if (grid_uncertainty_data.projection_bounds) {
                     const uncertaintyBounds = grid_uncertainty_data.projection_bounds;
                     // Create a color scale for uncertainty (e.g., interpolateInferno)
                     const uncertaintyScale = d3.scaleSequential(d3.interpolateInferno)
                         .domain([uncertaintyBounds.min_val, uncertaintyBounds.max_val]);
                     setObjectColorScale(() => uncertaintyScale);
-                }
+                }*/
 
                 // Now that we have all data, draw the chart with the grid data included
                 drawChart(
@@ -312,6 +306,8 @@ const WebGLProjection = (props) => {
                     data.dones,
                     data.episode_indices,
                     [],
+                    grid_data.original_predictions,
+                    grid_data.original_uncertainties,
                     { // Pass grid data directly as an object
                         "prediction_image": grid_prediction_image_path,
                         "uncertainty_image": grid_uncertainty_image_path,
@@ -328,7 +324,7 @@ const WebGLProjection = (props) => {
             });
     }, [embeddingSequenceLength, viewMode, props.benchmarkId, props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkedModels, props.embeddingSettings, props.timeStamp, props.infos, drawChart, activeLearningDispatch]);
 
-    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }) => {
+    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }, predicted_rewards = [], predicted_uncertainties = []) => {
 
         const margin = { top: 0, right: 0, bottom: 0, left: 0 };
         const done_idx = doneData.reduce((a, elem, i) => (elem === true && a.push(i), a), []);
@@ -405,6 +401,20 @@ const WebGLProjection = (props) => {
 
         // Get grid data
         const grid_prediction_image = gridData.prediction_image || activeLearningState.grid_prediction_image;
+
+        // Setup VSUP color scale for predicted reward and uncertainty
+        const colorScale = vsup.scale()
+            .quantize(vsup.quantization().branching(2).layers(4).valueDomain([0, 1]).uncertaintyDomain([1.0, 0.01]))
+            .range(d3.interpolateBrBG);
+
+        // Pre-compute color scale for predicted rewards and uncertainties (makes draw call faster)
+        const point_colors = processedData.map((d, i) => {
+            const reward = predicted_rewards[i] || 0;
+            const uncertainty = predicted_uncertainties[i] || 0;
+
+            // Use the color scale for the prediction
+            return colorScale(reward, uncertainty);
+        });
 
         // Preload and cache grid images with their bounds
         if (grid_prediction_image && !canvasImageCache.has('prediction')) {
@@ -493,7 +503,7 @@ const WebGLProjection = (props) => {
             const imageBounds = calculateImageBounds(xScale, yScale, imgData.bounds);
 
             // Draw the image with proper scaling
-            ctx.globalAlpha = 0.7; // Slightly transparent so we can see points on top
+            ctx.globalAlpha = 0.5; // Slightly transparent so we can see points on top
             ctx.drawImage(
                 imgData.image,
                 0, 0, imgData.image.width, imgData.image.height,
@@ -639,7 +649,7 @@ const WebGLProjection = (props) => {
                 selectedCoordinateRef.current = { x: xClicked, y: yClicked };
 
                 // Draw a cross marker at the position
-                const crossSize = 10;
+                const crossSize = 8;
                 const markerGroup = view.append("g")
                     .attr("class", "coordinate-marker");
                 
@@ -649,7 +659,7 @@ const WebGLProjection = (props) => {
                     .attr("y1", yScale(yClicked))
                     .attr("x2", xScale(xClicked) + crossSize)
                     .attr("y2", yScale(yClicked))
-                    .style("stroke", "red")
+                    .style("stroke", "black")
                     .style("stroke-width", 2);
                 
                 // Vertical line
@@ -658,7 +668,7 @@ const WebGLProjection = (props) => {
                     .attr("y1", yScale(yClicked) - crossSize)
                     .attr("x2", xScale(xClicked))
                     .attr("y2", yScale(yClicked) + crossSize)
-                    .style("stroke", "red")
+                    .style("stroke", "black")
                     .style("stroke-width", 2);
             }
         });
@@ -834,6 +844,19 @@ const WebGLProjection = (props) => {
                 .text(label_text);
         }
 
+        // Create episodeToPaths mapping for efficient rendering
+        const episodeToPaths = new Map();
+
+        episodeIndices.forEach((episodeIdx, i) => {
+            if (!episodeToPaths.has(episodeIdx)) {
+                episodeToPaths.set(episodeIdx, []);
+            }
+
+            if (i < processedData.length) {
+                episodeToPaths.get(episodeIdx).push(processedData[i]);
+            }
+        });
+
         // Zoom handler function
         function zoomed(event) {
             const transform = event.transform;
@@ -853,8 +876,8 @@ const WebGLProjection = (props) => {
 
                 // Draw additional items on top if needed
                 if (isZoomEnd) {
-                    const r = Math.round((5 / transform.k) * 100) / 100;
-                    const width = Math.round((1 / transform.k) * 100) / 100;
+                    const r = Math.round((3 / transform.k) * 100) / 100;
+                    const width = Math.round((2.5 / transform.k) * 100) / 100;
 
                     // Save current context
                     context.save();
@@ -863,19 +886,6 @@ const WebGLProjection = (props) => {
                     context.translate(transform.x, transform.y);
                     context.scale(transform.k, transform.k);
 
-                    // Create episodeToPaths mapping for efficient rendering
-                    const episodeToPaths = new Map();
-
-                    episodeIndices.forEach((episodeIdx, i) => {
-                        if (!episodeToPaths.has(episodeIdx)) {
-                            episodeToPaths.set(episodeIdx, []);
-                        }
-
-                        if (i < processedData.length) {
-                            episodeToPaths.get(episodeIdx).push(processedData[i]);
-                        }
-                    });
-
                     // Draw paths with efficient batching
                     episodeToPaths.forEach((pathPoints, episodeIdx) => {
                         if (pathPoints.length === 0) return;
@@ -883,19 +893,19 @@ const WebGLProjection = (props) => {
                         // Highlight the selected trajectory
                         const isHighlighted = currentHighlightedTrajectory === episodeIdx;
 
-                        if (!isHighlighted)
-                            return;
+                        //if (!isHighlighted)
+                        //    return;
 
                         // Set path styling
                         context.strokeStyle = d3.interpolateCool(episodeIdx / episodeToPaths.size);
-                        context.lineWidth = isHighlighted ? width * 3 : width;
-                        context.globalAlpha = isHighlighted ? 0.9 : 0.5;
+                        context.lineWidth = isHighlighted ? width * 1.5 : width;
+                        context.globalAlpha = isHighlighted ? 1.0 : 0.8;
 
                         // Draw the path
                         context.beginPath();
                         context.moveTo(xScale(pathPoints[0][0]), yScale(pathPoints[0][1]));
 
-                        for (let j = 1; j < pathPoints.length; j++) {
+                        for (let j = 1; j < pathPoints.length - 1; j++) {
                             // Don't draw lines between distant points
                             /*if (Math.hypot(pathPoints[j][0] - pathPoints[j - 1][0], pathPoints[j][1] - pathPoints[j - 1][1]) > 0.3) {
                                 context.moveTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
@@ -909,7 +919,7 @@ const WebGLProjection = (props) => {
                     });
 
                     // Batch draw points for better performance
-                    context.globalAlpha = 0.5;
+                    //context.globalAlpha = 0.5;
                     context.beginPath();
 
                     const selectedStateIndex = selectedStateRef.current ? selectedStateRef.current[2] : null;
@@ -919,19 +929,19 @@ const WebGLProjection = (props) => {
                         // Check if point is part of highlighted trajectory
                         const pointEpisodeIdx = episodeIndices[i] || 0;
                         const isHighlighted = currentHighlightedTrajectory === pointEpisodeIdx;
-                        const fillStyle = d3.interpolateCool(pointEpisodeIdx / episodeToPaths.size);
+                        if (!isHighlighted) continue;
+                        const fillStyle = point_colors[i];
+                        context.fillStyle = fillStyle;
+                        // color stroke of point based on episode index
+                        context.strokeStyle = d3.interpolateCool(pointEpisodeIdx / episodeToPaths.size);
+                        context.lineWidth = width;
+                        context.globalAlpha = isHighlighted ? 0.9 : 0.5;
+                        context.beginPath();
 
-                        // Draw rectangle for highlighted points
-                        if (selectedStateIndex && selectedStateIndex === i) {
-                            context.rect(x - r, y - r, 5 * r, 5 * r);
-                        } else {
-                            // Create a new path for each point to allow different colors
-                            context.beginPath();
-                            context.arc(x, y, isHighlighted ? r * 1.5 : r, 0, 2 * Math.PI);
-                            context.fillStyle = fillStyle;
-                            context.fill();
-                            context.closePath();
-                        }
+                        context.arc(x, y, isHighlighted ? r * 1.5 : r, 0, 2 * Math.PI);
+                        context.fill();
+                        //context.stroke();
+                        context.closePath();
                     }
 
                     context.restore();
@@ -1031,8 +1041,8 @@ const WebGLProjection = (props) => {
                     <IconButton
                         color="default"
                         sx={{
-                            backgroundColor: 'rgba(128, 128, 128, 0.7)',
-                            '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
+                            backgroundColor: 'rgba(185, 185, 185, 0.7)',
+                            '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
                         }}
                         onClick={() => {
                             activeLearningDispatch({
@@ -1049,8 +1059,8 @@ const WebGLProjection = (props) => {
                     <IconButton
                         color="default"
                         sx={{
-                            backgroundColor: 'rgba(128, 128, 128, 0.7)',
-                            '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
+                            backgroundColor: 'rgba(185, 185, 185, 0.7)',
+                            '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
                         }}
                         onClick={() => {
                             const selectedTrajectory = selectedTrajectoryRef.current;
@@ -1091,8 +1101,8 @@ const WebGLProjection = (props) => {
                     <IconButton
                         color="default"
                         sx={{
-                            backgroundColor: 'rgba(128, 128, 128, 0.7)',
-                            '&:hover': { backgroundColor: 'rgba(128, 128, 128, 0.9)' }
+                            backgroundColor: 'rgba(185, 185, 185, 0.7)',
+                            '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
                         }}
                         onClick={() => {
                             const selectedState = selectedStateRef.current;
@@ -1132,24 +1142,13 @@ const WebGLProjection = (props) => {
                 </Button>
             </Box>
 
-            {/* Legend for background color */}
-            {backgroundColorScale && (
-                <BackgroundLegend>
-                    <ColorLegend 
-                        colorScale={backgroundColorScale}
-                        width={200}
-                        title="Prediction Values"
-                    />
-                </BackgroundLegend>
-            )}
-
             {/* Legend for object color */}
-            {objectColorScale && (
+            {minMaxScale && (
                 <ObjectLegend>
                     <ColorLegend 
-                        colorScale={objectColorScale}
-                        width={200}
-                        title="Uncertainty Values"
+                        minMax={minMaxScale}
+                        width={240}
+                        title="Predicted Reward/Uncertainty"
                     />
                 </ObjectLegend>
             )}

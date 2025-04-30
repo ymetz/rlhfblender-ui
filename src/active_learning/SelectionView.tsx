@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -36,13 +36,14 @@ const SelectionView = () => {
   // Get video URL from context
   const { getVideoURL } = useGetter();
 
-  // Get selected items from state
-  const selection = useMemo(() => activeLearningState.selection || [], [activeLearningState.selection]);
+  // Use selection directly from state (no useRef for selection in this version)
+  const selection = activeLearningState.selection || [];
+  
   // Get all episodes for color calculation
   const allEpisodes = useMemo(() => appState.episodeIDsChronologically || [], [appState.episodeIDsChronologically]);
 
-  // Extract selection type and data
-  const getSelectionData = () => {
+  // Extract selection type and data - using useMemo to prevent recalculations
+  const selectionData = useMemo(() => {
     if (selection.length === 0) return { type: 'none', data: [] };
     if (selection.length === 1) {
       const item = selection[0];
@@ -57,41 +58,59 @@ const SelectionView = () => {
     }
     // Mixed types - handle later if needed
     return { type: 'mixed', data: selection };
-  };
+  }, [selection]);
 
-  const selectionData = getSelectionData();
-
-  // set videoURLs for selected episodes, be aware that getVideoURL is async promise
+  // Initialize videoRefs based on selection length
   useEffect(() => {
-    if (selection.length === 0 || selection[0].type !== "trajectory")
-      return;
-    const fetchVideoURLs = async () => {
-      const videoURLmap = new Map<string, string>();
-      const urls = await Promise.all(
-        selection.map(async (elem: {type: string, data: number}) => {
-          const theEpisode: Episode = allEpisodes[elem.data];
-          const episodeID = IDfromEpisode(theEpisode);
-          if (!videoURLmap.has(episodeID)) {
-            const url = await getVideoURL(episodeID);
-            videoURLmap.set(episodeID, url);
-          }
-          return videoURLmap.get(episodeID) || '';
-        })
-      );
-      setVideoURLs(videoURLmap);
-    };
-    fetchVideoURLs();
-  }
-    , [selection, getVideoURL, allEpisodes]);
-
-  // Initialize refs array when selection changes
-  useEffect(() => {
-    videoRefs.current = videoRefs.current.slice(0, selection.length);
+    videoRefs.current = Array(selection.length).fill(null);
   }, [selection.length]);
 
+  // Fetch video URLs for trajectories
+  useEffect(() => {
+    if (selection.length === 0) return;
+    
+    const trajectories = selection.filter(item => item.type === "trajectory");
+    if (trajectories.length === 0) return;
+    
+    let isMounted = true;
+    
+    const fetchVideoURLs = async () => {
+      try {
+        const newVideoURLMap = new Map<string, string>(videoURLs);
+        let urlsChanged = false;
+
+        for (const elem of trajectories) {
+          const theEpisode: Episode = allEpisodes[elem.data];
+          if (!theEpisode) continue;
+          
+          const episodeID = IDfromEpisode(theEpisode);
+          if (!newVideoURLMap.has(episodeID)) {
+            const url = await getVideoURL(episodeID);
+            newVideoURLMap.set(episodeID, url);
+            urlsChanged = true;
+          }
+        }
+
+        // Only update state if URLs actually changed and component is still mounted
+        if (urlsChanged && isMounted) {
+          setVideoURLs(newVideoURLMap);
+        }
+      } catch (error) {
+        console.error("Error fetching video URLs:", error);
+      }
+    };
+
+    fetchVideoURLs();
+    
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isMounted = false;
+    };
+    
+  }, [selection, getVideoURL, allEpisodes, videoURLs]);
 
   // Handle video playback
-  const handlePlayPause = (index: number) => {
+  const handlePlayPause = useCallback((index: number) => {
     if (currentVideoIndex === index) {
       if (isPlaying) {
         videoRefs.current[index]?.pause();
@@ -108,27 +127,27 @@ const SelectionView = () => {
       videoRefs.current[index]?.play();
       setIsPlaying(true);
     }
-  };
+  }, [currentVideoIndex, isPlaying]);
 
   // Handle removing an episode from selection
-  const removeFromSelection = (index: number) => {
+  const removeFromSelection = useCallback((index: number) => {
     const newSelection = [...selection];
     newSelection.splice(index, 1);
+    
     activeLearningDispatch({
       type: 'SET_SELECTION',
       payload: newSelection
     });
-  };
+  }, [selection, activeLearningDispatch]);
 
   // Get color for an episode based on its index
-  const getEpisodeColor = (episodeIdx: any) => {
+  const getEpisodeColor = useCallback((episodeIdx: any) => {
     if (episodeIdx === -1) return '#888888';
     return d3.interpolateCool(episodeIdx / Math.max(1, allEpisodes.length - 1));
-  };
-
+  }, [allEpisodes.length]);
 
   // Render placeholder image for states
-  const renderStatePlaceholder = () => (
+  const renderStatePlaceholder = useCallback(() => (
     <Box
       sx={{
         height: 200,
@@ -143,12 +162,32 @@ const SelectionView = () => {
     >
       <ImageIcon sx={{ fontSize: 60, color: 'text.secondary' }} />
     </Box>
-  );
+  ), []);
 
   // Create a reference for a video element
-  const setVideoRef = (el: HTMLVideoElement | null, index: number) => {
+  const setVideoRef = useCallback((el: HTMLVideoElement | null, index: number) => {
     videoRefs.current[index] = el;
-  };
+  }, []);
+
+  // Get title based on selection type
+  const title = useMemo(() => {
+    switch (selectionData.type) {
+      case 'none':
+        return 'No Selection';
+      case 'trajectory':
+        return 'Selected Trajectory';
+      case 'multi_trajectory':
+        return `Selected Trajectories (${selectionData.data.length})`;
+      case 'state':
+        return 'Selected State';
+      case 'cluster':
+        return `Selected Cluster (${selectionData.data.length} states)`;
+      case 'coordinate':
+        return 'Selected Coordinate';
+      default:
+        return 'Selection';
+    }
+  }, [selectionData]);
 
   // Render based on selection type
   const renderSelection = () => {
@@ -165,102 +204,109 @@ const SelectionView = () => {
       case 'trajectory':
       case 'multi_trajectory':
         return (
-              <Grid container spacing={2}>
-                {selection.map((datapoint, index) => {
-                  const theEpisode: Episode = allEpisodes[datapoint.data];
-                  const episodeColor = getEpisodeColor(datapoint.data);
-                  const videoURL = videoURLs.get(IDfromEpisode(theEpisode));
-      
-                  return (
-                    <Grid item xs={12} sm={6} md={4} key={index}>
-                      <Card
-                        sx={{
-                          height: '100%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          border: `3px solid ${episodeColor}`,
-                          position: 'relative'
-                        }}
+          <Grid container spacing={2}>
+            {selection.map((datapoint, index) => {
+              if (datapoint.type !== 'trajectory') return null;
+              
+              const theEpisode: Episode = allEpisodes[datapoint.data];
+              if (!theEpisode) {
+                return null; // Skip invalid episodes
+              }
+              
+              const episodeColor = getEpisodeColor(datapoint.data);
+              const episodeID = IDfromEpisode(theEpisode);
+              const videoURL = videoURLs.get(episodeID);
+  
+              return (
+                <Grid item xs={12} sm={6} md={4} key={`trajectory-${index}-${episodeID}`}>
+                  <Card
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      border: `3px solid ${episodeColor}`,
+                      position: 'relative'
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: 0,
+                        right: 0,
+                        zIndex: 1,
+                        m: 1
+                      }}
+                    >
+                      <IconButton
+                        size="small"
+                        onClick={() => removeFromSelection(index)}
+                        sx={{ bgcolor: 'rgba(255,255,255,0.7)' }}
                       >
+                        <DeleteOutline />
+                      </IconButton>
+                    </Box>
+  
+                    <CardActionArea
+                      onClick={() => handlePlayPause(index)}
+                      onMouseEnter={() => {
+                        if (!isPlaying || currentVideoIndex !== index) {
+                          videoRefs.current[index]?.play();
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        if (currentVideoIndex !== index) {
+                          videoRefs.current[index]?.pause();
+                        }
+                      }}
+                    >
+                      {videoURL ? (
+                        <Box sx={{ height: 200, overflow: 'hidden' }}>
+                          <video
+                            ref={(el) => setVideoRef(el, index)}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover'
+                            }}
+                            muted
+                          >
+                            <source src={videoURL} type="video/mp4" />
+                          </video>
+                        </Box>
+                      ) : (
                         <Box
                           sx={{
-                            position: 'absolute',
-                            top: 0,
-                            right: 0,
-                            zIndex: 1,
-                            m: 1
+                            height: 200,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            bgcolor: 'background.paper'
                           }}
                         >
-                          <IconButton
-                            size="small"
-                            onClick={() => removeFromSelection(index)}
-                            sx={{ bgcolor: 'rgba(255,255,255,0.7)' }}
-                          >
-                            <DeleteOutline />
-                          </IconButton>
+                          <VideoLibrary sx={{ fontSize: 60, color: 'text.secondary' }} />
                         </Box>
-      
-                        <CardActionArea
-                          onClick={() => handlePlayPause(index)}
-                          onMouseEnter={() => {
-                            if (!isPlaying || currentVideoIndex !== index) {
-                              videoRefs.current[index]?.play();
-                            }
+                      )}
+                    </CardActionArea>
+  
+                    <CardContent sx={{ flexGrow: 1 }}>
+                      <Box sx={{ mt: 2 }}>
+                        <Chip
+                          label={`Episode ID: ${theEpisode.episode_num}`}
+                          size="small"
+                          sx={{
+                            bgcolor: episodeColor,
+                            color: 'white',
+                            mr: 1,
+                            mb: 1
                           }}
-                          onMouseLeave={() => {
-                            if (currentVideoIndex !== index) {
-                              videoRefs.current[index]?.pause();
-                            }
-                          }}
-                        >
-                          {videoURL ? (
-                            <Box sx={{ height: 200, overflow: 'hidden' }}>
-                              <video
-                                ref={(el) => setVideoRef(el, index)}
-                                style={{
-                                  width: '100%',
-                                  height: '100%',
-                                  objectFit: 'cover'
-                                }}
-                                muted
-                              >
-                                <source src={videoURL} type="video/mp4" />
-                              </video>
-                            </Box>
-                          ) : (
-                            <Box
-                              sx={{
-                                height: 200,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                bgcolor: 'background.paper'
-                              }}
-                            >
-                              <VideoLibrary sx={{ fontSize: 60, color: 'text.secondary' }} />
-                            </Box>
-                          )}
-                        </CardActionArea>
-      
-                        <CardContent sx={{ flexGrow: 1 }}>
-                          <Box sx={{ mt: 2 }}>
-                            <Chip
-                              label={`Episode ID: ${theEpisode.episode_num}`}
-                              size="small"
-                              sx={{
-                                bgcolor: episodeColor,
-                                color: 'white',
-                                mr: 1,
-                                mb: 1
-                              }}
-                            />
-                          </Box>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  );
-                })}
-              </Grid>
+                        />
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
         );
       case 'state':
         const state = selectionData.data[0];
@@ -279,25 +325,38 @@ const SelectionView = () => {
         );
 
       case 'cluster':
-        const clusterLabel: number = selectionData.label;
-       const clusterIndices: number[] = selectionData.data;
-       console.log(clusterIndices);
+        const clusterLabel = selectionData.label;
+        const clusterIndices = selectionData.data;
+        
+        // Limit the number of states shown to avoid rendering too many
+        const maxStatesToShow = 8;
+        const limitedIndices = clusterIndices.slice(0, maxStatesToShow);
+        
         return (
           <Box>
             <Typography variant="h6" gutterBottom>
-              Cluster {clusterLabel} Selected
+              Cluster {clusterLabel} Selected ({clusterIndices.length} states)
             </Typography>
             <Grid container spacing={2}>
-              {/* Placeholder for cluster states */}
-              {clusterIndices.map((i) => (
-                <Grid item xs={6} key={i}>
+              {limitedIndices.map((i) => (
+                <Grid item xs={6} sm={4} md={3} key={`cluster-state-${i}`}>
                   <Card>
                     <CardContent>
                       {renderStatePlaceholder()}
+                      <Typography variant="caption" align="center" display="block">
+                        State #{i}
+                      </Typography>
                     </CardContent>
                   </Card>
                 </Grid>
               ))}
+              {clusterIndices.length > maxStatesToShow && (
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="text.secondary">
+                    + {clusterIndices.length - maxStatesToShow} more states not shown
+                  </Typography>
+                </Grid>
+              )}
             </Grid>
           </Box>
         );
@@ -330,55 +389,10 @@ const SelectionView = () => {
     }
   };
 
-  // Update title based on selection type
-  const getTitle = () => {
-    switch (selectionData.type) {
-      case 'none':
-        return 'No Selection';
-      case 'trajectory':
-        return 'Selected Trajectory';
-      case 'multi_trajectory':
-        return `Selected Trajectories (${selectionData.data.length})`;
-      case 'state':
-        return 'Selected State';
-      case 'cluster':
-        return 'Selected Cluster';
-      case 'coordinate':
-        return 'Selected Coordinate';
-      default:
-        return 'Selection';
-    }
-  };
-
-  // Load video URLs for trajectories if needed
-  useEffect(() => {
-    if (selectionData.type === 'trajectory' || selectionData.type === 'multi_trajectory') {
-      const fetchVideoURLs = async () => {
-        const videoURLmap = new Map<string, string>();
-        const trajectoryEpisodes = selectionData.data
-          .map(trajectoryIdx => allEpisodes[trajectoryIdx])
-          .filter(Boolean);
-
-        const urls = await Promise.all(
-          trajectoryEpisodes.map(async (episode) => {
-            const episodeID = IDfromEpisode(episode);
-            if (!videoURLmap.has(episodeID)) {
-              const url = await getVideoURL(episodeID);
-              videoURLmap.set(episodeID, url);
-            }
-            return videoURLmap.get(episodeID) || '';
-          })
-        );
-        setVideoURLs(videoURLmap);
-      };
-      fetchVideoURLs();
-    }
-  }, [selectionData, allEpisodes, getVideoURL]);
-
   return (
     <Box sx={{ padding: 2, height: '100%', overflow: 'auto' }}>
       <Typography variant="h5" gutterBottom>
-        {getTitle()}
+        {title}
       </Typography>
       {renderSelection()}
     </Box>

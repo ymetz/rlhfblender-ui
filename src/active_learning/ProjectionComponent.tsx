@@ -35,6 +35,13 @@ const ProjectionComponent = (props) => {
         benchmarkId: appState.selectedExperiment.id,
         checkpointStep: appState.selectedCheckpoint,
     };
+
+    // update mappedProps when benchmarkId or checkpointStep changes
+    React.useEffect(() => {
+        mappedProps.benchmarkId = appState.selectedExperiment.id;
+        mappedProps.checkpointStep = appState.selectedCheckpoint;
+    }
+    , [appState.selectedExperiment.id, appState.selectedCheckpoint]);
     
     return <StateSequenceProjection {...mappedProps} />;
 };

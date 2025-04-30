@@ -1,243 +1,351 @@
 import React from 'react';
 import { Box } from '@mui/material';
-import { AreaClosed, Line, Bar } from '@visx/shape';
+import { Line, Bar, LinePath } from '@visx/shape';
 import { curveMonotoneX } from '@visx/curve';
 import { GridRows, GridColumns } from '@visx/grid';
 import { scaleLinear } from '@visx/scale';
 import { withTooltip, TooltipWithBounds, defaultStyles } from '@visx/tooltip';
-import { LinearGradient } from '@visx/gradient';
 import { max, extent, bisector } from 'd3-array';
 import { localPoint } from '@visx/event';
+import { Group } from '@visx/group';
+import { AxisLeft, AxisBottom } from '@visx/axis';
+import { scaleOrdinal } from '@visx/scale';
 import { ParentSize } from '@visx/responsive';
 
-// Accessors
-const getX = (d) => d.x;
-const getY = (d) => d.y;
-const bisectData = bisector((d) => d.x).left;
-
-// Custom styling
-const background = '#ffffff';
-const background2 = '#ffffff';
-const accentColor = '#4071ad';
-const accentColorDark = '#4071ad';
-const tooltipStyles = {
-  ...defaultStyles,
-  background,
-  border: '1px solid white',
-  color: 'black',
-  fontSize: '10px',
-  padding: '5px',
+// Generate dummy data
+const generateData = () => {
+  const checkpoints = [100000, 250000, 500000, 750000, 1000000];
+  return checkpoints.map(step => ({
+    step,
+    reward: 0.5 + 0.4 * (step / 1000000), // Increase reward over time (0.5 to 0.9)
+    uncertainty: 0.4 - 0.3 * (step / 1000000) // Decrease uncertainty over time (0.4 to 0.1)
+  }));
 };
 
-// Chart content separate from sizing logic
+// Helper to ensure data is in the right format
+const formatData = (inputData) => {
+  // If no data or not an array, use the dummy data
+  if (!inputData || !Array.isArray(inputData)) {
+    return generateData();
+  }
+  
+  // If the data doesn't have step/reward/uncertainty properties, try to adapt it
+  // This handles the case where data might be in a different format like {x, y}
+  if (inputData.length > 0) {
+    if (inputData[0].step === undefined && inputData[0].x !== undefined) {
+      return inputData.map((d, i) => ({
+        step: d.x * 100000, // Scale x values to checkpoint steps
+        reward: d.y / 10, // Scale y values to reward range (0-1)
+        uncertainty: Math.max(0.5 - (d.y / 20), 0.1) // Create inverse for uncertainty
+      }));
+    }
+  }
+  
+  // Return the original data if it seems to be in the correct format
+  return inputData;
+};
+
+// Accessors - with safety checks
+const getStep = d => (d && d.step !== undefined) ? d.step : 0;
+const getReward = d => (d && d.reward !== undefined) ? d.reward : 0;
+const getUncertainty = d => (d && d.uncertainty !== undefined) ? d.uncertainty : 0;
+const bisectData = bisector(d => getStep(d)).left;
+
+// Colors
+const backgroundColor = '#ffffff';
+const gridColor = '#f0f0f0';
+const rewardColor = '#F5B700'; // Gold
+const uncertaintyColor = '#4071AD'; // Light blue
+const tooltipStyles = {
+  ...defaultStyles,
+  background: 'white',
+  border: '1px solid #ddd',
+  color: 'black',
+  fontSize: '12px',
+  padding: '8px',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24)',
+  borderRadius: '4px'
+};
+
+// Chart component
 const Chart = withTooltip(
   ({
     data,
-    title,
     width,
     height,
     showTooltip,
     hideTooltip,
     tooltipData,
-    tooltipTop = 0,
     tooltipLeft = 0,
+    tooltipTop = 0,
   }) => {
-    // Margins for the chart
-    const margin = { top: 20, right: 10, bottom: 20, left: 30 };
+    // Ensure data is formatted correctly
+    const formattedData = formatData(data);
+    // Margins - adjusted to give more room at the bottom
+    const margin = { top: 20, right: 40, bottom: 40, left: 60 };
     
-    // Calculate bounds
+    // Bounds
     const innerWidth = Math.max(0, width - margin.left - margin.right);
     const innerHeight = Math.max(0, height - margin.top - margin.bottom);
     
-    // Don't render if we don't have valid dimensions or data
-    if (innerWidth < 0 || innerHeight < 0 || !data || data.length === 0) {
-      return null;
-    }
-
     // Scales
     const xScale = scaleLinear({
-      range: [margin.left, innerWidth + margin.left],
-      domain: extent(data, getX),
+      range: [0, innerWidth],
+      domain: extent(formattedData, getStep),
       nice: true,
     });
 
-    const yScale = scaleLinear({
-      range: [innerHeight + margin.top, margin.top],
-      domain: [0, max(data, getY) * 1.1], // Add some padding
+    const rewardScale = scaleLinear({
+      range: [innerHeight, 0],
+      domain: [0, Math.max(max(formattedData, getReward) * 1.1, 1.0)],
+      nice: true,
+    });
+
+    const uncertaintyScale = scaleLinear({
+      range: [innerHeight, 0],
+      domain: [0, Math.max(max(formattedData, getUncertainty) * 1.1, 0.5)],
       nice: true,
     });
 
     // Tooltip handler
     const handleTooltip = (event) => {
       const { x } = localPoint(event) || { x: 0 };
-      const x0 = xScale.invert(x);
-      const index = bisectData(data, x0, 1);
+      const x0 = xScale.invert(x - margin.left);
+      const index = bisectData(formattedData, x0);
       
-      if (index < 1) return;
-      
-      const d0 = data[index - 1];
-      const d1 = data[index] || d0;
-      let d = d0;
-      
-      if (d1 && getX(d1)) {
-        d = x0 - getX(d0) > getX(d1) - x0 ? d1 : d0;
+      if (index <= 0 || index >= formattedData.length) {
+        return; // Protect against out-of-bounds indices
       }
       
+      const d0 = formattedData[index - 1];
+      const d1 = formattedData[index];
+      
+      let d = d0;
+      if (d1 && getStep(d1)) {
+        d = x0 - getStep(d0) > getStep(d1) - x0 ? d1 : d0;
+      }
+
       showTooltip({
         tooltipData: d,
-        tooltipLeft: x,
-        tooltipTop: yScale(getY(d)),
+        tooltipLeft: xScale(getStep(d)) + margin.left,
+        tooltipTop: rewardScale(getReward(d)) + margin.top,
       });
     };
 
+    // If no data or dimensions, return null
+    if (innerWidth < 0 || innerHeight < 0 || !formattedData || formattedData.length === 0) return null;
+
     return (
       <>
-        <svg width={width} height={height} overflow="visible">
-          <rect
-            x={0}
-            y={0}
-            width={width}
-            height={height}
-            fill="url(#area-background-gradient)"
-            rx={6}
-          />
-          <LinearGradient id="area-background-gradient" from={background} to={background2} />
-          <LinearGradient id="area-gradient" from={accentColor} to={accentColor} toOpacity={0.1} />
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+          <svg width={width} height={height - 10}>
+            <rect
+              x={0}
+              y={0}
+              width={width}
+              height={height - 25}
+              fill={backgroundColor}
+              rx={6}
+            />
+            
+            <Group left={margin.left} top={margin.top}>
+              {/* Grid */}
+              <GridRows
+                scale={rewardScale}
+                width={innerWidth}
+                strokeDasharray="2,2"
+                stroke={gridColor}
+                strokeOpacity={0.6}
+                pointerEvents="none"
+                numTicks={5}
+              />
+              <GridColumns
+                scale={xScale}
+                height={innerHeight}
+                strokeDasharray="2,2"
+                stroke={gridColor}
+                strokeOpacity={0.6}
+                pointerEvents="none"
+                numTicks={5}
+              />
+              
+              {/* Axes */}
+              <AxisLeft
+                scale={rewardScale}
+                label="Reward Model"
+                labelProps={{
+                  fill: '#333',
+                  fontSize: 14,
+                  textAnchor: 'middle',
+                  fontFamily: 'sans-serif'
+                }}
+                stroke="#333"
+                tickStroke="#333"
+                tickLabelProps={() => ({
+                  fill: '#333',
+                  fontFamily: 'sans-serif',
+                  fontSize: 10,
+                  textAnchor: 'end',
+                  dy: '0.33em'
+                })}
+                numTicks={5}
+              />
+              
+              <AxisBottom
+                top={innerHeight}
+                scale={xScale}
+                label="Checkpoint Step"
+                labelProps={{
+                  fill: '#333',
+                  fontSize: 14, 
+                  textAnchor: 'middle',
+                  fontFamily: 'sans-serif'
+                }}
+                stroke="#333"
+                tickStroke="#333"
+                tickLabelProps={() => ({
+                  fill: '#333',
+                  fontFamily: 'sans-serif',
+                  fontSize: 10,
+                  textAnchor: 'middle',
+                  dy: '0.33em'
+                })}
+                tickFormat={val => `${Math.round(val / 1000)}K`}
+                numTicks={5}
+              />
+              
+              {/* Reward Line */}
+              <LinePath
+                data={formattedData}
+                x={d => xScale(getStep(d))}
+                y={d => rewardScale(getReward(d))}
+                stroke={rewardColor}
+                strokeWidth={2.5}
+                curve={curveMonotoneX}
+              />
+              
+              {/* Uncertainty Line */}
+              <LinePath
+                data={formattedData}
+                x={d => xScale(getStep(d))}
+                y={d => uncertaintyScale(getUncertainty(d))}
+                stroke={uncertaintyColor}
+                strokeWidth={2.5}
+                curve={curveMonotoneX}
+              />
+              
+              {/* Tooltip overlay */}
+              <Bar
+                width={innerWidth}
+                height={innerHeight}
+                fill="transparent"
+                onTouchStart={handleTooltip}
+                onTouchMove={handleTooltip}
+                onMouseMove={handleTooltip}
+                onMouseLeave={() => hideTooltip()}
+              />
+              
+              {/* Tooltip indicator */}
+              {tooltipData && (
+                <>
+                  <Line
+                    from={{ x: xScale(getStep(tooltipData)), y: 0 }}
+                    to={{ x: xScale(getStep(tooltipData)), y: innerHeight }}
+                    stroke="#333"
+                    strokeWidth={1}
+                    pointerEvents="none"
+                    strokeDasharray="4,2"
+                  />
+                  <circle
+                    cx={xScale(getStep(tooltipData))}
+                    cy={rewardScale(getReward(tooltipData))}
+                    r={5}
+                    fill={rewardColor}
+                    stroke="white"
+                    strokeWidth={2}
+                    pointerEvents="none"
+                  />
+                  <circle
+                    cx={xScale(getStep(tooltipData))}
+                    cy={uncertaintyScale(getUncertainty(tooltipData))}
+                    r={5}
+                    fill={uncertaintyColor}
+                    stroke="white"
+                    strokeWidth={2}
+                    pointerEvents="none"
+                  />
+                </>
+              )}
+            </Group>
+            
+            {/* Chart Title */}
+            <text
+              x={width / 2}
+              y={15}
+              textAnchor="middle"
+              fontFamily="sans-serif"
+              fontSize={16}
+              fontWeight="bold"
+              fill="#333"
+            >
+              Training Progress with Uncertainty
+            </text>
+          </svg>
           
-          {/* Grid */}
-          <GridRows
-            left={margin.left}
-            scale={yScale}
-            width={innerWidth}
-            strokeDasharray="1,3"
-            stroke={accentColor}
-            strokeOpacity={0.2}
-            pointerEvents="none"
-            numTicks={3}
-          />
-          <GridColumns
-            top={margin.top}
-            scale={xScale}
-            height={innerHeight}
-            strokeDasharray="1,3"
-            stroke={accentColor}
-            strokeOpacity={0.2}
-            pointerEvents="none"
-            numTicks={Math.min(data.length, 5)}
-          />
+          {/* Legend below the chart */}
+          <div style={{ 
+            position: 'absolute', 
+            bottom: 0, 
+            left: 0, 
+            right: 0, 
+            height: 25,
+            display: 'flex', 
+            flexDirection: 'row',
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            gap: 30
+          }}>
+            {/* Reward legend item */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 16, height: 3, backgroundColor: rewardColor, borderRadius: 2 }}></div>
+              <span style={{ fontSize: 12, fontFamily: 'sans-serif', color: '#333' }}>Predicted Reward</span>
+            </div>
+            
+            {/* Uncertainty legend item */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 16, height: 3, backgroundColor: uncertaintyColor, borderRadius: 2 }}></div>
+              <span style={{ fontSize: 12, fontFamily: 'sans-serif', color: '#333' }}>Uncertainty</span>
+            </div>
+          </div>
           
-          {/* Area Chart */}
-          <AreaClosed
-            data={data}
-            x={(d) => xScale(getX(d))}
-            y={(d) => yScale(getY(d))}
-            yScale={yScale}
-            strokeWidth={1.5}
-            stroke="url(#area-gradient)"
-            fill="url(#area-gradient)"
-            curve={curveMonotoneX}
-          />
-          
-          {/* Tooltip overlay */}
-          <Bar
-            x={margin.left}
-            y={margin.top}
-            width={innerWidth}
-            height={innerHeight}
-            fill="transparent"
-            rx={6}
-            onTouchStart={handleTooltip}
-            onTouchMove={handleTooltip}
-            onMouseMove={handleTooltip}
-            onMouseLeave={() => hideTooltip()}
-          />
-          
-          {/* Tooltip indicator */}
+          {/* Tooltip */}
           {tooltipData && (
-            <g>
-              <Line
-                from={{ x: tooltipLeft, y: margin.top }}
-                to={{ x: tooltipLeft, y: innerHeight + margin.top }}
-                stroke={accentColorDark}
-                strokeWidth={1}
-                pointerEvents="none"
-                strokeDasharray="3,2"
-              />
-              <circle
-                cx={tooltipLeft}
-                cy={tooltipTop}
-                r={3}
-                fill={accentColorDark}
-                stroke="white"
-                strokeWidth={1}
-                pointerEvents="none"
-              />
-            </g>
+            <TooltipWithBounds
+              key={Math.random()}
+              top={tooltipTop - 40}
+              left={tooltipLeft + 12}
+              style={tooltipStyles}
+            >
+              <div style={{ fontWeight: 'bold' }}>Checkpoint: {Math.round(getStep(tooltipData) / 1000)}K</div>
+              <div style={{ color: rewardColor, fontWeight: 'bold' }}>
+                Reward: {getReward(tooltipData).toFixed(3)}
+              </div>
+              <div style={{ color: uncertaintyColor, fontWeight: 'bold' }}>
+                Uncertainty: {getUncertainty(tooltipData).toFixed(3)}
+              </div>
+            </TooltipWithBounds>
           )}
-          
-          {/* Axes */}
-          <g transform={`translate(0, ${innerHeight + margin.top})`}>
-            {data.filter((d, i) => i % 2 === 0 || data.length <= 5).map((d) => (
-              <text
-                key={`x-${d.x}`}
-                x={xScale(getX(d))}
-                y={12}
-                fontSize={8}
-                textAnchor="middle"
-                fill="white"
-              >
-                {d.x}
-              </text>
-            ))}
-          </g>
-          <g transform={`translate(${margin.left - 2}, 0)`}>
-            {yScale.ticks(3).map((tick) => (
-              <text
-                key={`y-${tick}`}
-                x={-4}
-                y={yScale(tick)}
-                dy=".32em"
-                fontSize={8}
-                textAnchor="end"
-                fill="white"
-              >
-                {tick}
-              </text>
-            ))}
-          </g>
-          
-          {/* Title */}
-          <text
-            x={width / 2}
-            y={margin.top}
-            textAnchor="middle"
-            fontSize={margin.top}
-            fill="black"
-            fontWeight="bold"
-            fontFamily='ans-serif'
-          >
-            {title}
-          </text>
-        </svg>
-        
-        {/* Tooltip */}
-        {tooltipData && (
-          <TooltipWithBounds
-            key={Math.random()}
-            top={tooltipTop - 12}
-            left={tooltipLeft + 12}
-            style={tooltipStyles}
-          >
-            {`value: ${getY(tooltipData)}`}
-          </TooltipWithBounds>
-        )}
+        </div>
       </>
     );
   }
 );
 
-// Main component that uses ParentSize
-const ProgressChart = ({ data, title }) => {
+// Main component that follows the pattern from reference code
+const ImprovedProgressChart = ({ data, title }) => {
+  // Generate default data if none provided
+  const chartData = data || generateData();
+  
   return (
     <Box 
       sx={{ 
@@ -250,11 +358,11 @@ const ProgressChart = ({ data, title }) => {
         overflow: 'hidden'  // Prevent overflow
       }}
     >
-      <ParentSize>
+      <ParentSize debounceTime={10}>
         {({ width, height }) => (
           <Chart 
-            data={data} 
-            title={title} 
+            data={chartData}
+            title={title || "Training Progress with Uncertainty"}
             width={width} 
             height={height}
           />
@@ -264,4 +372,4 @@ const ProgressChart = ({ data, title }) => {
   );
 };
 
-export default ProgressChart;
+export default ImprovedProgressChart;

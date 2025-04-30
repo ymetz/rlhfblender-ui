@@ -226,7 +226,7 @@ const FeedbackInput = () => {
       case 'multi_trajectory':
         return (
           <Box>
-            <Typography variant="h6" gutterBottom>Select the best trajectory</Typography>
+            <Typography variant="h6" gutterBottom>Select the best Episode</Typography>
             <RadioGroup value={chosenId} onChange={e => setChosenId(e.target.value)}>
               <Grid container spacing={2}>
                 {selectionData.data.map((trajectoryIdx, i) => {
@@ -236,7 +236,7 @@ const FeedbackInput = () => {
                       <FormControlLabel 
                         value={id} 
                         control={<Radio />} 
-                        label={`Trajectory ${trajectoryIdx}`} 
+                        label={`Episode ${trajectoryIdx}`} 
                       />
                     </Grid>
                   );

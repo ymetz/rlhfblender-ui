@@ -5,6 +5,7 @@ import axios from 'axios';
 import ProgressChart from './ProgressChart';
 import ProjectionComponent from './ProjectionComponent';
 import SelectionView from './SelectionView';
+import FeedbackCounts from './FeedbackCounts';
 import FeedbackInput from './FeedbackInput';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import GridUncertaintyMap from './GridMap';
@@ -53,6 +54,14 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
     }
   }
 
+  const feedbackData = [
+    { category: 'Rating', total: 18, current: 5 },
+    { category: 'Comparison', total: 12, current: 3 },
+    { category: 'Correction', total: 4, current: 1 },
+    { category: 'Demo', total: 6, current: 1 },
+    { category: 'Cluster', total: 10, current: 3 },
+  ];
+
   return (
     <Box
       sx={{
@@ -62,7 +71,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         minHeight: '600px',
       }}
     >
-      {/* Left sidebar - 20% width with 2 charts stacked */}
+      {/* Left sidebar - 20% width with 3 charts stacked */}
       <Box
         sx={{
           width: '20%',
@@ -73,11 +82,11 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           height: '100%', // Ensure the sidebar takes the full height
         }}
       >
-        {/* First chart container - fixed height */}
+        {/* First chart container - adjusted height */}
         <Paper
           elevation={2}
           sx={{
-            height: 'calc(40% - 0.5rem)', // 50% of space minus half the gap
+            height: 'calc(30% - 0.67rem)', // Adjusted for 3 components with 2 gaps
             p: 1,
             display: 'flex',
             flexDirection: 'column',
@@ -105,16 +114,39 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
                 { x: 10, y: 5 },
                 { x: 11, y: 6 },
               ]}
-              title="Overall Uncertainty"
+              title="Training Progress"
             />
           </Box>
         </Paper>
 
-        {/* Second chart container - fixed height */}
+                <Paper
+          elevation={2}
+          sx={{
+            height: 'calc(30% - 0.67rem)', // Adjusted for 3 components with 2 gaps
+            p: 1,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Box
+            sx={{
+              flex: 1,
+              height: '90%', // Leave room for the title
+              position: 'relative',
+              overflow: 'hidden' // Prevent overflow
+            }}
+          >
+            <FeedbackCounts 
+              data={feedbackData}
+              title="Feedback History"
+            />
+          </Box>
+        </Paper>
+
         <Paper
           elevation={2}
           sx={{
-            height: 'calc(40% - 0.5rem)', // 50% of space minus half the gap
+            height: 'calc(35% - 0.67rem)', // Adjusted for 3 components with 2 gaps
             p: 1,
             display: 'flex',
             flexDirection: 'column',
@@ -135,7 +167,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
                 gridCoordinates={undefined}
                 gridUncertainties={undefined}
                 imageOpacity={0.5}
-                title="Uncertainty Map"
+                title="Decrease in Uncertainty"
               />
           </Box>
         </Paper>
@@ -146,13 +178,13 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         sx={{
           width: '50%',
           p: 1,
-          height: '90%', // Ensure full height
+          height: '100%', // Ensure full height
         }}
       >
         <Paper
           elevation={2}
           sx={{
-            height: '90%',
+            height: 'calc(97% - 0.5rem)', // Adjusted for 3 components with 2 gaps
             p: 1.2,
             display: 'flex',
             flexDirection: 'column',
@@ -188,7 +220,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         <Paper
           elevation={2}
           sx={{
-            height: 'calc(45% - 0.5rem)', // Leave room for button at bottom
+            height: 'calc(50% - 0.5rem)', // Leave room for button at bottom
             p: 1,
             display: 'flex',
             flexDirection: 'column',
@@ -200,7 +232,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         <Paper
           elevation={2}
           sx={{
-            height: 'calc(25% - 0.5rem)', // Leave room for button at bottom
+            height: 'calc(35% - 0.5rem)', // Leave room for button at bottom
             p: 1,
             display: 'flex',
             flexDirection: 'column',
@@ -214,7 +246,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           elevation={2}
           sx={{
             p: 1,
-            height: 'calc(10% - 0.5rem)', // Fixed height for button area
+            height: 'calc(9% - 0.5rem)', // Fixed height for button area
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -226,7 +258,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             color="primary"
             onClick={handleContinue}
           >
-            Submit Feedback & Continue
+            Go to Next Phase
           </Button>
         </Paper>
       </Box>

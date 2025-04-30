@@ -188,6 +188,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
             textAnchor="middle"
             fontSize={14}
             fill="#666"
+            fontFamily='Arial, sans-serif'
           >
             No data available
           </text>
@@ -280,7 +281,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
           )}
           
           {/* Data points (overlay on the image) */}
-          {datapointCoordinates?.map((point, i) => {
+          {/*datapointCoordinates?.map((point, i) => {
             if (!point || point.length < 2) return null;
             const [x, y] = point;
             
@@ -293,10 +294,10 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
                 fill="black"
                 stroke="white"
                 strokeWidth={1}
-                opacity={0.1}
+                opacity={0.05}
               />
             );
-          })}
+          })*/}
 
           {/* Axes */}
           <line
@@ -321,6 +322,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
             x={width / 2}
             y={margin.top / 2}
             textAnchor="middle"
+            fontFamily='Arial, sans-serif'
             fontSize={14}
             fill="black"
             fontWeight="bold"
