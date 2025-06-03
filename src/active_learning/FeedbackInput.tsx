@@ -1,105 +1,104 @@
-import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
   Button,
   Slider,
-  Grid,
   FormControlLabel,
   Radio,
   RadioGroup,
   TextField,
   Alert,
+  Paper,
+  Grid,
+  Divider,
+  IconButton,
+  CircularProgress,
+  Tabs,
+  Tab,
 } from '@mui/material';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTheme } from '@mui/material/styles';
-import { ThumbDown, ThumbUp } from '@mui/icons-material';
+import { ThumbDown, ThumbUp, PlayArrow, Send, Close } from '@mui/icons-material';
+import * as d3 from 'd3';
+import axios from 'axios';
+
 import { useAppState, useAppDispatch } from '../AppStateContext';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
-import { FeedbackType, Feedback } from '../types';
+import { FeedbackType, Feedback, Episode } from '../types';
+import { IDfromEpisode } from "../id";
+import { useGetter } from "../getter-context";
+import { CustomInput } from "../custom_env_inputs/custom_input_mapping";
 
-// Integrated demonstration and corrective components
-const DemoGenerator: React.FC<{ targetId: string; onSubmit: (fb: Feedback) => void }> = ({ targetId, onSubmit }) => {
-  const [loading, setLoading] = useState(false);
-  
-  const handleGenerate = async () => {
-    setLoading(true);
-    // Simulate generation (replace with actual API call)
-    setTimeout(() => {
-      const fb: Feedback = {
-        feedback_type: FeedbackType.Demonstrative,
-        targets: [{ target_id: targetId, reference: null as any, origin: 'offline', timestamp: Date.now() }],
-        granularity: 'episode',
-        timestamp: Date.now(),
-        session_id: '' as any
-      };
-      onSubmit(fb);
-      setLoading(false);
-    }, 1500);
-  };
-  
-  return (
-    <Box sx={{ p: 2, border: '1px dashed', borderRadius: 1, textAlign: 'center' }}>
-      <Typography variant="body2" gutterBottom>
-        Generate a demonstration starting from this coordinate
-      </Typography>
-      <Button variant="outlined" onClick={handleGenerate} disabled={loading}>
-        {loading ? 'Generating...' : 'Generate Demonstration'}
-      </Button>
-    </Box>
-  );
-};
-
-// Correction input component
-const CorrectionInput: React.FC<{ targetId: string; onSubmit: (text: string) => void }> = ({ targetId, onSubmit }) => {
-  const [text, setText] = useState('');
-  
-  return (
-    <Box sx={{ p: 2, border: '1px solid', borderRadius: 1 }}>
-      <Typography variant="h6" gutterBottom>State Correction</Typography>
-      <TextField
-        fullWidth
-        multiline
-        rows={3}
-        placeholder="Describe what the agent should do differently in this state..."
-        value={text}
-        onChange={e => setText(e.target.value)}
-        variant="outlined"
-        sx={{ mb: 2 }}
-      />
-      <Box sx={{ textAlign: 'right' }}>
-        <Button
-          variant="contained"
-          onClick={() => onSubmit(text)}
-          disabled={!text.trim()}
-        >
-          Submit Correction
-        </Button>
-      </Box>
-    </Box>
-  );
+// Helper function to map feedback type to category
+const getFeedbackCategory = (feedbackType: FeedbackType, selectionType?: string): string => {
+  switch (feedbackType) {
+    case FeedbackType.Evaluative:
+      return selectionType === 'cluster' ? 'Cluster' : 'Rating';
+    case FeedbackType.Comparative:
+      return 'Comparison';
+    case FeedbackType.Corrective:
+      return 'Correction';
+    case FeedbackType.Demonstrative:
+      return 'Demo';
+    default:
+      return 'Rating';
+  }
 };
 
 const FeedbackInput = () => {
   const theme = useTheme();
-  const { sessionId } = useAppState();
+  const { sessionId, episodeIDsChronologically, selectedExperiment } = useAppState();
   const appDispatch = useAppDispatch();
   const activeState = useActiveLearningState();
   const activeDispatch = useActiveLearningDispatch();
+  const { getVideoURL } = useGetter();
 
+  // Local state
   const selection = activeState.selection || [];
   const [value, setValue] = useState(5);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [correctionText, setCorrectionText] = useState('');
+  const [videoURLs, setVideoURLs] = useState<Map<string, string>>(new Map());
+  const [currentPlaying, setCurrentPlaying] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  
+  // Demo and correction specific states
+  const [demoSession, setDemoSession] = useState<any>(null);
+  const [demoRenderURL, setDemoRenderURL] = useState<string>('');
+  const [tabValue, setTabValue] = useState(0);
+  const [demoAction, setDemoAction] = useState<number | number[] | null>(null);
+  const [actionSpace, setActionSpace] = useState<any>(null);
+  const [stepCount, setStepCount] = useState(0);
+  const [episodeDone, setEpisodeDone] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // When the component mounts, auto-fit content
+  useEffect(() => {
+    if (containerRef.current) {
+      // Set initial height based on container
+      const containerHeight = containerRef.current.clientHeight;
+      console.log("Container height:", containerHeight);
+    }
+  }, []);
 
   // Reset state when selection changes
   useEffect(() => {
     setValue(5);
     setChosenId(null);
     setSubmitted(false);
+    setCorrectionText('');
+    setTabValue(0);
+    setDemoSession(null);
+    setDemoRenderURL('');
+    setDemoAction(null);
+    setActionSpace(null);
+    setStepCount(0);
+    setEpisodeDone(false);
   }, [selection]);
 
   // Extract selection type and data
-  const getSelectionData = () => {
+  const selectionData = useMemo(() => {
     if (selection.length === 0) return { type: 'none', data: [] };
     if (selection.length === 1) {
       const item = selection[0];
@@ -111,9 +110,35 @@ const FeedbackInput = () => {
       return { type: 'multi_trajectory', data: selection.map(item => item.data) };
     }
     return { type: 'mixed', data: selection };
-  };
+  }, [selection]);
 
-  const selectionData = getSelectionData();
+  // Fetch video URLs for trajectories
+  useEffect(() => {
+    if (selectionData.type === 'trajectory' || selectionData.type === 'multi_trajectory') {
+      const fetchVideos = async () => {
+        setLoading(true);
+        const newVideoURLMap = new Map<string, string>();
+        
+        for (const idx of selectionData.data) {
+          if (typeof idx === 'number' && episodeIDsChronologically[idx]) {
+            const episode = episodeIDsChronologically[idx];
+            const episodeID = IDfromEpisode(episode);
+            try {
+              const url = await getVideoURL(episodeID);
+              newVideoURLMap.set(episodeID, url);
+            } catch (error) {
+              console.error("Error fetching video:", error);
+            }
+          }
+        }
+        
+        setVideoURLs(newVideoURLMap);
+        setLoading(false);
+      };
+      
+      fetchVideos();
+    }
+  }, [selectionData, episodeIDsChronologically, getVideoURL]);
 
   // Generate target ID based on selection type
   const getId = (selectionType: string, data: any) => {
@@ -131,12 +156,24 @@ const FeedbackInput = () => {
     }
   };
 
+  // Submit feedback to the system
   const submitFeedback = (fb: Feedback) => {
     appDispatch({ type: 'SCHEDULE_FEEDBACK', payload: fb });
+    
+    // Update feedback counts in ActiveLearningContext
+    const category = getFeedbackCategory(fb.feedback_type, 
+      fb.feedback_type === FeedbackType.Evaluative ? selectionData.type : undefined);
+    
+    activeDispatch({ 
+      type: 'UPDATE_FEEDBACK_COUNT', 
+      payload: { category, isCurrentSession: true } 
+    });
+    
     setSubmitted(true);
     setTimeout(() => activeDispatch({ type: 'SET_SELECTION', payload: [] }), 1500);
   };
 
+  // Handle rating submission
   const handleRate = () => {
     const targetId = getId(selectionData.type, selectionData.data[0]);
     const fb: Feedback = {
@@ -150,6 +187,7 @@ const FeedbackInput = () => {
     submitFeedback(fb);
   };
 
+  // Handle comparison submission
   const handleComparison = () => {
     const ids = selectionData.data.map(data => getId('trajectory', data));
     const fb: Feedback = {
@@ -163,7 +201,8 @@ const FeedbackInput = () => {
     submitFeedback(fb);
   };
 
-  const handleCorrect = (text: string) => {
+  // Handle correction submission
+  const handleCorrect = () => {
     const targetId = getId(selectionData.type, selectionData.data[0]);
     const fb: Feedback = {
       feedback_type: FeedbackType.Corrective,
@@ -171,32 +210,264 @@ const FeedbackInput = () => {
       granularity: 'state',
       timestamp: Date.now(),
       session_id: sessionId,
-      correction: text
+      correction: correctionText
     };
     submitFeedback(fb);
+  };
+
+  // Demo session management
+  const initializeDemo = async () => {
+    if (selectionData.type !== 'coordinate') return;
+    
+    setLoading(true);
+    try {
+      const coordinate = selectionData.data[0];
+      const response = await axios.post("/data/initialize_demo_session", {
+        exp_id: selectedExperiment.id,
+        env_id: selectedExperiment.env_id,
+        seed: Math.floor(Math.random() * 1000),
+        session_id: sessionId,
+        coordinate: [coordinate.x, coordinate.y] // Pass coordinates to backend
+      });
+      
+      setDemoSession(response.data);
+      setActionSpace(response.data.action_space);
+      setEpisodeDone(false);
+      setStepCount(0);
+      
+      // Fetch initial image
+      fetchDemoImage();
+    } catch (error) {
+      console.error("Error initializing demo:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchDemoImage = async () => {
+    try {
+      const response = await axios.get(`data/get_demo_image?session_id=${sessionId}`, {
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(response.data);
+      setDemoRenderURL(url);
+    } catch (error) {
+      console.error("Error fetching demo image:", error);
+    }
+  };
+
+  const performDemoAction = async (action: number | number[]) => {
+    setDemoAction(action);
+    try {
+      const response = await axios.post("/data/demo_step", {
+        session_id: sessionId,
+        action,
+      });
+      
+      setDemoSession({
+        ...demoSession,
+        step: response.data.step
+      });
+      setStepCount(stepCount + 1);
+      setEpisodeDone(response.data.step.done);
+      
+      // Fetch updated image
+      fetchDemoImage();
+    } catch (error) {
+      console.error("Error performing demo action:", error);
+    }
+  };
+
+  const submitDemo = () => {
+    if (!demoSession) return;
+    
+    const fb: Feedback = {
+      feedback_type: FeedbackType.Demonstrative,
+      targets: [
+        {
+          target_id: `${selectedExperiment.env_id}_generated_-1-1${demoSession.demo_number}`,
+          reference: {
+            env_name: selectedExperiment.env_id,
+            benchmark_type: "generated",
+            benchmark_id: -1,
+            checkpoint_step: -1,
+            episode_num: demoSession.demo_number,
+          },
+          origin: "generated",
+          timestamp: Date.now(),
+        },
+      ],
+      granularity: "episode",
+      timestamp: Date.now(),
+      session_id: sessionId,
+    };
+    
+    submitFeedback(fb);
+  };
+
+  // Cleanup function to reset state when component unmounts
+  useEffect(() => {
+    return () => {
+      // Clean up demo session
+      if (demoSession) {
+        axios.post("/data/end_demo_session", {
+          session_id: sessionId,
+          pid: demoSession.pid,
+        }).catch(error => console.error("Error ending demo session:", error));
+      }
+      
+      // Clean up video URLs
+      Array.from(videoURLs.values()).forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+    };
+  }, [demoSession, sessionId, videoURLs]);
+
+  // Color generator for trajectory items
+  const getEpisodeColor = useCallback((episodeIdx: number) => {
+    return d3.interpolateCool(episodeIdx / Math.max(1, episodeIDsChronologically.length - 1));
+  }, [episodeIDsChronologically.length]);
+
+  // Get video element for an episode
+  const getVideoElement = (episode: Episode, index: number, small = false) => {
+    const episodeId = IDfromEpisode(episode);
+    const videoUrl = videoURLs.get(episodeId);
+    
+    return (
+      <Box 
+        sx={{ 
+          position: 'relative',
+          width: '100%',
+          border: `3px solid ${getEpisodeColor(index)}`,
+          borderRadius: 1,
+          overflow: 'hidden',
+          aspectRatio: '16/9', // Fixed aspect ratio for consistent sizing
+          margin: '0 auto', // Center the video container
+          maxWidth: small ? '200px' : '300px', // Limit maximum width
+        }}
+      >
+        {videoUrl ? (
+          <>
+            <video
+              src={videoUrl}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }} // Changed to 'contain' to prevent stretching
+              muted
+              autoPlay={currentPlaying === index}
+              loop={currentPlaying === index}
+              ref={el => {
+                if (el && currentPlaying === index) {
+                  el.play().catch(e => console.error("Video play error:", e));
+                }
+              }}
+            />
+            <IconButton 
+              size="small" // Smaller button
+              sx={{ 
+                position: 'absolute',
+                bottom: 4,
+                right: 4,
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                color: 'white',
+                '&:hover': { backgroundColor: 'rgba(0,0,0,0.7)' },
+                padding: '4px', // Less padding for the button
+              }}
+              onClick={() => setCurrentPlaying(currentPlaying === index ? null : index)}
+            >
+              <PlayArrow fontSize="small" />
+            </IconButton>
+          </>
+        ) : (
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            height: '100%',
+            bgcolor: 'rgba(0,0,0,0.05)'
+          }}>
+            {loading ? <CircularProgress size={24} /> : "No video available"}
+          </Box>
+        )}
+        <Box 
+          sx={{ 
+            position: 'absolute', 
+            top: 4,
+            left: 4,
+            backgroundColor: getEpisodeColor(index),
+            color: 'white',
+            borderRadius: 1,
+            px: 1,
+            py: 0.3, // Reduced padding
+            fontSize: '0.7rem', // Smaller font
+          }}
+        >
+          Episode {episode.episode_num}
+        </Box>
+      </Box>
+    );
+  };
+
+  // Tab change handler for demo interface
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
   };
 
   // Render different interfaces based on selection type
   const renderFeedbackInterface = () => {
     if (submitted) {
-      return <Alert severity="success">Feedback submitted successfully!</Alert>;
+      return (
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center',
+          height: '100%'
+        }}>
+          <Alert 
+            severity="success" 
+            sx={{ 
+              width: '90%', 
+              '& .MuiAlert-message': { 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center'
+              }
+            }}
+          >
+            Feedback submitted successfully!
+          </Alert>
+        </Box>
+      );
     }
 
     switch (selectionData.type) {
       case 'none':
         return (
-          <Typography>
-            Select items from the visualization to provide feedback.
-          </Typography>
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center',
+            height: '100%'
+          }}>
+            <Typography variant="body2" color="text.secondary" align="center">
+              Select items from the visualization to provide feedback
+            </Typography>
+          </Box>
         );
 
       case 'trajectory':
+        const episode = episodeIDsChronologically[selectionData.data[0]];
+        
         return (
-          <Box>
+          <Box sx={{ overflow: 'hidden' }}> {/* Fixed height constraint */}
             <Typography variant="h6" gutterBottom>Rate this trajectory</Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', my: 2 }}>
+            
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+              {episode && getVideoElement(episode, selectionData.data[0])}
+            </Box>
+            
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <ThumbDown 
-                sx={{ cursor: 'pointer', mr: 2 }} 
+                sx={{ cursor: 'pointer', mr: 1 }} 
+                fontSize="small"
                 onClick={() => setValue(v => Math.max(0, v-1))} 
               />
               <Slider
@@ -205,18 +476,20 @@ const FeedbackInput = () => {
                 max={10}
                 step={1}
                 marks
+                size="small"
                 valueLabelDisplay="auto"
                 onChange={(_, v) => setValue(v as number)}
-                sx={{ mx: 2 }}
+                sx={{ mx: 1 }}
               />
               <ThumbUp 
-                sx={{ cursor: 'pointer', ml: 2 }} 
+                sx={{ cursor: 'pointer', ml: 1 }} 
+                fontSize="small"
                 onClick={() => setValue(v => Math.min(10, v+1))} 
               />
-              <Typography sx={{ ml: 2 }}>{value}/10</Typography>
+              <Typography variant="body2" sx={{ ml: 1, minWidth: '30px', textAlign: 'center' }}>{value}/10</Typography>
             </Box>
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-              <Button variant="contained" onClick={handleRate}>
+              <Button variant="contained" size="small" onClick={handleRate}>
                 Submit Rating
               </Button>
             </Box>
@@ -225,45 +498,122 @@ const FeedbackInput = () => {
 
       case 'multi_trajectory':
         return (
-          <Box>
-            <Typography variant="h6" gutterBottom>Select the best Episode</Typography>
-            <RadioGroup value={chosenId} onChange={e => setChosenId(e.target.value)}>
-              <Grid container spacing={2}>
-                {selectionData.data.map((trajectoryIdx, i) => {
-                  const id = getId('trajectory', trajectoryIdx);
-                  return (
-                    <Grid item xs={12} key={i}>
-                      <FormControlLabel 
-                        value={id} 
-                        control={<Radio />} 
-                        label={`Episode ${trajectoryIdx}`} 
-                      />
-                    </Grid>
-                  );
-                })}
-              </Grid>
-            </RadioGroup>
+          <Box sx={{ overflow: 'hidden' }}> {/* Fixed height container with no scroll */}
+            <Typography variant="h6" gutterBottom>Select the best episode</Typography>
+            
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: 'row', 
+              gap: 2, 
+              justifyContent: 'center',
+              overflowX: 'auto', // Horizontal scroll if needed
+              pb: 1 // Add padding for scrollbar
+            }}>
+              {selectionData.data.map((trajectoryIdx, i) => {
+                if (typeof trajectoryIdx !== 'number') return null;
+                
+                const episode = episodeIDsChronologically[trajectoryIdx];
+                if (!episode) return null;
+                
+                const id = getId('trajectory', trajectoryIdx);
+                
+                return (
+                  <Box key={i} sx={{ 
+                    minWidth: '180px', 
+                    maxWidth: '220px',
+                    flex: '1 0 auto' 
+                  }}>
+                    <Paper
+                      elevation={chosenId === id ? 3 : 1}
+                      sx={{
+                        p: 1,
+                        border: chosenId === id ? `2px solid ${theme.palette.primary.main}` : 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: 2
+                        },
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column'
+                      }}
+                      onClick={() => setChosenId(id)}
+                    >
+                      {getVideoElement(episode, trajectoryIdx, true)}
+                      <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                        <Radio 
+                          checked={chosenId === id}
+                          onChange={() => setChosenId(id)}
+                          size="small"
+                          sx={{ p: 0.5 }}
+                        />
+                        <Typography variant="body2" sx={{ ml: 1 }}>
+                          Select #{episode.episode_num}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Box>
+                );
+              })}
+            </Box>
+            
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
               <Button 
                 variant="contained" 
                 onClick={handleComparison} 
                 disabled={!chosenId}
+                size="small"
               >
-                Submit Best Trajectory
+                Submit Selection
               </Button>
             </Box>
           </Box>
         );
 
       case 'state':
-        const stateId = getId(selectionData.type, selectionData.data[0]);
+        const stateData = selectionData.data[0];
+        
         return (
-          <Box>
+          <Box sx={{ overflow: 'auto' }}> {/* Allow scrolling if needed but limit height */}
             <Typography variant="h6" gutterBottom>Provide state correction</Typography>
-            <CorrectionInput 
-              targetId={stateId} 
-              onSubmit={handleCorrect} 
-            />
+            <Paper
+              elevation={2}
+              sx={{
+                p: 1.5,
+                mb: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+                bgcolor: 'background.paper'
+              }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                State coordinates: [{stateData[0].toFixed(2)}, {stateData[1].toFixed(2)}]
+              </Typography>
+              
+              <TextField
+                fullWidth
+                multiline
+                rows={2} // Reduced number of rows
+                placeholder="Describe what the agent should do differently in this state..."
+                value={correctionText}
+                onChange={e => setCorrectionText(e.target.value)}
+                variant="outlined"
+                size="small"
+                sx={{ my: 1 }}
+              />
+              
+              <Button
+                variant="contained"
+                size="small"
+                endIcon={<Send />}
+                onClick={handleCorrect}
+                disabled={!correctionText.trim()}
+              >
+                Submit Correction
+              </Button>
+            </Paper>
           </Box>
         );
 
@@ -293,7 +643,7 @@ const FeedbackInput = () => {
               <Typography sx={{ ml: 2 }}>{value}/10</Typography>
             </Box>
             <Typography variant="caption" display="block" sx={{ mb: 2, textAlign: 'center' }}>
-              Rating applies to all states in the cluster
+              Rating applies to all {selectionData.data.length} states in the cluster
             </Typography>
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
               <Button variant="contained" onClick={handleRate}>
@@ -304,14 +654,157 @@ const FeedbackInput = () => {
         );
 
       case 'coordinate':
-        const coordinateId = getId(selectionData.type, selectionData.data[0]);
+        const coordinate = selectionData.data[0];
+        
         return (
-          <Box>
-            <Typography variant="h6" gutterBottom>Generate demonstration from new coordinate</Typography>
-            <DemoGenerator 
-              targetId={coordinateId} 
-              onSubmit={submitFeedback} 
-            />
+          <Box sx={{ 
+            overflow: demoSession ? 'auto' : 'hidden' // Allow scroll only when demo is active
+          }}>
+            <Typography variant="h6" gutterBottom fontSize="0.95rem">
+              Demo from [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
+            </Typography>
+            
+            {!demoSession ? (
+              <Button 
+                variant="contained" 
+                onClick={initializeDemo}
+                disabled={loading}
+                size="small"
+                sx={{ mt: 1 }}
+              >
+                {loading ? <CircularProgress size={20} /> : "Start Demo"}
+              </Button>
+            ) : (
+              <Box sx={{ width: '100%' }}>
+                <Paper
+                  elevation={2}
+                  sx={{
+                    mt: 1,
+                    overflow: 'hidden',
+                    borderRadius: 1
+                  }}
+                >
+                  <Tabs 
+                    value={tabValue} 
+                    onChange={handleTabChange} 
+                    centered
+                    variant="fullWidth"
+                  >
+                    <Tab label="Demo" sx={{ py: 0.5, minHeight: '36px' }} />
+                    <Tab label="Info" sx={{ py: 0.5, minHeight: '36px' }} />
+                  </Tabs>
+                  
+                  <Divider />
+                  
+                  <Box sx={{ p: 1 }}>
+                    {tabValue === 0 && (
+                      <Box>
+                        {demoRenderURL ? (
+                          <Box sx={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center', 
+                            gap: 1
+                          }}>
+                            <img 
+                              src={demoRenderURL} 
+                              alt="Demo environment" 
+                              style={{ 
+                                maxWidth: '100%', 
+                                objectFit: 'contain',
+                                border: '1px solid',
+                                borderColor: theme.palette.divider
+                              }}
+                            />
+                            
+                            {episodeDone ? (
+                              <Alert 
+                                severity="info" 
+                                sx={{ 
+                                  width: '100%', 
+                                  py: 0, // Reduced padding
+                                  '& .MuiAlert-message': { padding: '4px 0' } 
+                                }}
+                              >
+                                <Typography variant="caption">Episode completed ({stepCount} steps)</Typography>
+                              </Alert>
+                            ) : (
+                              actionSpace && (
+                                <Box sx={{ 
+                                  width: '100%', 
+                                  display: 'flex',
+                                  justifyContent: 'center'
+                                }}>
+                                  <CustomInput
+                                    space={actionSpace}
+                                    custom_input={'minatar_keys'}
+                                    inputProps={{}}
+                                    setFeedback={performDemoAction}
+                                  />
+                                </Box>
+                              )
+                            )}
+                          </Box>
+                        ) : (
+                          <Box sx={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            height: '100px'
+                          }}>
+                            <CircularProgress size={20} />
+                          </Box>
+                        )}
+                      </Box>
+                    )}
+                    
+                    {tabValue === 1 && (
+                      <Box sx={{ fontSize: '0.85rem', py: 0.5 }}>
+                        <Typography variant="caption" display="block">
+                          Environment: {selectedExperiment.env_id}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          Steps: {stepCount}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          Status: {episodeDone ? "Completed" : "In Progress"}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                  
+                  <Divider />
+                  
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1 }}>
+                    <Button 
+                      startIcon={<Close />}
+                      size="small"
+                      onClick={() => {
+                        if (demoSession) {
+                          axios.post("/data/end_demo_session", {
+                            session_id: sessionId,
+                            pid: demoSession.pid,
+                          }).catch(error => console.error("Error ending demo session:", error));
+                          setDemoSession(null);
+                          setDemoRenderURL('');
+                        }
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    
+                    <Button 
+                      variant="contained"
+                      size="small"
+                      disabled={!episodeDone}
+                      onClick={submitDemo}
+                    >
+                      Submit Demo
+                    </Button>
+                  </Box>
+                </Paper>
+              </Box>
+            )}
           </Box>
         );
 
@@ -325,7 +818,33 @@ const FeedbackInput = () => {
   };
 
   return (
-    <Box sx={{ mt: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box 
+      ref={containerRef}
+      sx={{ 
+        height: '100%', 
+        display: 'flex', 
+        flexDirection: 'column',
+        p: 1,
+        overflow: 'hidden', // Prevent overall scrolling
+        position: 'relative' // For proper child positioning
+      }}
+    >
+      {loading && (
+        <Box sx={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          bgcolor: 'rgba(255, 255, 255, 0.7)',
+          zIndex: 10
+        }}>
+          <CircularProgress size={24} />
+        </Box>
+      )}
       {renderFeedbackInterface()}
     </Box>
   );

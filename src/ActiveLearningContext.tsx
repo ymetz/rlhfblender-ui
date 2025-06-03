@@ -4,6 +4,7 @@ import { Episode } from "./types";
 export interface ActiveLearningState {
   // Original state properties
   currentPhase: number;
+  progressTrainingSteps: number[];
   progressRewards: number[];
   progressUncertainties: number[];
   selection: {type: string, data: any[] | any}[];
@@ -47,11 +48,19 @@ export interface ActiveLearningState {
   actionData: any[];
   currentRewardData: number[];
 
-  episodeIndices: number[]; 
+  episodeIndices: number[];
+  
+  // Feedback tracking
+  feedbackCounts: {
+    category: string;
+    total: number;
+    current: number;
+  }[];
 }
 
 type ActiveLearningAction =
   | { type: "SET_CURRENT_PHASE"; payload: number }
+  | { type: "SET_PROGRESS_TRAINING_STEPS"; payload: number[] }
   | { type: "SET_PROGRESS_REWARDS"; payload: number[] }
   | { type: "SET_PROGRESS_UNCERTAINTIES"; payload: number[] }
   | { type: "SET_SELECTION"; payload: {type: string, data: any[]}[]}
@@ -84,11 +93,14 @@ type ActiveLearningAction =
   | { type: "SET_INFO_TYPES"; payload: string[] }
   | { type: "SET_ACTION_DATA"; payload: any[] }
   | { type: "SET_CURRENT_REWARD_DATA"; payload: number[] }
-  | { type: 'SET_EPISODE_INDICES', payload: number[] };
+  | { type: 'SET_EPISODE_INDICES', payload: number[] }
+  | { type: 'SET_FEEDBACK_COUNTS', payload: { category: string; total: number; current: number; }[] }
+  | { type: 'UPDATE_FEEDBACK_COUNT', payload: { category: string; isCurrentSession: boolean } };
 
 const initialState: ActiveLearningState = {
   // Original state
   currentPhase: 0,
+  progressTrainingSteps: [],
   progressRewards: [],
   progressUncertainties: [],
   selection: [],
@@ -123,6 +135,15 @@ const initialState: ActiveLearningState = {
   actionData: [],
   currentRewardData: [],
   episodeIndices: [],
+  
+  // Feedback tracking
+  feedbackCounts: [
+    { category: 'Rating', total: 0, current: 0 },
+    { category: 'Comparison', total: 0, current: 0 },
+    { category: 'Correction', total: 0, current: 0 },
+    { category: 'Demo', total: 0, current: 0 },
+    { category: 'Cluster', total: 0, current: 0 },
+  ],
 };
 
 const ActiveLearningContext = createContext<ActiveLearningState | undefined>(
@@ -141,6 +162,8 @@ function activeLearningReducer(
     // Original cases
     case "SET_CURRENT_PHASE":
       return { ...state, currentPhase: action.payload };
+    case "SET_PROGRESS_TRAINING_STEPS":
+      return { ...state, progressTrainingSteps: action.payload };
     case "SET_PROGRESS_REWARDS":
       return { ...state, progressRewards: action.payload };
     case "SET_PROGRESS_UNCERTAINTIES":
@@ -162,11 +185,6 @@ function activeLearningReducer(
       return { ...state, grid_prediction_image: action.payload };
     case "SET_GRID_UNCERTAINTY_IMAGE":
       return { ...state, grid_uncertainty_image: action.payload };
-    case 'SET_PROJECTION_STATES':
-        return {
-          ...state,
-          projectionStates: action.payload
-        };
 
     // New cases
     case "SET_EMBEDDING_DATA":
@@ -208,7 +226,23 @@ function activeLearningReducer(
     case "SET_CURRENT_REWARD_DATA":
       return { ...state, currentRewardData: action.payload };
     case "SET_EPISODE_INDICES":
-      return { ...state, episodeIndices: action.payload };   
+      return { ...state, episodeIndices: action.payload };
+    case "SET_FEEDBACK_COUNTS":
+      return { ...state, feedbackCounts: action.payload };
+    case "UPDATE_FEEDBACK_COUNT": {
+      const { category, isCurrentSession } = action.payload;
+      const updatedCounts = state.feedbackCounts.map(item => {
+        if (item.category === category) {
+          if (isCurrentSession) {
+            return { ...item, current: item.current + 1, total: item.total + 1 };
+          } else {
+            return { ...item, total: item.total + 1 };
+          }
+        }
+        return item;
+      });
+      return { ...state, feedbackCounts: updatedCounts };
+    }
     default:
       throw new Error(`Unhandled action type: ${(action as any).type}`);
   }

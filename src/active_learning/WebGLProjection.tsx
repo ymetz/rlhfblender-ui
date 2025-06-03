@@ -491,7 +491,7 @@ const WebGLProjection = (props) => {
             env_name: props.environment,
             benchmark_type: "random",
             benchmark_id: props.benchmarkId,
-            checkpoint_step: -1,
+            checkpoint_step: props.selectedCheckpoint,
             projection_method: embedding_method,
             sequence_length: embeddingSequenceLength,
             step_range: '[]',

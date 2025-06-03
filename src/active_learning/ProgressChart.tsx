@@ -9,42 +9,9 @@ import { max, extent, bisector } from 'd3-array';
 import { localPoint } from '@visx/event';
 import { Group } from '@visx/group';
 import { AxisLeft, AxisBottom } from '@visx/axis';
-import { scaleOrdinal } from '@visx/scale';
 import { ParentSize } from '@visx/responsive';
 
-// Generate dummy data
-const generateData = () => {
-  const checkpoints = [100000, 250000, 500000, 750000, 1000000];
-  return checkpoints.map(step => ({
-    step,
-    reward: 0.5 + 0.4 * (step / 1000000), // Increase reward over time (0.5 to 0.9)
-    uncertainty: 0.4 - 0.3 * (step / 1000000) // Decrease uncertainty over time (0.4 to 0.1)
-  }));
-};
-
-// Helper to ensure data is in the right format
-const formatData = (inputData) => {
-  // If no data or not an array, use the dummy data
-  if (!inputData || !Array.isArray(inputData)) {
-    return generateData();
-  }
   
-  // If the data doesn't have step/reward/uncertainty properties, try to adapt it
-  // This handles the case where data might be in a different format like {x, y}
-  if (inputData.length > 0) {
-    if (inputData[0].step === undefined && inputData[0].x !== undefined) {
-      return inputData.map((d, i) => ({
-        step: d.x * 100000, // Scale x values to checkpoint steps
-        reward: d.y / 10, // Scale y values to reward range (0-1)
-        uncertainty: Math.max(0.5 - (d.y / 20), 0.1) // Create inverse for uncertainty
-      }));
-    }
-  }
-  
-  // Return the original data if it seems to be in the correct format
-  return inputData;
-};
-
 // Accessors - with safety checks
 const getStep = d => (d && d.step !== undefined) ? d.step : 0;
 const getReward = d => (d && d.reward !== undefined) ? d.reward : 0;
@@ -79,8 +46,6 @@ const Chart = withTooltip(
     tooltipLeft = 0,
     tooltipTop = 0,
   }) => {
-    // Ensure data is formatted correctly
-    const formattedData = formatData(data);
     // Margins - adjusted to give more room at the bottom
     const margin = { top: 20, right: 40, bottom: 40, left: 60 };
     
@@ -91,19 +56,19 @@ const Chart = withTooltip(
     // Scales
     const xScale = scaleLinear({
       range: [0, innerWidth],
-      domain: extent(formattedData, getStep),
+      domain: extent(data, getStep),
       nice: true,
     });
 
     const rewardScale = scaleLinear({
       range: [innerHeight, 0],
-      domain: [0, Math.max(max(formattedData, getReward) * 1.1, 1.0)],
+      domain: [0, Math.max(max(data, getReward) * 1.1, 1.0)],
       nice: true,
     });
 
     const uncertaintyScale = scaleLinear({
       range: [innerHeight, 0],
-      domain: [0, Math.max(max(formattedData, getUncertainty) * 1.1, 0.5)],
+      domain: [0, Math.max(max(data, getUncertainty) * 1.1, 0.5)],
       nice: true,
     });
 
@@ -111,14 +76,14 @@ const Chart = withTooltip(
     const handleTooltip = (event) => {
       const { x } = localPoint(event) || { x: 0 };
       const x0 = xScale.invert(x - margin.left);
-      const index = bisectData(formattedData, x0);
+      const index = bisectData(data, x0);
       
-      if (index <= 0 || index >= formattedData.length) {
+      if (index <= 0 || index >= data.length) {
         return; // Protect against out-of-bounds indices
       }
       
-      const d0 = formattedData[index - 1];
-      const d1 = formattedData[index];
+      const d0 = data[index - 1];
+      const d1 = data[index];
       
       let d = d0;
       if (d1 && getStep(d1)) {
@@ -133,7 +98,7 @@ const Chart = withTooltip(
     };
 
     // If no data or dimensions, return null
-    if (innerWidth < 0 || innerHeight < 0 || !formattedData || formattedData.length === 0) return null;
+    if (innerWidth < 0 || innerHeight < 0 || !data || data.length === 0) return null;
 
     return (
       <>
@@ -216,7 +181,7 @@ const Chart = withTooltip(
               
               {/* Reward Line */}
               <LinePath
-                data={formattedData}
+                data={data}
                 x={d => xScale(getStep(d))}
                 y={d => rewardScale(getReward(d))}
                 stroke={rewardColor}
@@ -226,7 +191,7 @@ const Chart = withTooltip(
               
               {/* Uncertainty Line */}
               <LinePath
-                data={formattedData}
+                data={data}
                 x={d => xScale(getStep(d))}
                 y={d => uncertaintyScale(getUncertainty(d))}
                 stroke={uncertaintyColor}
@@ -342,9 +307,19 @@ const Chart = withTooltip(
 );
 
 // Main component that follows the pattern from reference code
-const ImprovedProgressChart = ({ data, title }) => {
+const ImprovedProgressChart = ({ steps, rewards, uncertainties, title }) => {
   // Generate default data if none provided
-  const chartData = data || generateData();
+  const chartData =
+    rewards && uncertainties
+      ? steps.map((step, index) => ({
+          step: step,
+          reward: rewards[index] || 0,
+          uncertainty: uncertainties[index] || 0
+        })) : [
+          {step: 0, reward: 0, uncertainty: 0},
+        ];
+
+  console.log("Chart Data:", chartData);
   
   return (
     <Box 

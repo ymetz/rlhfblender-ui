@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Box, Paper, Typography, Button, CircularProgress } from '@mui/material';
+import { Box, Paper, Button, CircularProgress } from '@mui/material';
 import axios from 'axios';
 // Import components
 import ProgressChart from './ProgressChart';
@@ -9,6 +9,8 @@ import FeedbackCounts from './FeedbackCounts';
 import FeedbackInput from './FeedbackInput';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import GridUncertaintyMap from './GridMap';
+import { FeedbackType } from '../types';
+import { useAppState, useAppDispatch } from '../AppStateContext';
 
 
 // define props for the active learning interface, stepSampler function
@@ -20,7 +22,9 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
   const [waiting, setWaiting] = React.useState(false);
   const activeLearningState = useActiveLearningState();
+  const appState = useAppState();
   const activeLearningDispatch = useActiveLearningDispatch();
+  const appStateDispatch = useAppDispatch();
 
   // When we continue, the backend "trains the model" and then we can ask for the next batch of data
 
@@ -38,29 +42,62 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   const handleContinue = async () => {
     setWaiting(true);
     try {
-      const response = await axios.post('http://localhost:5000/data/train_iteration');
+      // First, train the current iteration
+      const response = await axios.post('/data/train_iteration?session_id=' + appState.sessionId + '&experiment_id=' + appState.selectedExperiment.id);
       const data = response.data;
 
-      // Assuming the response contains the new data
-      activeLearningDispatch({ type: 'SET_PROGRESS_REWARDS', payload: data.progressRewards });
-      activeLearningDispatch({ type: 'SET_PROGRESS_UNCERTAINTIES', payload: data.progressUncertainties });
+      // Update progress data
+      const { phaseStatus, phaseTrainingStep, phaseReward, phaseUncertainty } = data;
+      const updatedTrainingSteps = [...activeLearningState.progressTrainingSteps, phaseTrainingStep];
+      const updatedProgressRewards = [...activeLearningState.progressRewards, phaseReward];
+      const updatedProgressUncertainties = [...activeLearningState.progressUncertainties, phaseUncertainty];
 
-      stepSampler();
+      activeLearningDispatch({ type: 'SET_PROGRESS_TRAINING_STEPS', payload: updatedTrainingSteps });
+      activeLearningDispatch({ type: 'SET_PROGRESS_REWARDS', payload: updatedProgressRewards });
+      activeLearningDispatch({ type: 'SET_PROGRESS_UNCERTAINTIES', payload: updatedProgressUncertainties });
+
+      // Update the current phase
+      activeLearningDispatch({ 
+        type: 'SET_CURRENT_PHASE', 
+        payload: activeLearningState.currentPhase + 1 
+      });
+
+      // Reset current session feedback counts
+      const updatedFeedbackCounts = activeLearningState.feedbackCounts.map(item => ({
+        ...item,
+        total: item.total,
+        current: 0
+      }));
+      
+      activeLearningDispatch({ 
+        type: 'SET_FEEDBACK_COUNTS', 
+        payload: updatedFeedbackCounts 
+      });
+
+      // Find the next checkpoint
+      const checkpoints = appState.selectedExperiment.checkpoint_list || [];
+      const currentIndex = checkpoints.indexOf(appState.selectedCheckpoint.toString());
+      console.log("Current Phase:", checkpoints, currentIndex, appState.selectedCheckpoint);
+      
+      if (currentIndex < checkpoints.length - 1) {
+        // Move to the next checkpoint
+        const nextCheckpoint = checkpoints[currentIndex + 1];
+        await appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: nextCheckpoint });
+      }
+      
+      // Use the existing stepSampler function to advance to the next batch
+      // This will handle getting episodes and updating the UI
+      await stepSampler();
 
     } catch (error) {
       console.error('Error during continue:', error);
     } finally {
       setWaiting(false);
     }
-  }
+};
 
-  const feedbackData = [
-    { category: 'Rating', total: 18, current: 5 },
-    { category: 'Comparison', total: 12, current: 3 },
-    { category: 'Correction', total: 4, current: 1 },
-    { category: 'Demo', total: 6, current: 1 },
-    { category: 'Cluster', total: 10, current: 3 },
-  ];
+  // Use the feedback counts from the active learning state
+  const feedbackData = activeLearningState.feedbackCounts;
 
   return (
     <Box
@@ -101,19 +138,9 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             }}
           >
             <ProgressChart
-              data={[
-                { x: 1, y: 14 },
-                { x: 2, y: 10 },
-                { x: 3, y: 9 },
-                { x: 4, y: 7 },
-                { x: 5, y: 2 },
-                { x: 6, y: 4 },
-                { x: 7, y: 8 },
-                { x: 8, y: 3 },
-                { x: 9, y: 1 },
-                { x: 10, y: 5 },
-                { x: 11, y: 6 },
-              ]}
+              steps={activeLearningState.progressTrainingSteps}
+              rewards={activeLearningState.progressRewards}
+              uncertainties={activeLearningState.progressUncertainties}
               title="Training Progress"
             />
           </Box>

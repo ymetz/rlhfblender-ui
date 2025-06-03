@@ -340,7 +340,7 @@ const App: React.FC = () => {
       // Log step as meta feedback
       const stepFeedback: Feedback = {
         experiment_id: state.selectedExperiment.id,
-        session_id: stepResponse.data.session_id,
+        session_id: state.sessionId,
         feedback_type: FeedbackType.Meta,
         granularity: "entire",
         timestamp: Date.now(),

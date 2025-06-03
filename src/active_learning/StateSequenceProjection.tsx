@@ -65,29 +65,29 @@ const ColorLegend = ({ minMax, width, title }) => {
                 .x(10)
                 .y(25)
                 .format(".2f")
-                
+
 
             svg.call(arc_legend);
 
             svg.selectAll('.arc-label text')
                 .style('font-size', '9px');
-    
+
             // 2. Keep only a subset of the labels (approximately 4)
             const arcLabels = svg.selectAll('.arc-label');
             const totalLabels = arcLabels.size();
-            
+
             if (totalLabels > 4) {
-            // We want to show ~4 labels, so hide the rest
-            const keepEveryNth = Math.ceil(totalLabels / 4);
-            
-            arcLabels.each(function(d, i) {
-                // also hide last label
-                if (i % keepEveryNth !== 1 && i !== totalLabels -2) {
-                // Hide this label and its tick line
-                d3.select(this).select('text').style('display', 'none');
-                d3.select(this).select('line').style('display', 'none');
-                }
-            });
+                // We want to show ~4 labels, so hide the rest
+                const keepEveryNth = Math.ceil(totalLabels / 4);
+
+                arcLabels.each(function (d, i) {
+                    // also hide last label
+                    if (i % keepEveryNth !== 1 && i !== totalLabels - 2) {
+                        // Hide this label and its tick line
+                        d3.select(this).select('text').style('display', 'none');
+                        d3.select(this).select('line').style('display', 'none');
+                    }
+                });
             }
         }
     }, [minMax, width, title]);
@@ -124,7 +124,7 @@ const WebGLProjection = (props) => {
     // Refs
     const embeddingRef = useRef(null);
     const scaleMinMaxRef = useRef(null);
-    
+
     const [minMaxScale, setMinMaxScale] = useState(null);
 
     // Component state variables
@@ -161,7 +161,7 @@ const WebGLProjection = (props) => {
     useEffect(() => {
         selectedCoordinateRef.current = selectedCoordinate;
     }, [selectedCoordinate]);
-    
+
     useEffect(() => {
         selectedClusterRef.current = selectedCluster;
     }, [selectedCluster]);
@@ -208,7 +208,7 @@ const WebGLProjection = (props) => {
 
         const params = {
             benchmark_id: props.benchmarkId,
-            checkpoint_step: 400000,//props.checkpointStep,
+            checkpoint_step: props.checkpointStep,
             projection_method: embedding_method,
             sequence_length: embeddingSequenceLength,
             step_range: '[]',
@@ -322,7 +322,7 @@ const WebGLProjection = (props) => {
                 setError("Failed to load data. Please try again.");
                 setIsLoading(false);
             });
-    }, [embeddingSequenceLength, viewMode, props.benchmarkId, props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkedModels, props.embeddingSettings, props.timeStamp, props.infos, drawChart, activeLearningDispatch]);
+    }, [props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkId, props.checkpointStep, props.embeddingSettings, props.benchmarkedModels, props.infos, props.timeStamp, embeddingSequenceLength, activeLearningDispatch, drawChart, viewMode]);
 
     const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }, predicted_rewards = [], predicted_uncertainties = []) => {
 
@@ -594,10 +594,10 @@ const WebGLProjection = (props) => {
                 selectedCoordinateRef.current = null;
                 setSelectedCluster(null);
                 selectedClusterRef.current = null;
-                
+
                 // Clear any existing coordinate marker
                 view.selectAll('.coordinate-marker').remove();
-                
+
                 // Reset cluster hull strokes
                 /*d3.selectAll(".cluster_hull").style("stroke", function() {
                     const center = d3.polygonCentroid()
@@ -634,7 +634,7 @@ const WebGLProjection = (props) => {
                 selectedStateRef.current = null;
                 setSelectedCluster(null);
                 selectedClusterRef.current = null;
-                
+
                 // Reset cluster hull strokes
                 /*d3.selectAll(".cluster_hull").style("stroke", function() {
                     const center = d3.polygonCentroid(
@@ -652,7 +652,7 @@ const WebGLProjection = (props) => {
                 const crossSize = 8;
                 const markerGroup = view.append("g")
                     .attr("class", "coordinate-marker");
-                
+
                 // Horizontal line
                 markerGroup.append("line")
                     .attr("x1", xScale(xClicked) - crossSize)
@@ -661,7 +661,7 @@ const WebGLProjection = (props) => {
                     .attr("y2", yScale(yClicked))
                     .style("stroke", "black")
                     .style("stroke-width", 2);
-                
+
                 // Vertical line
                 markerGroup.append("line")
                     .attr("x1", xScale(xClicked))
@@ -798,16 +798,16 @@ const WebGLProjection = (props) => {
                     selectedStateRef.current = null;
                     setSelectedCoordinate(null);
                     selectedCoordinateRef.current = null;
-                    
+
                     // Clear any existing coordinate marker
                     view.selectAll('.coordinate-marker').remove();
-                    
+
                     // Reset all cluster strokes first
                     /*d3.selectAll(".cluster_hull").style('stroke', function() {
                         const center = d3.polygonCentroid(d3.select(this).data()[0]);
                         return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
                     });*/
-                    
+
                     // Highlight this cluster
                     d3.select(this).style('opacity', 0.7).style('stroke', "white");
 
@@ -953,7 +953,7 @@ const WebGLProjection = (props) => {
                 const crossSize = 10;
                 const markerGroup = view.append("g")
                     .attr("class", "coordinate-marker");
-                
+
                 // Horizontal line
                 markerGroup.append("line")
                     .attr("x1", xScale(selectedCoordinateRef.current.x) - crossSize)
@@ -962,7 +962,7 @@ const WebGLProjection = (props) => {
                     .attr("y2", yScale(selectedCoordinateRef.current.y))
                     .style("stroke", "red")
                     .style("stroke-width", 2);
-                
+
                 // Vertical line
                 markerGroup.append("line")
                     .attr("x1", xScale(selectedCoordinateRef.current.x))
@@ -1003,13 +1003,22 @@ const WebGLProjection = (props) => {
         };
     }, [props, activeLearningState.grid_prediction_image]);
 
-    // If there's an error, display it
-    if (error) {
-        return <Alert severity="error">{error}</Alert>;
-    }
-
+    // If there's an error, display it along with the Load Data button
+    // Replace the current error return statement with this code:
     return (
         <EmbeddingWrapper>
+            {/* Error alert */}
+            {error && (
+                <Box
+                    position="absolute"
+                    top="50%"
+                    left="50%"
+                    sx={{ transform: 'translate(-50%, -50%)', zIndex: 20 }}
+                >
+                    <Alert severity="error">{error}</Alert>
+                </Box>
+            )}
+
             {/* Loading indicator */}
             {isLoading && (
                 <Box
@@ -1070,7 +1079,7 @@ const WebGLProjection = (props) => {
                             const selectedCoordinate = selectedCoordinateRef.current;
 
                             // add to combined selected if selected
-                            const combinedSelection: { type: string, data: any }[] = [];
+                            const combinedSelection = [];
                             if (selectedTrajectory) {
                                 combinedSelection.push({ type: "trajectory", data: selectedTrajectory });
                             }
@@ -1108,7 +1117,7 @@ const WebGLProjection = (props) => {
                             const selectedState = selectedStateRef.current;
 
                             // add to combined selected if selected
-                            const combinedSelection: { type: string, data: any }[] = [];
+                            const combinedSelection = [];
                             if (selectedState) {
                                 combinedSelection.push({ type: "state", data: selectedState });
                             }
@@ -1130,22 +1139,22 @@ const WebGLProjection = (props) => {
                 </Tooltip>
             </Box>
 
+            {/* Always show the Load Data button */}
             <Box
                 position="absolute"
                 top="10px"
                 left="50px"
-                sx={{ transform: 'translate(-50%, -50%)', zIndex: 10, visible: isLoading ? 'hidden' : 'visible' }}
-
+                sx={{ zIndex: 10 }}
             >
-                <Button variant="contained" color="primary" onClick={loadData}>
-                    Load Data
+                <Button variant="contained" color="primary" onClick={loadData} disabled={isLoading}>
+                    {isLoading ? 'Loading...' : 'Load Data'}
                 </Button>
             </Box>
 
             {/* Legend for object color */}
             {minMaxScale && (
                 <ObjectLegend>
-                    <ColorLegend 
+                    <ColorLegend
                         minMax={minMaxScale}
                         width={240}
                         title="Predicted Reward/Uncertainty"

@@ -287,7 +287,7 @@ const BarChart = ({
               fill="#333"
               dominantBaseline="middle"
             >
-              Previous Sessions
+              Previous Phases
             </text>
           </Group>
           
@@ -307,7 +307,7 @@ const BarChart = ({
               fill="#333"
               dominantBaseline="middle"
             >
-              Current Session
+              Current Phase
             </text>
           </Group>
         </Group>
@@ -325,8 +325,8 @@ const BarChart = ({
             <strong style={{ color: categoryColors[tooltipData.category] || fallbackColor }}>
               {tooltipData.category}
             </strong>
-            <div>Current Session: <span style={{ color: `${categoryColors[tooltipData.category] || fallbackColor}80` }}>{tooltipData.current}</span></div>
-            <div>Other Sessions: <span style={{ color: categoryColors[tooltipData.category] || fallbackColor }}>{tooltipData.rest}</span></div>
+            <div>Current Phase: <span style={{ color: `${categoryColors[tooltipData.category] || fallbackColor}80` }}>{tooltipData.current}</span></div>
+            <div>Other Phases: <span style={{ color: categoryColors[tooltipData.category] || fallbackColor }}>{tooltipData.rest}</span></div>
             <div>All Sessions: {tooltipData.total}</div>
           </div>
         </TooltipWithBounds>
