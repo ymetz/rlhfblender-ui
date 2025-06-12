@@ -10,7 +10,7 @@ type Episode = {
 
 type Target = {
   target_id: string;
-  reference: Episode;
+  reference: Episode | null;
   timestamp: number;
   origin: string;
   step?: number;
@@ -56,7 +56,7 @@ type Experiment = {
   env_id: string;
   framework: string;
   env_config: string;
-  checkpoint_list: number[];
+  checkpoint_list: string[];
 };
 
 type UIConfig = {

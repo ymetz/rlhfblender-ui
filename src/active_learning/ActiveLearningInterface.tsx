@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { Box, Paper, Button, CircularProgress } from '@mui/material';
 import axios from 'axios';
 // Import components
@@ -7,9 +7,10 @@ import ProjectionComponent from './ProjectionComponent';
 import SelectionView from './SelectionView';
 import FeedbackCounts from './FeedbackCounts';
 import FeedbackInput from './FeedbackInput';
+import TrainingProgressBox from './TrainingProgressBox';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import GridUncertaintyMap from './GridMap';
-import { FeedbackType } from '../types';
+import { FeedbackType, Feedback } from '../types';
 import { useAppState, useAppDispatch } from '../AppStateContext';
 
 
@@ -21,79 +22,212 @@ interface ActiveLearningInterfaceProps {
 const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepSampler }) => {
 
   const [waiting, setWaiting] = React.useState(false);
+  const [isTraining, setIsTraining] = React.useState(false);
+  const [trainingStatus, setTrainingStatus] = React.useState({
+    phaseStatus: '',
+    message: '',
+    trainingLoss: 0,
+    validationLoss: 0,
+    uncertainty: 0,
+    avgReward: 0
+  });
+  
   const activeLearningState = useActiveLearningState();
   const appState = useAppState();
   const activeLearningDispatch = useActiveLearningDispatch();
   const appStateDispatch = useAppDispatch();
+  
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // When we continue, the backend "trains the model" and then we can ask for the next batch of data
+  // Function to poll training status and results
+  const pollTrainingProgress = useCallback(async () => {
+    if (!appState.sessionId) return;
 
-  // handle button press, tell server to train the model, set a loading state
-  // when the model is trained, we can ask for the next batch of data
+    try {
+      const [statusResponse, resultsResponse] = await Promise.all([
+        axios.get(`/data/get_training_status?session_id=${appState.sessionId}&phase=${activeLearningState.currentPhase}`),
+        axios.get(`/data/get_training_results?session_id=${appState.sessionId}&phase=${activeLearningState.currentPhase}`)
+      ]);
 
-  /* sets:
+      const statusData = statusResponse.data;
+      const resultsData = resultsResponse.data;
+      
+      console.log(resultsData);
 
-    | { type: "SET_CURRENT_PHASE"; payload: number }
-  | { type: "SET_PROGRESS_REWARDS"; payload: number[] }
-  | { type: "SET_PROGRESS_UNCERTAINTIES"; payload: number[] }
+      setTrainingStatus({
+        phaseStatus: resultsData.phaseStatus || statusData.status,
+        message: resultsData.message || statusData.message,
+        trainingLoss: resultsData.training_loss || 0,
+        validationLoss: resultsData.validation_loss || 0,
+        uncertainty: resultsData.phaseUncertainty || 0,
+        avgReward: resultsData.phaseReward || 0
+      });
 
-  */
+      // Check if training is complete
+      if (resultsData.phaseStatus === 'completed' || statusData.status === 'completed') {
+        setIsTraining(false);
+        
+        // Stop polling
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+
+        // Update progress data with final results
+        const { phaseUncertainty, phaseReward, phaseTrainingStep } = resultsData;
+        const updatedTrainingSteps = [...activeLearningState.progressTrainingSteps, phaseTrainingStep || 0];
+        const updatedProgressRewards = [...activeLearningState.progressRewards, phaseReward || 0];
+        const updatedProgressUncertainties = [...activeLearningState.progressUncertainties, phaseUncertainty || 0];
+
+        activeLearningDispatch({ type: 'SET_PROGRESS_TRAINING_STEPS', payload: updatedTrainingSteps });
+        activeLearningDispatch({ type: 'SET_PROGRESS_REWARDS', payload: updatedProgressRewards });
+        activeLearningDispatch({ type: 'SET_PROGRESS_UNCERTAINTIES', payload: updatedProgressUncertainties });
+
+        // Update the current phase
+        activeLearningDispatch({ 
+          type: 'SET_CURRENT_PHASE', 
+          payload: activeLearningState.currentPhase + 1 
+        });
+
+        // Reset current session feedback counts
+        const updatedFeedbackCounts = activeLearningState.feedbackCounts.map(item => ({
+          ...item,
+          total: item.total,
+          current: 0
+        }));
+        
+        activeLearningDispatch({ 
+          type: 'SET_FEEDBACK_COUNTS', 
+          payload: updatedFeedbackCounts 
+        });
+
+        // Find the next checkpoint
+        const checkpoints = appState.selectedExperiment.checkpoint_list || [];
+        const currentIndex = checkpoints.indexOf(appState.selectedCheckpoint.toString());
+        
+        if (currentIndex < checkpoints.length - 1) {
+          // Move to the next checkpoint
+          const nextCheckpoint = parseInt(checkpoints[currentIndex + 1]);
+          appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: nextCheckpoint });
+        }
+        
+        // Use the existing stepSampler function to advance to the next batch
+        await stepSampler();
+        setWaiting(false);
+      }
+
+    } catch (error) {
+      console.error('Error polling training progress:', error);
+      
+      // If there's an error, assume training failed
+      setTrainingStatus(prev => ({
+        ...prev,
+        phaseStatus: 'error',
+        message: 'Failed to get training status'
+      }));
+      setIsTraining(false);
+      
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      setWaiting(false);
+    }
+  }, [appState.sessionId, appState.selectedCheckpoint, appState.selectedExperiment.checkpoint_list, activeLearningState, activeLearningDispatch, appStateDispatch, stepSampler]);
+
+  // Start polling function
+  const startPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+    
+    setIsTraining(true);
+    pollingIntervalRef.current = setInterval(pollTrainingProgress, 3000); // Poll every 3 seconds
+  }, [pollTrainingProgress]);
+
+  // Stop polling function
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    setIsTraining(false);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
 
   const handleContinue = async () => {
     setWaiting(true);
     try {
-      // First, train the current iteration
-      const response = await axios.post('/data/train_iteration?session_id=' + appState.sessionId + '&experiment_id=' + appState.selectedExperiment.id);
+      // First, submit any scheduled feedback that hasn't been submitted yet
+      if (appState.scheduledFeedback.length > 0) {
+        console.log("Submitting scheduled feedback:", appState.scheduledFeedback);
+        try {
+          // Create submit meta feedback
+          const submitFeedback: Feedback = {
+            session_id: appState.sessionId,
+            feedback_type: FeedbackType.Meta,
+            granularity: "entire",
+            timestamp: Date.now(),
+            meta_action: "submit",
+            targets: [],
+          };
+          
+          // Include submit feedback in the payload
+          const feedbackToSubmit = [...appState.scheduledFeedback, submitFeedback];
+          
+          // Submit all feedback to server
+          await axios.post("/data/give_feedback", feedbackToSubmit);
+          
+          // Clear scheduled feedback
+          appStateDispatch({ type: "CLEAR_SCHEDULED_FEEDBACK" });
+          
+          console.log("All scheduled feedback submitted successfully");
+        } catch (error) {
+          console.error("Error submitting scheduled feedback:", error);
+        }
+      }
+
+      // Then, train the current iteration
+      const response = await axios.post(`/data/train_iteration?session_id=${appState.sessionId}&experiment_id=${appState.selectedExperiment.id}&phase=${activeLearningState.currentPhase}`);
       const data = response.data;
 
-      // Update progress data
-      const { phaseStatus, phaseTrainingStep, phaseReward, phaseUncertainty } = data;
-      const updatedTrainingSteps = [...activeLearningState.progressTrainingSteps, phaseTrainingStep];
-      const updatedProgressRewards = [...activeLearningState.progressRewards, phaseReward];
-      const updatedProgressUncertainties = [...activeLearningState.progressUncertainties, phaseUncertainty];
+      // Check if training started successfully
+      if (data.phaseStatus === 'training_started') {
+        // Initialize training status
+        setTrainingStatus({
+          phaseStatus: data.phaseStatus,
+          message: data.message,
+          trainingLoss: 0,
+          validationLoss: 0,
+          uncertainty: data.phaseUncertainty || 0,
+          avgReward: data.phaseReward || 0
+        });
 
-      activeLearningDispatch({ type: 'SET_PROGRESS_TRAINING_STEPS', payload: updatedTrainingSteps });
-      activeLearningDispatch({ type: 'SET_PROGRESS_REWARDS', payload: updatedProgressRewards });
-      activeLearningDispatch({ type: 'SET_PROGRESS_UNCERTAINTIES', payload: updatedProgressUncertainties });
-
-      // Update the current phase
-      activeLearningDispatch({ 
-        type: 'SET_CURRENT_PHASE', 
-        payload: activeLearningState.currentPhase + 1 
-      });
-
-      // Reset current session feedback counts
-      const updatedFeedbackCounts = activeLearningState.feedbackCounts.map(item => ({
-        ...item,
-        total: item.total,
-        current: 0
-      }));
-      
-      activeLearningDispatch({ 
-        type: 'SET_FEEDBACK_COUNTS', 
-        payload: updatedFeedbackCounts 
-      });
-
-      // Find the next checkpoint
-      const checkpoints = appState.selectedExperiment.checkpoint_list || [];
-      const currentIndex = checkpoints.indexOf(appState.selectedCheckpoint.toString());
-      console.log("Current Phase:", checkpoints, currentIndex, appState.selectedCheckpoint);
-      
-      if (currentIndex < checkpoints.length - 1) {
-        // Move to the next checkpoint
-        const nextCheckpoint = checkpoints[currentIndex + 1];
-        await appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: nextCheckpoint });
+        // Start polling for progress updates
+        startPolling();
+        
+        // Note: Progress updates and UI state changes will be handled by the polling function
+        // when training completes
+      } else {
+        // If training didn't start properly, handle it like before
+        console.warn('Training did not start properly:', data);
+        setWaiting(false);
       }
-      
-      // Use the existing stepSampler function to advance to the next batch
-      // This will handle getting episodes and updating the UI
-      await stepSampler();
 
     } catch (error) {
       console.error('Error during continue:', error);
-    } finally {
       setWaiting(false);
+      stopPolling();
     }
+    // Note: setWaiting(false) is now handled by the polling function when training completes
 };
 
   // Use the feedback counts from the active learning state
@@ -289,6 +423,18 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           </Button>
         </Paper>
       </Box>
+      
+      {/* Training Progress Box */}
+      <TrainingProgressBox
+        isTraining={isTraining}
+        trainingLoss={trainingStatus.trainingLoss}
+        validationLoss={trainingStatus.validationLoss}
+        phaseStatus={trainingStatus.phaseStatus}
+        message={trainingStatus.message}
+        uncertainty={trainingStatus.uncertainty}
+        avgReward={trainingStatus.avgReward}
+      />
+      
       {waiting && (
         <Box
           sx={{

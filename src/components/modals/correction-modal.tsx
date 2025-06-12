@@ -48,7 +48,7 @@ export default function CorrectionModal(props: CorrectionModalProps) {
         target_id: props.episodeId || "",
         reference: EpisodeFromID(props.episodeId || ""),
         step: props.step,
-        origin: "offline",
+        origin: "online",
         timestamp: Date.now(),
       },
     ],

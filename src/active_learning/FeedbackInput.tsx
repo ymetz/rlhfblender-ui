@@ -25,9 +25,10 @@ import axios from 'axios';
 import { useAppState, useAppDispatch } from '../AppStateContext';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import { FeedbackType, Feedback, Episode } from '../types';
-import { IDfromEpisode } from "../id";
+import { IDfromEpisode, EpisodeFromID } from "../id";
 import { useGetter } from "../getter-context";
 import { CustomInput } from "../custom_env_inputs/custom_input_mapping";
+import WebRTCDemoComponent from './WebRTCDemoComponent';
 
 // Helper function to map feedback type to category
 const getFeedbackCategory = (feedbackType: FeedbackType, selectionType?: string): string => {
@@ -71,6 +72,7 @@ const FeedbackInput = () => {
   const [actionSpace, setActionSpace] = useState<any>(null);
   const [stepCount, setStepCount] = useState(0);
   const [episodeDone, setEpisodeDone] = useState(false);
+  const [useWebRTC, setUseWebRTC] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // When the component mounts, auto-fit content
@@ -95,6 +97,7 @@ const FeedbackInput = () => {
     setActionSpace(null);
     setStepCount(0);
     setEpisodeDone(false);
+    setUseWebRTC(false);
   }, [selection]);
 
   // Extract selection type and data
@@ -140,25 +143,64 @@ const FeedbackInput = () => {
     }
   }, [selectionData, episodeIDsChronologically, getVideoURL]);
 
-  // Generate target ID based on selection type
-  const getId = (selectionType: string, data: any) => {
+  // Generate proper target based on selection type
+  const createTarget = (selectionType: string, data: any, step?: number) => {
     switch (selectionType) {
       case 'trajectory':
-        return `trajectory_${data}`;
+        const episode = episodeIDsChronologically[data];
+        const episodeId = IDfromEpisode(episode);
+        return {
+          target_id: episodeId,
+          reference: episode,
+          origin: "online",
+          timestamp: Date.now(),
+        };
       case 'state':
-        return `state_${data[0]}_${data[1]}`;
+        // For state-level feedback, we need to identify which episode and step this state belongs to
+        // This is a coordinate in the projection space, so we'll use a generic format
+        return {
+          target_id: `state_${data[0]}_${data[1]}`,
+          reference: null, // No specific episode reference for projection coordinates
+          origin: "online", 
+          timestamp: Date.now(),
+          step: step,
+        };
       case 'cluster':
-        return `cluster_${data}`;
+        return {
+          target_id: `cluster_${data}`,
+          reference: null, // Clusters don't map to specific episodes
+          origin: "online",
+          timestamp: Date.now(),
+        };
       case 'coordinate':
-        return `coordinate_${data.x}_${data.y}`;
+        return {
+          target_id: `coordinate_${data.x}_${data.y}`,
+          reference: null, // Coordinates are projection space points
+          origin: "online",
+          timestamp: Date.now(),
+        };
       default:
-        return `unknown_${Date.now()}`;
+        return {
+          target_id: `unknown_${Date.now()}`,
+          reference: null,
+          origin: "online",
+          timestamp: Date.now(),
+        };
     }
   };
 
   // Submit feedback to the system
-  const submitFeedback = (fb: Feedback) => {
+  const submitFeedback = async (fb: Feedback) => {
+    // Schedule feedback for the session
     appDispatch({ type: 'SCHEDULE_FEEDBACK', payload: fb });
+    
+    // Also immediately submit to backend
+    try {
+      await axios.post("/data/give_feedback", [fb]);
+      console.log("Feedback submitted successfully:", fb);
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
+    }
     
     // Update feedback counts in ActiveLearningContext
     const category = getFeedbackCategory(fb.feedback_type, 
@@ -175,10 +217,10 @@ const FeedbackInput = () => {
 
   // Handle rating submission
   const handleRate = () => {
-    const targetId = getId(selectionData.type, selectionData.data[0]);
+    const target = createTarget(selectionData.type, selectionData.data[0]);
     const fb: Feedback = {
       feedback_type: FeedbackType.Evaluative,
-      targets: [{ target_id: targetId, reference: null as any, origin: 'offline', timestamp: Date.now() }],
+      targets: [target],
       granularity: selectionData.type === 'state' ? 'state' : 'episode',
       timestamp: Date.now(),
       session_id: sessionId,
@@ -189,11 +231,12 @@ const FeedbackInput = () => {
 
   // Handle comparison submission
   const handleComparison = () => {
-    const ids = selectionData.data.map(data => getId('trajectory', data));
+    const targets = selectionData.data.map(data => createTarget('trajectory', data));
+    
     const fb: Feedback = {
       feedback_type: FeedbackType.Comparative,
-      targets: ids.map(id => ({ target_id: id, reference: null as any, origin: 'offline', timestamp: Date.now() })),
-      preferences: ids.map(id => id === chosenId ? 1 : 0),
+      targets: targets,
+      preferences: targets.map(target => target.target_id === chosenId ? 1 : 0),
       granularity: 'episode',
       timestamp: Date.now(),
       session_id: sessionId
@@ -203,10 +246,10 @@ const FeedbackInput = () => {
 
   // Handle correction submission
   const handleCorrect = () => {
-    const targetId = getId(selectionData.type, selectionData.data[0]);
+    const target = createTarget(selectionData.type, selectionData.data[0]);
     const fb: Feedback = {
       feedback_type: FeedbackType.Corrective,
-      targets: [{ target_id: targetId, reference: null as any, origin: 'offline', timestamp: Date.now() }],
+      targets: [target],
       granularity: 'state',
       timestamp: Date.now(),
       session_id: sessionId,
@@ -281,19 +324,21 @@ const FeedbackInput = () => {
   const submitDemo = () => {
     if (!demoSession) return;
     
+    const demoEpisode: Episode = {
+      env_name: selectedExperiment.env_id,
+      benchmark_type: "generated",
+      benchmark_id: -1,
+      checkpoint_step: -1,
+      episode_num: demoSession.demo_number,
+    };
+    
     const fb: Feedback = {
       feedback_type: FeedbackType.Demonstrative,
       targets: [
         {
-          target_id: `${selectedExperiment.env_id}_generated_-1-1${demoSession.demo_number}`,
-          reference: {
-            env_name: selectedExperiment.env_id,
-            benchmark_type: "generated",
-            benchmark_id: -1,
-            checkpoint_step: -1,
-            episode_num: demoSession.demo_number,
-          },
-          origin: "generated",
+          target_id: IDfromEpisode(demoEpisode),
+          reference: demoEpisode,
+          origin: "online",
           timestamp: Date.now(),
         },
       ],
@@ -515,7 +560,8 @@ const FeedbackInput = () => {
                 const episode = episodeIDsChronologically[trajectoryIdx];
                 if (!episode) return null;
                 
-                const id = getId('trajectory', trajectoryIdx);
+                const target = createTarget('trajectory', trajectoryIdx);
+                const id = target.target_id;
                 
                 return (
                   <Box key={i} sx={{ 
@@ -664,16 +710,38 @@ const FeedbackInput = () => {
               Demo from [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
             </Typography>
             
-            {!demoSession ? (
-              <Button 
-                variant="contained" 
-                onClick={initializeDemo}
-                disabled={loading}
-                size="small"
-                sx={{ mt: 1 }}
-              >
-                {loading ? <CircularProgress size={20} /> : "Start Demo"}
-              </Button>
+            {!demoSession && !useWebRTC ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Button 
+                  variant="contained" 
+                  onClick={() => setUseWebRTC(true)}
+                  disabled={loading}
+                  size="small"
+                  sx={{ mt: 1 }}
+                >
+                  Start WebRTC Demo (Real-time)
+                </Button>
+                <Button 
+                  variant="outlined" 
+                  onClick={initializeDemo}
+                  disabled={loading}
+                  size="small"
+                >
+                  {loading ? <CircularProgress size={20} /> : "Start Traditional Demo"}
+                </Button>
+              </Box>
+            ) : useWebRTC ? (
+              <WebRTCDemoComponent
+                sessionId={sessionId}
+                experimentId={selectedExperiment.id.toString()}
+                environmentId={selectedExperiment.env_id}
+                coordinate={coordinate}
+                onSubmit={submitDemo}
+                onCancel={() => {
+                  setUseWebRTC(false);
+                  setDemoSession(null);
+                }}
+              />
             ) : (
               <Box sx={{ width: '100%' }}>
                 <Paper
