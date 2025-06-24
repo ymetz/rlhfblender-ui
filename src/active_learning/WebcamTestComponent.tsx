@@ -10,16 +10,28 @@ import {
   Divider,
   CircularProgress,
   IconButton,
-  Tooltip,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
-import { Close, Fullscreen, FullscreenExit, KeyboardArrowDown, KeyboardArrowUp } from '@mui/icons-material';
+import { Close, Fullscreen, FullscreenExit, KeyboardArrowDown, KeyboardArrowUp, Camera } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
-import { io, Socket } from 'socket.io-client';
+
+interface CameraInfo {
+  id: number;
+  width: number;
+  height: number;
+  fps: number;
+  name: string;
+}
 
 interface WebRTCDemoComponentProps {
   sessionId: string;
-  experimentId: string;
-  environmentId: string;
+  experimentId?: string;
+  environmentId?: string;
   coordinate: { x: number; y: number };
   onSubmit: () => void;
   onCancel: () => void;
@@ -39,192 +51,123 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [demoData, setDemoData] = useState<any>(null);
   const [tabValue, setTabValue] = useState(0);
-  const [stepCount, setStepCount] = useState(0);
-  const [episodeDone, setEpisodeDone] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  
+  // Camera-specific state
+  const [availableCameras, setAvailableCameras] = useState<CameraInfo[]>([]);
+  const [selectedCamera, setSelectedCamera] = useState<number>(0);
+  const [useTestPattern, setUseTestPattern] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<string>('disconnected');
 
-  // WebRTC and Socket.IO refs
-  const socketRef = useRef<Socket | null>(null);
+  // WebRTC refs
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Keyboard state tracking
-  const pressedKeysRef = useRef<Set<string>>(new Set());
-  const keyMappingsRef = useRef<{ [key: string]: any }>({});
+  // Load available cameras
+  const loadCameras = useCallback(async () => {
+    try {
+      const response = await fetch('/data/list_cameras');
+      const data = await response.json();
+      
+      setAvailableCameras(data.cameras || []);
+      if (data.default_camera !== null) {
+        setSelectedCamera(data.default_camera);
+      }
+    } catch (err) {
+      console.error('Failed to load cameras:', err);
+    }
+  }, []);
 
-  // Initialize WebRTC demo session
-  const initializeDemo = useCallback(async () => {
+  // Initialize camera streaming
+  const initializeCameraStream = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      // Initialize demo session
-      const response = await fetch('/data/initialize_webrtc_demo_session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          exp_id: experimentId,
-          env_id: environmentId,
-          seed: Math.floor(Math.random() * 1000),
-          coordinate: [coordinate.x, coordinate.y],
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to initialize demo session');
-      }
-
-      setDemoData(data);
-      keyMappingsRef.current = data.action_space || {};
-
-      // Connect to WebRTC signaling server
-      await connectToSignalingServer();
-
+      await setupWebRTC();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMsg);
-      console.error('Error initializing demo:', err);
+      console.error('Error initializing camera stream:', err);
     } finally {
       setLoading(false);
     }
-  }, [sessionId, experimentId, environmentId, coordinate]);
-
-  // Skip Socket.IO for now - use simplified WebRTC setup
-  const connectToSignalingServer = useCallback(async () => {
-    try {
-      // For now, just setup WebRTC directly without Socket.IO
-      setupWebRTC();
-    } catch (err) {
-      console.error('Failed to setup WebRTC:', err);
-      setError('Failed to setup WebRTC');
-    }
-  }, []);
+  }, [selectedCamera, useTestPattern]);
 
   // Setup WebRTC peer connection
   const setupWebRTC = useCallback(async () => {
     try {
-      // Create peer connection with UDP-only transport to avoid TCP socket errors
+      // Create peer connection
       const pc = new RTCPeerConnection({
         sdpSemantics: 'unified-plan',
         iceServers: [], // No external ICE servers for localhost
         iceCandidatePoolSize: 0,
         iceTransportPolicy: 'all',
-        rtcpMuxPolicy: 'require' // Force RTCP multiplexing
+        rtcpMuxPolicy: 'require'
       });
 
       peerConnectionRef.current = pc;
       
+      // Handle incoming video stream
       pc.ontrack = (event) => {
         console.log('Received remote stream');
         const track = event.track;
         
-        // Force unmute the track
         track.enabled = true;
         
-        // Listen for mute events
         track.onmute = () => {
           console.warn('Track was muted! Attempting to unmute...');
           track.enabled = true;
         };
         
-        // Check track stats every second
-        setInterval(() => {
-          console.log('Track state:', {
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState
-          });
-        }, 1000);
-        
         if (videoRef.current && event.streams[0]) {
           videoRef.current.srcObject = event.streams[0];
+          console.log('Video element src set');
         }
       };
 
-      // Handle data channel from remote peer
+      // Handle data channel for control messages
       pc.ondatachannel = (event) => {
         const channel = event.channel;
-        dataChannelRef.current = channel;
-
+        
         channel.onopen = () => {
           console.log('Data channel opened');
         };
 
         channel.onmessage = (event) => {
-          // Handle incoming messages from server (if any)
           console.log('Data channel message:', event.data);
         };
       };
 
-      // Handle connection state changes
+      // Connection state monitoring
       pc.onconnectionstatechange = () => {
         console.log('Connection state:', pc.connectionState);
+        setCameraStatus(pc.connectionState);
+        
         if (pc.connectionState === 'connected') {
           setConnected(true);
           console.log('WebRTC connection established successfully');
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-          console.log('WebRTC connection lost or failed - but keeping video active for local development');
-          // Don't set connected to false for local development
-          // setConnected(false);
+          setConnected(false);
         }
       };
 
-      // Add more detailed logging
-      pc.onsignalingstatechange = () => {
-        console.log('Signaling state:', pc.signalingState);
-      };
-      
-      // Add ICE connection state logging with retry logic
       pc.oniceconnectionstatechange = () => {
         console.log('ICE connection state:', pc.iceConnectionState);
-        
-        // Keep connection as "connected" even if ICE fails for local development
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-          console.log('ICE failed, but keeping video connection active for local development');
-          // Don't set connected to false - keep the video stream active
-        }
-      };
-      
-      // Add gathering state logging
-      pc.onicegatheringstatechange = () => {
-        console.log('ICE gathering state:', pc.iceGatheringState);
       };
 
-      // Handle ICE candidates (missing in our implementation!)
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          console.log('Generated ICE candidate:', event.candidate);
-          // Send ICE candidate to server
-          fetch('/data/webrtc_ice_candidate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              session_id: sessionId,
-              candidate: event.candidate
-            })
-          }).catch(err => console.error('Failed to send ICE candidate:', err));
-        } else {
-          console.log('ICE candidate gathering complete');
-        }
-      };
-
-      // Add transceiver for video (like the working example)
+      // Add transceiver for receiving video
       pc.addTransceiver('video', { direction: 'recvonly' });
 
       // Create offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      console.log('Local description set, waiting for ICE gathering...');
+      console.log('Local description set');
 
-      // Wait for ICE gathering to complete (like the working example)
+      // Wait for ICE gathering
       await new Promise<void>((resolve) => {
         if (pc.iceGatheringState === 'complete') {
           resolve();
@@ -239,166 +182,125 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
         }
       });
 
-      console.log('ICE gathering complete, sending offer to server');
+      console.log('Sending offer to server with camera settings');
       
-      try {
-        const response = await fetch('/data/webrtc_offer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: sessionId,
-            offer: offer.sdp,
-          }),
+      // Send offer to server with camera configuration
+      const response = await fetch('/data/gym_offer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sdp: offer.sdp,
+          type: offer.type,
+          session_id: sessionId,
+          experiment_id: experimentId,
+          environment_id: environmentId,
+          camera_id: selectedCamera,
+          use_test_pattern: useTestPattern,
+        }),
+      });
+
+      const result = await response.json();
+      console.log('Camera offer result:', result);
+      
+      if (result.sdp) {
+        const answer = new RTCSessionDescription({
+          type: result.type,
+          sdp: result.sdp,
         });
 
-        console.log('WebRTC offer response status:', response.status);
-        const result = await response.json();
-        console.log('WebRTC offer result:', result);
-        
-        if (result.success && result.answer) {
-          console.log('Received WebRTC answer, setting remote description');
-          await handleWebRTCAnswer(result.answer);
-        } else {
-          throw new Error(result.error || 'Failed to get WebRTC answer');
-        }
-      } catch (err) {
-        console.error('Failed to send WebRTC offer:', err);
-        setError('Failed to establish WebRTC connection');
+        await pc.setRemoteDescription(answer);
+        console.log('Remote description set');
+      } else {
+        throw new Error('No SDP answer received from server');
       }
 
     } catch (err) {
       console.error('Error setting up WebRTC:', err);
-      setError('Failed to setup WebRTC connection');
+      setError('Failed to setup camera connection');
     }
-  }, [sessionId]);
+  }, [sessionId, experimentId, environmentId, selectedCamera, useTestPattern]);
 
-  // Handle WebRTC answer from server
-  const handleWebRTCAnswer = useCallback(async (answerSdp: string) => {
+  // Send control message to server
+  const sendControlMessage = useCallback(async (command: string, params: any = {}) => {
     try {
-      if (!peerConnectionRef.current) return;
-
-      const answer = new RTCSessionDescription({
-        type: 'answer',
-        sdp: answerSdp,
+      const response = await fetch('/data/camera_control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          command,
+          params,
+        }),
       });
 
-      await peerConnectionRef.current.setRemoteDescription(answer);
-      console.log('Set remote description');
-
+      const result = await response.json();
+      return result;
     } catch (err) {
-      console.error('Error handling WebRTC answer:', err);
-      setError('Failed to handle WebRTC answer');
-    }
-  }, []);
-
-  // Send control message via HTTP instead of data channel
-  const sendControlMessage = useCallback((message: any) => {
-    // For now, send via HTTP endpoint instead of WebRTC data channel
-    fetch('/data/webrtc_control', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: sessionId,
-        message: message,
-      }),
-    }).catch(err => {
       console.error('Failed to send control message:', err);
-    });
+    }
   }, [sessionId]);
 
-  // Handle keyboard events
-  const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    if (!connected) return;
-
-    const key = event.key.toLowerCase();
-    if (!pressedKeysRef.current.has(key)) {
-      pressedKeysRef.current.add(key);
-      sendControlMessage({ type: 'keydown', key });
-
-      // Increment step count for visual feedback
-      setStepCount(prev => prev + 1);
+  // Get camera status
+  const getCameraStatus = useCallback(async () => {
+    const result = await sendControlMessage('get_status');
+    if (result?.success) {
+      setCameraStatus(result.status.connection_state);
     }
-
-    event.preventDefault();
-  }, [connected, sendControlMessage]);
-
-  const handleKeyUp = useCallback((event: KeyboardEvent) => {
-    if (!connected) return;
-
-    const key = event.key.toLowerCase();
-    if (pressedKeysRef.current.has(key)) {
-      pressedKeysRef.current.delete(key);
-      sendControlMessage({ type: 'keyup', key });
-    }
-
-    event.preventDefault();
-  }, [connected, sendControlMessage]);
+  }, [sendControlMessage]);
 
   // Cleanup function
   const cleanup = useCallback(async () => {
-    // Remove keyboard listeners
-    document.removeEventListener('keydown', handleKeyDown);
-    document.removeEventListener('keyup', handleKeyUp);
-
     // Close WebRTC connection
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
 
-    // Close Socket.IO connection
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
+    // Close camera session on server
+    try {
+      await fetch('/data/close_camera_session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+    } catch (err) {
+      console.error('Error closing camera session:', err);
     }
+  }, [sessionId]);
 
-    // Close demo session on server
-    if (demoData) {
-      try {
-        await fetch('/data/end_demo_session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: sessionId,
-            webrtc_enabled: true,
-          }),
-        });
-      } catch (err) {
-        console.error('Error ending demo session:', err);
-      }
-    }
-  }, [sessionId, demoData, handleKeyDown, handleKeyUp]);
-
-  // Initialize demo on mount - only run once
+  // Initialize on mount
   useEffect(() => {
     let isMounted = true;
 
-    const initDemo = async () => {
+    const initComponent = async () => {
       if (isMounted) {
-        await initializeDemo();
+        await loadCameras();
+        await initializeCameraStream();
       }
     };
 
-    initDemo();
+    initComponent();
 
     return () => {
       isMounted = false;
       cleanup();
     };
-  }, []); // Empty dependency array - only run once
+  }, []);
 
-  // Setup keyboard event listeners when connected
+  // Reinitialize when camera settings change
+  useEffect(() => {
+    if (!loading) {
+      initializeCameraStream();
+    }
+  }, [selectedCamera, useTestPattern]);
+
+  // Periodic status check
   useEffect(() => {
     if (connected) {
-      document.addEventListener('keydown', handleKeyDown);
-      document.addEventListener('keyup', handleKeyUp);
+      const interval = setInterval(getCameraStatus, 5000);
+      return () => clearInterval(interval);
     }
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [connected, handleKeyDown, handleKeyUp]);
+  }, [connected, getCameraStatus]);
 
   // Handle tab change
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -430,14 +332,6 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Keyboard controls info
-  const keyboardControls = {
-    'W/A/S/D': 'Movement',
-    'Q/E': 'Up/Down (3D)',
-    'Space': 'Action/Gripper',
-    'Enter': 'Done (BabyAI)',
-  };
-
   if (loading) {
     return (
       <Box sx={{
@@ -449,7 +343,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
         gap: 2
       }}>
         <CircularProgress />
-        <Typography variant="body2">Initializing WebRTC demo session...</Typography>
+        <Typography variant="body2">Initializing camera stream...</Typography>
       </Box>
     );
   }
@@ -458,7 +352,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     return (
       <Alert severity="error" sx={{ m: 1 }}>
         {error}
-        <Button size="small" onClick={initializeDemo} sx={{ ml: 1 }}>
+        <Button size="small" onClick={initializeCameraStream} sx={{ ml: 1 }}>
           Retry
         </Button>
       </Alert>
@@ -500,8 +394,8 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
               color: fullscreen ? 'white' : 'inherit'
             }}
           >
-            <Tab label="Live Demo" sx={{ py: 0.5, minHeight: '36px' }} />
-            <Tab label="Controls" sx={{ py: 0.5, minHeight: '36px' }} />
+            <Tab label="Camera Stream" sx={{ py: 0.5, minHeight: '36px' }} />
+            <Tab label="Camera Settings" sx={{ py: 0.5, minHeight: '36px' }} />
           </Tabs>
 
           {/* Fullscreen toggle */}
@@ -560,8 +454,8 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
               <Box sx={{
                 position: 'relative',
                 width: '100%',
-                maxWidth: fullscreen ? '100%' : '600px',
-                aspectRatio: '16/9',
+                maxWidth: fullscreen ? '100%' : '800px',
+                aspectRatio: '4/3',
                 bgcolor: 'black',
                 borderRadius: fullscreen ? 0 : 1,
                 overflow: 'hidden',
@@ -579,14 +473,8 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
                       console.log('Video dimensions:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight);
                     }
                   }}
-                  onLoadStart={() => console.log('Video load started')}
                   onCanPlay={() => console.log('Video can play')}
                   onPlaying={() => console.log('Video is playing')}
-                  onTimeUpdate={() => {
-                    if (videoRef.current) {
-                      console.log('Video time update:', videoRef.current.currentTime);
-                    }
-                  }}
                   onError={(e) => console.error('Video error:', e)}
                   style={{
                     width: '100%',
@@ -613,14 +501,14 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
                     <Box sx={{ textAlign: 'center' }}>
                       <CircularProgress color="inherit" size={24} />
                       <Typography variant="body2" sx={{ mt: 1 }}>
-                        Connecting to environment...
+                        Connecting to camera...
                       </Typography>
                     </Box>
                   </Box>
                 )}
 
-                {/* Step counter */}
-                {connected && !fullscreen && (
+                {/* Status indicator */}
+                {!fullscreen && (
                   <Box sx={{
                     position: 'absolute',
                     top: 8,
@@ -632,18 +520,15 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
                     borderRadius: 1,
                     fontSize: '0.75rem'
                   }}>
-                    Steps: {stepCount}
+                    Status: {cameraStatus}
                   </Box>
                 )}
               </Box>
 
-              {/* Status info */}
-              {!fullscreen && (
+              {/* Camera info */}
+              {!fullscreen && connected && (
                 <Typography variant="caption" color="text.secondary">
-                  {connected ?
-                    'Use keyboard to control the environment (WASD + Space)' :
-                    'Waiting for connection...'
-                  }
+                  Camera {selectedCamera} - {useTestPattern ? 'Test Pattern' : 'Live Feed'}
                 </Typography>
               )}
             </Box>
@@ -651,28 +536,67 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
 
           {tabValue === 1 && (
             <Box sx={{ p: 1, color: fullscreen ? 'white' : 'inherit' }}>
-              <Typography variant="h6" gutterBottom>Keyboard Controls</Typography>
+              <Typography variant="h6" gutterBottom>Camera Settings</Typography>
 
-              <Box sx={{ display: 'grid', gap: 1, mb: 2 }}>
-                {Object.entries(keyboardControls).map(([keys, description]) => (
-                  <Box key={keys} sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                      {keys}
-                    </Typography>
-                    <Typography variant="body2">
-                      {description}
-                    </Typography>
-                  </Box>
-                ))}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2 }}>
+                {/* Camera selection */}
+                <FormControl fullWidth size="small">
+                  <InputLabel>Camera</InputLabel>
+                  <Select
+                    value={selectedCamera}
+                    label="Camera"
+                    onChange={(e) => setSelectedCamera(Number(e.target.value))}
+                    disabled={loading}
+                  >
+                    {availableCameras.map((camera) => (
+                      <MenuItem key={camera.id} value={camera.id}>
+                        {camera.name} ({camera.width}x{camera.height})
+                      </MenuItem>
+                    ))}
+                    <MenuItem value={-1}>No Camera (Test Pattern Only)</MenuItem>
+                  </Select>
+                </FormControl>
+
+                {/* Test pattern toggle */}
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={useTestPattern}
+                      onChange={(e) => setUseTestPattern(e.target.checked)}
+                      disabled={loading}
+                    />
+                  }
+                  label="Use Test Pattern"
+                />
+
+                {/* Refresh cameras button */}
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<Camera />}
+                  onClick={loadCameras}
+                  disabled={loading}
+                >
+                  Refresh Cameras
+                </Button>
               </Box>
 
+              {/* Info */}
               <Typography variant="caption" color="text.secondary">
-                Environment: {environmentId}
+                Session: {sessionId}
               </Typography>
               <br />
               <Typography variant="caption" color="text.secondary">
-                Coordinate: [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
+                Available Cameras: {availableCameras.length}
               </Typography>
+              {coordinate && (
+                <>
+                  <br />
+                  <Typography variant="caption" color="text.secondary">
+                    Coordinate: [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
+                  </Typography>
+                </>
+              )}
             </Box>
           )}
         </Box>
@@ -696,14 +620,26 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
                 Cancel
               </Button>
 
-              <Button
-                variant="contained"
-                size="small"
-                disabled={!connected}
-                onClick={onSubmit}
-              >
-                Submit Demo
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  disabled={!connected}
+                  onClick={() => sendControlMessage('take_screenshot')}
+                  sx={{ color: fullscreen ? 'white' : 'inherit' }}
+                >
+                  Screenshot
+                </Button>
+                
+                <Button
+                  variant="contained"
+                  size="small"
+                  disabled={!connected}
+                  onClick={onSubmit}
+                >
+                  Submit Demo
+                </Button>
+              </Box>
             </Box>
           </>
         )}

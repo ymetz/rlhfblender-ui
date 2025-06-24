@@ -25,10 +25,11 @@ import axios from 'axios';
 import { useAppState, useAppDispatch } from '../AppStateContext';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import { FeedbackType, Feedback, Episode } from '../types';
-import { IDfromEpisode, EpisodeFromID } from "../id";
+import { IDfromEpisode } from "../id";
 import { useGetter } from "../getter-context";
 import { CustomInput } from "../custom_env_inputs/custom_input_mapping";
 import WebRTCDemoComponent from './WebRTCDemoComponent';
+import MinimalWebRTCTest from './MinimalWebRTCTest';
 
 // Helper function to map feedback type to category
 const getFeedbackCategory = (feedbackType: FeedbackType, selectionType?: string): string => {
@@ -704,11 +705,14 @@ const FeedbackInput = () => {
         
         return (
           <Box sx={{ 
-            overflow: demoSession ? 'auto' : 'hidden' // Allow scroll only when demo is active
+            //overflow: demoSession ? 'auto' : 'hidden' // Allow scroll only when demo is active
+            overflow: 'auto'
           }}>
             <Typography variant="h6" gutterBottom fontSize="0.95rem">
               Demo from [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
             </Typography>
+
+            <MinimalWebRTCTest />
             
             {!demoSession && !useWebRTC ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
