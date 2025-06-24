@@ -10,15 +10,12 @@ import {
   Alert,
   Paper,
   Grid,
-  Divider,
   IconButton,
   CircularProgress,
-  Tabs,
-  Tab,
 } from '@mui/material';
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTheme } from '@mui/material/styles';
-import { ThumbDown, ThumbUp, PlayArrow, Send, Close } from '@mui/icons-material';
+import { ThumbDown, ThumbUp, PlayArrow, Send } from '@mui/icons-material';
 import * as d3 from 'd3';
 import axios from 'axios';
 
@@ -27,9 +24,7 @@ import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLear
 import { FeedbackType, Feedback, Episode } from '../types';
 import { IDfromEpisode } from "../id";
 import { useGetter } from "../getter-context";
-import { CustomInput } from "../custom_env_inputs/custom_input_mapping";
 import WebRTCDemoComponent from './WebRTCDemoComponent';
-import MinimalWebRTCTest from './MinimalWebRTCTest';
 
 // Helper function to map feedback type to category
 const getFeedbackCategory = (feedbackType: FeedbackType, selectionType?: string): string => {
@@ -65,14 +60,7 @@ const FeedbackInput = () => {
   const [currentPlaying, setCurrentPlaying] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   
-  // Demo and correction specific states
-  const [demoSession, setDemoSession] = useState<any>(null);
-  const [demoRenderURL, setDemoRenderURL] = useState<string>('');
-  const [tabValue, setTabValue] = useState(0);
-  const [demoAction, setDemoAction] = useState<number | number[] | null>(null);
-  const [actionSpace, setActionSpace] = useState<any>(null);
-  const [stepCount, setStepCount] = useState(0);
-  const [episodeDone, setEpisodeDone] = useState(false);
+  // Demo specific state
   const [useWebRTC, setUseWebRTC] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -91,13 +79,6 @@ const FeedbackInput = () => {
     setChosenId(null);
     setSubmitted(false);
     setCorrectionText('');
-    setTabValue(0);
-    setDemoSession(null);
-    setDemoRenderURL('');
-    setDemoAction(null);
-    setActionSpace(null);
-    setStepCount(0);
-    setEpisodeDone(false);
     setUseWebRTC(false);
   }, [selection]);
 
@@ -259,78 +240,14 @@ const FeedbackInput = () => {
     submitFeedback(fb);
   };
 
-  // Demo session management
-  const initializeDemo = async () => {
-    if (selectionData.type !== 'coordinate') return;
-    
-    setLoading(true);
-    try {
-      const coordinate = selectionData.data[0];
-      const response = await axios.post("/data/initialize_demo_session", {
-        exp_id: selectedExperiment.id,
-        env_id: selectedExperiment.env_id,
-        seed: Math.floor(Math.random() * 1000),
-        session_id: sessionId,
-        coordinate: [coordinate.x, coordinate.y] // Pass coordinates to backend
-      });
-      
-      setDemoSession(response.data);
-      setActionSpace(response.data.action_space);
-      setEpisodeDone(false);
-      setStepCount(0);
-      
-      // Fetch initial image
-      fetchDemoImage();
-    } catch (error) {
-      console.error("Error initializing demo:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchDemoImage = async () => {
-    try {
-      const response = await axios.get(`data/get_demo_image?session_id=${sessionId}`, {
-        responseType: "blob",
-      });
-      const url = URL.createObjectURL(response.data);
-      setDemoRenderURL(url);
-    } catch (error) {
-      console.error("Error fetching demo image:", error);
-    }
-  };
-
-  const performDemoAction = async (action: number | number[]) => {
-    setDemoAction(action);
-    try {
-      const response = await axios.post("/data/demo_step", {
-        session_id: sessionId,
-        action,
-      });
-      
-      setDemoSession({
-        ...demoSession,
-        step: response.data.step
-      });
-      setStepCount(stepCount + 1);
-      setEpisodeDone(response.data.step.done);
-      
-      // Fetch updated image
-      fetchDemoImage();
-    } catch (error) {
-      console.error("Error performing demo action:", error);
-    }
-  };
 
   const submitDemo = () => {
-    if (!demoSession) return;
-    
     const demoEpisode: Episode = {
       env_name: selectedExperiment.env_id,
       benchmark_type: "generated",
       benchmark_id: -1,
       checkpoint_step: -1,
-      episode_num: demoSession.demo_number,
+      episode_num: Date.now(), // Use timestamp as episode number for WebRTC demos
     };
     
     const fb: Feedback = {
@@ -354,20 +271,12 @@ const FeedbackInput = () => {
   // Cleanup function to reset state when component unmounts
   useEffect(() => {
     return () => {
-      // Clean up demo session
-      if (demoSession) {
-        axios.post("/data/end_demo_session", {
-          session_id: sessionId,
-          pid: demoSession.pid,
-        }).catch(error => console.error("Error ending demo session:", error));
-      }
-      
       // Clean up video URLs
       Array.from(videoURLs.values()).forEach(url => {
         URL.revokeObjectURL(url);
       });
     };
-  }, [demoSession, sessionId, videoURLs]);
+  }, [videoURLs]);
 
   // Color generator for trajectory items
   const getEpisodeColor = useCallback((episodeIdx: number) => {
@@ -452,10 +361,6 @@ const FeedbackInput = () => {
     );
   };
 
-  // Tab change handler for demo interface
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setTabValue(newValue);
-  };
 
   // Render different interfaces based on selection type
   const renderFeedbackInterface = () => {
@@ -704,178 +609,30 @@ const FeedbackInput = () => {
         const coordinate = selectionData.data[0];
         
         return (
-          <Box sx={{ 
-            //overflow: demoSession ? 'auto' : 'hidden' // Allow scroll only when demo is active
-            overflow: 'auto'
-          }}>
+          <Box sx={{ overflow: 'auto' }}>
             <Typography variant="h6" gutterBottom fontSize="0.95rem">
               Demo from [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
             </Typography>
-
-            <MinimalWebRTCTest />
             
-            {!demoSession && !useWebRTC ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Button 
-                  variant="contained" 
-                  onClick={() => setUseWebRTC(true)}
-                  disabled={loading}
-                  size="small"
-                  sx={{ mt: 1 }}
-                >
-                  Start WebRTC Demo (Real-time)
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  onClick={initializeDemo}
-                  disabled={loading}
-                  size="small"
-                >
-                  {loading ? <CircularProgress size={20} /> : "Start Traditional Demo"}
-                </Button>
-              </Box>
-            ) : useWebRTC ? (
+            {!useWebRTC ? (
+              <Button 
+                variant="contained" 
+                onClick={() => setUseWebRTC(true)}
+                disabled={loading}
+                size="small"
+                sx={{ mt: 1 }}
+              >
+                Start WebRTC Demo
+              </Button>
+            ) : (
               <WebRTCDemoComponent
                 sessionId={sessionId}
                 experimentId={selectedExperiment.id.toString()}
                 environmentId={selectedExperiment.env_id}
                 coordinate={coordinate}
                 onSubmit={submitDemo}
-                onCancel={() => {
-                  setUseWebRTC(false);
-                  setDemoSession(null);
-                }}
+                onCancel={() => setUseWebRTC(false)}
               />
-            ) : (
-              <Box sx={{ width: '100%' }}>
-                <Paper
-                  elevation={2}
-                  sx={{
-                    mt: 1,
-                    overflow: 'hidden',
-                    borderRadius: 1
-                  }}
-                >
-                  <Tabs 
-                    value={tabValue} 
-                    onChange={handleTabChange} 
-                    centered
-                    variant="fullWidth"
-                  >
-                    <Tab label="Demo" sx={{ py: 0.5, minHeight: '36px' }} />
-                    <Tab label="Info" sx={{ py: 0.5, minHeight: '36px' }} />
-                  </Tabs>
-                  
-                  <Divider />
-                  
-                  <Box sx={{ p: 1 }}>
-                    {tabValue === 0 && (
-                      <Box>
-                        {demoRenderURL ? (
-                          <Box sx={{ 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            alignItems: 'center', 
-                            gap: 1
-                          }}>
-                            <img 
-                              src={demoRenderURL} 
-                              alt="Demo environment" 
-                              style={{ 
-                                maxWidth: '100%', 
-                                objectFit: 'contain',
-                                border: '1px solid',
-                                borderColor: theme.palette.divider
-                              }}
-                            />
-                            
-                            {episodeDone ? (
-                              <Alert 
-                                severity="info" 
-                                sx={{ 
-                                  width: '100%', 
-                                  py: 0, // Reduced padding
-                                  '& .MuiAlert-message': { padding: '4px 0' } 
-                                }}
-                              >
-                                <Typography variant="caption">Episode completed ({stepCount} steps)</Typography>
-                              </Alert>
-                            ) : (
-                              actionSpace && (
-                                <Box sx={{ 
-                                  width: '100%', 
-                                  display: 'flex',
-                                  justifyContent: 'center'
-                                }}>
-                                  <CustomInput
-                                    space={actionSpace}
-                                    custom_input={'minatar_keys'}
-                                    inputProps={{}}
-                                    setFeedback={performDemoAction}
-                                  />
-                                </Box>
-                              )
-                            )}
-                          </Box>
-                        ) : (
-                          <Box sx={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            height: '100px'
-                          }}>
-                            <CircularProgress size={20} />
-                          </Box>
-                        )}
-                      </Box>
-                    )}
-                    
-                    {tabValue === 1 && (
-                      <Box sx={{ fontSize: '0.85rem', py: 0.5 }}>
-                        <Typography variant="caption" display="block">
-                          Environment: {selectedExperiment.env_id}
-                        </Typography>
-                        <Typography variant="caption" display="block">
-                          Steps: {stepCount}
-                        </Typography>
-                        <Typography variant="caption" display="block">
-                          Status: {episodeDone ? "Completed" : "In Progress"}
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-                  
-                  <Divider />
-                  
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1 }}>
-                    <Button 
-                      startIcon={<Close />}
-                      size="small"
-                      onClick={() => {
-                        if (demoSession) {
-                          axios.post("/data/end_demo_session", {
-                            session_id: sessionId,
-                            pid: demoSession.pid,
-                          }).catch(error => console.error("Error ending demo session:", error));
-                          setDemoSession(null);
-                          setDemoRenderURL('');
-                        }
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    
-                    <Button 
-                      variant="contained"
-                      size="small"
-                      disabled={!episodeDone}
-                      onClick={submitDemo}
-                    >
-                      Submit Demo
-                    </Button>
-                  </Box>
-                </Paper>
-              </Box>
             )}
           </Box>
         );

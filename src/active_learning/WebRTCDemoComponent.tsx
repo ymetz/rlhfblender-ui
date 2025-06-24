@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import { Close, Fullscreen, FullscreenExit, KeyboardArrowDown, KeyboardArrowUp } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
-import { io, Socket } from 'socket.io-client';
+import { useWebRTC } from './useWebRTC';
 
 interface WebRTCDemoComponentProps {
   sessionId: string;
@@ -39,343 +39,76 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [demoData, setDemoData] = useState<any>(null);
   const [tabValue, setTabValue] = useState(0);
   const [stepCount, setStepCount] = useState(0);
   const [episodeDone, setEpisodeDone] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
 
-  // WebRTC and Socket.IO refs
-  const socketRef = useRef<Socket | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Keyboard state tracking
-  const pressedKeysRef = useRef<Set<string>>(new Set());
-  const keyMappingsRef = useRef<{ [key: string]: any }>({});
-
-  // Initialize WebRTC demo session
-  const initializeDemo = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Initialize demo session
-      const response = await fetch('/data/initialize_webrtc_demo_session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          exp_id: experimentId,
-          env_id: environmentId,
-          seed: Math.floor(Math.random() * 1000),
-          coordinate: [coordinate.x, coordinate.y],
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to initialize demo session');
-      }
-
-      setDemoData(data);
-      keyMappingsRef.current = data.action_space || {};
-
-      // Connect to WebRTC signaling server
-      await connectToSignalingServer();
-
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-      setError(errorMsg);
-      console.error('Error initializing demo:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [sessionId, experimentId, environmentId, coordinate]);
-
-  // Skip Socket.IO for now - use simplified WebRTC setup
-  const connectToSignalingServer = useCallback(async () => {
-    try {
-      // For now, just setup WebRTC directly without Socket.IO
-      setupWebRTC();
-    } catch (err) {
-      console.error('Failed to setup WebRTC:', err);
-      setError('Failed to setup WebRTC');
-    }
-  }, []);
-
-  // Setup WebRTC peer connection
-  const setupWebRTC = useCallback(async () => {
-    try {
-      // Create peer connection with UDP-only transport to avoid TCP socket errors
-      const pc = new RTCPeerConnection({
-        sdpSemantics: 'unified-plan',
-        iceServers: [], // No external ICE servers for localhost
-        iceCandidatePoolSize: 0,
-        iceTransportPolicy: 'all',
-        rtcpMuxPolicy: 'require' // Force RTCP multiplexing
-      });
-
-      peerConnectionRef.current = pc;
-      
-      pc.ontrack = (event) => {
-        console.log('Received remote stream');
-        const track = event.track;
-        
-        // Force unmute the track
-        track.enabled = true;
-        
-        // Listen for mute events
-        track.onmute = () => {
-          console.warn('Track was muted! Attempting to unmute...');
-          track.enabled = true;
-        };
-        
-        // Check track stats every second
-        setInterval(() => {
-          console.log('Track state:', {
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState
-          });
-        }, 1000);
-        
-        if (videoRef.current && event.streams[0]) {
-          videoRef.current.srcObject = event.streams[0];
-        }
-      };
-
-      // Handle data channel from remote peer
-      pc.ondatachannel = (event) => {
-        const channel = event.channel;
-        dataChannelRef.current = channel;
-
-        channel.onopen = () => {
-          console.log('Data channel opened');
-        };
-
-        channel.onmessage = (event) => {
-          // Handle incoming messages from server (if any)
-          console.log('Data channel message:', event.data);
-        };
-      };
-
-      // Handle connection state changes
-      pc.onconnectionstatechange = () => {
-        console.log('Connection state:', pc.connectionState);
-        if (pc.connectionState === 'connected') {
-          setConnected(true);
-          console.log('WebRTC connection established successfully');
-        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-          console.log('WebRTC connection lost or failed - but keeping video active for local development');
-          // Don't set connected to false for local development
-          // setConnected(false);
-        }
-      };
-
-      // Add more detailed logging
-      pc.onsignalingstatechange = () => {
-        console.log('Signaling state:', pc.signalingState);
-      };
-      
-      // Add ICE connection state logging with retry logic
-      pc.oniceconnectionstatechange = () => {
-        console.log('ICE connection state:', pc.iceConnectionState);
-        
-        // Keep connection as "connected" even if ICE fails for local development
-        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-          console.log('ICE failed, but keeping video connection active for local development');
-          // Don't set connected to false - keep the video stream active
-        }
-      };
-      
-      // Add gathering state logging
-      pc.onicegatheringstatechange = () => {
-        console.log('ICE gathering state:', pc.iceGatheringState);
-      };
-
-      // Handle ICE candidates (missing in our implementation!)
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          console.log('Generated ICE candidate:', event.candidate);
-          // Send ICE candidate to server
-          fetch('/data/webrtc_ice_candidate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              session_id: sessionId,
-              candidate: event.candidate
-            })
-          }).catch(err => console.error('Failed to send ICE candidate:', err));
-        } else {
-          console.log('ICE candidate gathering complete');
-        }
-      };
-
-      // Add transceiver for video (like the working example)
-      pc.addTransceiver('video', { direction: 'recvonly' });
-
-      // Create offer
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      console.log('Local description set, waiting for ICE gathering...');
-
-      // Wait for ICE gathering to complete (like the working example)
-      await new Promise<void>((resolve) => {
-        if (pc.iceGatheringState === 'complete') {
-          resolve();
-        } else {
-          const checkState = () => {
-            if (pc.iceGatheringState === 'complete') {
-              pc.removeEventListener('icegatheringstatechange', checkState);
-              resolve();
-            }
-          };
-          pc.addEventListener('icegatheringstatechange', checkState);
-        }
-      });
-
-      console.log('ICE gathering complete, sending offer to server');
-      
-      try {
-        const response = await fetch('/data/webrtc_offer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: sessionId,
-            offer: offer.sdp,
-          }),
-        });
-
-        console.log('WebRTC offer response status:', response.status);
-        const result = await response.json();
-        console.log('WebRTC offer result:', result);
-        
-        if (result.success && result.answer) {
-          console.log('Received WebRTC answer, setting remote description');
-          await handleWebRTCAnswer(result.answer);
-        } else {
-          throw new Error(result.error || 'Failed to get WebRTC answer');
-        }
-      } catch (err) {
-        console.error('Failed to send WebRTC offer:', err);
-        setError('Failed to establish WebRTC connection');
-      }
-
-    } catch (err) {
-      console.error('Error setting up WebRTC:', err);
-      setError('Failed to setup WebRTC connection');
-    }
-  }, [sessionId]);
-
-  // Handle WebRTC answer from server
-  const handleWebRTCAnswer = useCallback(async (answerSdp: string) => {
-    try {
-      if (!peerConnectionRef.current) return;
-
-      const answer = new RTCSessionDescription({
-        type: 'answer',
-        sdp: answerSdp,
-      });
-
-      await peerConnectionRef.current.setRemoteDescription(answer);
-      console.log('Set remote description');
-
-    } catch (err) {
-      console.error('Error handling WebRTC answer:', err);
-      setError('Failed to handle WebRTC answer');
-    }
-  }, []);
-
-  // Send control message via HTTP instead of data channel
-  const sendControlMessage = useCallback((message: any) => {
-    // For now, send via HTTP endpoint instead of WebRTC data channel
-    fetch('/data/webrtc_control', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: sessionId,
-        message: message,
-      }),
-    }).catch(err => {
-      console.error('Failed to send control message:', err);
-    });
-  }, [sessionId]);
+  // WebRTC hook
+  const { start, stop, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction } = useWebRTC({
+    sessionId,
+    environmentId,
+    serverUrl: '/data/gym_offer'
+  });
 
   // Handle keyboard events
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (!connected) return;
 
     const key = event.key.toLowerCase();
-    if (!pressedKeysRef.current.has(key)) {
-      pressedKeysRef.current.add(key);
-      sendControlMessage({ type: 'keydown', key });
+    sendKeyDown(key);
 
-      // Increment step count for visual feedback
-      setStepCount(prev => prev + 1);
-    }
-
+    // Increment step count for visual feedback
+    setStepCount(prev => prev + 1);
     event.preventDefault();
-  }, [connected, sendControlMessage]);
+  }, [connected, sendKeyDown]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!connected) return;
 
     const key = event.key.toLowerCase();
-    if (pressedKeysRef.current.has(key)) {
-      pressedKeysRef.current.delete(key);
-      sendControlMessage({ type: 'keyup', key });
-    }
-
+    sendKeyUp(key);
     event.preventDefault();
-  }, [connected, sendControlMessage]);
+  }, [connected, sendKeyUp]);
 
-  // Cleanup function
-  const cleanup = useCallback(async () => {
-    // Remove keyboard listeners
-    document.removeEventListener('keydown', handleKeyDown);
-    document.removeEventListener('keyup', handleKeyUp);
-
-    // Close WebRTC connection
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
+  // Set up video stream when remoteStream changes
+  useEffect(() => {
+    if (remoteStream && videoRef.current) {
+      console.log('Setting video stream');
+      videoRef.current.srcObject = remoteStream;
     }
-
-    // Close Socket.IO connection
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
-
-    // Close demo session on server
-    if (demoData) {
-      try {
-        await fetch('/data/end_demo_session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: sessionId,
-            webrtc_enabled: true,
-          }),
-        });
-      } catch (err) {
-        console.error('Error ending demo session:', err);
-      }
-    }
-  }, [sessionId, demoData, handleKeyDown, handleKeyUp]);
+  }, [remoteStream]);
 
   // Initialize demo on mount - only run once
   useEffect(() => {
     let isMounted = true;
 
     const initDemo = async () => {
-      if (isMounted) {
-        await initializeDemo();
+      if (!isMounted) return;
+      
+      setLoading(true);
+      setError(null);
+
+      try {
+        await start({ useDataChannel: true });
+        if (isMounted) {
+          setConnected(true);
+        }
+      } catch (err) {
+        if (isMounted) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          setError(errorMsg);
+          console.error('Error initializing WebRTC:', err);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
@@ -383,9 +116,26 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
 
     return () => {
       isMounted = false;
-      cleanup();
+      stop();
     };
   }, []); // Empty dependency array - only run once
+
+  // Retry function for error cases
+  const handleRetry = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await start({ useDataChannel: true });
+      setConnected(true);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMsg);
+      console.error('Error retrying WebRTC:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [start]);
 
   // Setup keyboard event listeners when connected
   useEffect(() => {
@@ -458,7 +208,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     return (
       <Alert severity="error" sx={{ m: 1 }}>
         {error}
-        <Button size="small" onClick={initializeDemo} sx={{ ml: 1 }}>
+        <Button size="small" onClick={handleRetry} sx={{ ml: 1 }}>
           Retry
         </Button>
       </Alert>
@@ -545,109 +295,104 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
           display: 'flex',
           flexDirection: 'column',
           p: fullscreen ? (controlsVisible ? 1 : 0) : 1,
-          bgcolor: fullscreen ? 'black' : 'transparent'
+          bgcolor: fullscreen ? 'black' : 'transparent',
+          overflow: 'auto', // Allow scrolling
+          minHeight: 0 // Important for flex containers
         }}>
-          {tabValue === 0 && (
+          {/* Always render video but hide when not on tab 0 */}
+          <Box sx={{
+            display: tabValue === 0 ? 'flex' : 'none',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 1,
+            minHeight: 'fit-content' // Allow natural sizing
+          }}>
+            {/* Video stream display */}
             <Box sx={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 1
+              position: 'relative',
+              width: '100%',
+              maxWidth: fullscreen ? '100%' : '600px',
+              height: fullscreen ? '70vh' : '400px', // Fixed height instead of aspect ratio
+              bgcolor: 'black',
+              borderRadius: fullscreen ? 0 : 1,
+              overflow: 'hidden',
+              border: fullscreen ? 'none' : '1px solid',
+              borderColor: 'divider'
             }}>
-              {/* Video stream */}
-              <Box sx={{
-                position: 'relative',
-                width: '100%',
-                maxWidth: fullscreen ? '100%' : '600px',
-                aspectRatio: '16/9',
-                bgcolor: 'black',
-                borderRadius: fullscreen ? 0 : 1,
-                overflow: 'hidden',
-                border: fullscreen ? 'none' : '1px solid',
-                borderColor: 'divider'
-              }}>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  onLoadedMetadata={() => {
-                    console.log('Video metadata loaded');
-                    if (videoRef.current) {
-                      console.log('Video dimensions:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight);
-                    }
-                  }}
-                  onLoadStart={() => console.log('Video load started')}
-                  onCanPlay={() => console.log('Video can play')}
-                  onPlaying={() => console.log('Video is playing')}
-                  onTimeUpdate={() => {
-                    if (videoRef.current) {
-                      console.log('Video time update:', videoRef.current.currentTime);
-                    }
-                  }}
-                  onError={(e) => console.error('Video error:', e)}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    backgroundColor: 'black'
-                  }}
-                />
-
-                {/* Connection status overlay */}
-                {!connected && (
-                  <Box sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: 'rgba(0,0,0,0.8)',
-                    color: 'white'
-                  }}>
-                    <Box sx={{ textAlign: 'center' }}>
-                      <CircularProgress color="inherit" size={24} />
-                      <Typography variant="body2" sx={{ mt: 1 }}>
-                        Connecting to environment...
-                      </Typography>
-                    </Box>
-                  </Box>
-                )}
-
-                {/* Step counter */}
-                {connected && !fullscreen && (
-                  <Box sx={{
-                    position: 'absolute',
-                    top: 8,
-                    left: 8,
-                    bgcolor: 'rgba(0,0,0,0.7)',
-                    color: 'white',
-                    px: 1,
-                    py: 0.5,
-                    borderRadius: 1,
-                    fontSize: '0.75rem'
-                  }}>
-                    Steps: {stepCount}
-                  </Box>
-                )}
-              </Box>
-
-              {/* Status info */}
-              {!fullscreen && (
-                <Typography variant="caption" color="text.secondary">
-                  {connected ?
-                    'Use keyboard to control the environment (WASD + Space)' :
-                    'Waiting for connection...'
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                onLoadedMetadata={() => {
+                  console.log('Video metadata loaded');
+                  if (videoRef.current) {
+                    console.log('Video dimensions:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight);
                   }
-                </Typography>
+                }}
+                onLoadStart={() => console.log('Video load started')}
+                onCanPlay={() => console.log('Video can play')}
+                onPlaying={() => console.log('Video is playing')}
+                onError={(e) => console.error('Video error:', e)}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  backgroundColor: 'black'
+                }}
+              />
+
+              {/* Connection status overlay */}
+              {!connected && (
+                <Box sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  bgcolor: 'rgba(0,0,0,0.8)',
+                  color: 'white'
+                }}>
+                  <Box sx={{ textAlign: 'center' }}>
+                    <CircularProgress color="inherit" size={24} />
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      Connecting to environment...
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+
+              {/* Step counter */}
+              {connected && !fullscreen && (
+                <Box sx={{
+                  position: 'absolute',
+                  top: 8,
+                  left: 8,
+                  bgcolor: 'rgba(0,0,0,0.7)',
+                  color: 'white',
+                  px: 1,
+                  py: 0.5,
+                  borderRadius: 1,
+                  fontSize: '0.75rem'
+                }}>
+                  Steps: {stepCount}
+                </Box>
               )}
             </Box>
-          )}
+
+            {/* Status info */}
+            {!fullscreen && (
+              <Typography variant="caption" color="text.secondary">
+                {connected ?
+                  'Use keyboard to control the environment (WASD + Space)' :
+                  'Waiting for connection...'
+                }
+              </Typography>
+            )}
+          </Box>
 
           {tabValue === 1 && (
             <Box sx={{ p: 1, color: fullscreen ? 'white' : 'inherit' }}>
