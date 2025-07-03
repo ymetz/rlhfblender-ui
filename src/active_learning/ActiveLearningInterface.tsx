@@ -1,15 +1,14 @@
-import React, { useEffect, useRef, useCallback } from 'react';
-import { Box, Paper, Button, CircularProgress } from '@mui/material';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
+import { Box, Paper, Button, CircularProgress, IconButton, Drawer, Typography, Tooltip } from '@mui/material';
+import { ChevronRight } from '@mui/icons-material';
 import axios from 'axios';
 // Import components
-import ProgressChart from './ProgressChart';
 import ProjectionComponent from './ProjectionComponent';
 import SelectionView from './SelectionView';
-import FeedbackCounts from './FeedbackCounts';
 import FeedbackInput from './FeedbackInput';
 import TrainingProgressBox from './TrainingProgressBox';
+import TrainingProgressPanel from './TrainingProgressPanel';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
-import GridUncertaintyMap from './GridMap';
 import { FeedbackType, Feedback } from '../types';
 import { useAppState, useAppDispatch } from '../AppStateContext';
 
@@ -23,6 +22,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
   const [waiting, setWaiting] = React.useState(false);
   const [isTraining, setIsTraining] = React.useState(false);
+  const [trainingProgressOpen, setTrainingProgressOpen] = useState(false);
   const [trainingStatus, setTrainingStatus] = React.useState({
     phaseStatus: '',
     message: '',
@@ -230,8 +230,6 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
     // Note: setWaiting(false) is now handled by the polling function when training completes
 };
 
-  // Use the feedback counts from the active learning state
-  const feedbackData = activeLearningState.feedbackCounts;
 
   return (
     <Box
@@ -240,188 +238,177 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         width: '100%',
         height: '100%',
         minHeight: '600px',
+        position: 'relative',
       }}
     >
-      {/* Left sidebar - 20% width with 3 charts stacked */}
-      <Box
+      {/* Collapsible Training Progress Drawer */}
+      <Drawer
+        variant="temporary"
+        anchor="left"
+        open={trainingProgressOpen}
+        onClose={() => setTrainingProgressOpen(false)}
         sx={{
-          width: '20%',
-          display: 'flex',
-          flexDirection: 'column',
-          p: 1,
-          gap: 1, // Use gap instead of margin-bottom for consistent spacing
-          height: '100%', // Ensure the sidebar takes the full height
+          '& .MuiDrawer-paper': {
+            width: '40vw',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            p: 1,
+            gap: 1,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+          },
+        }}
+        ModalProps={{
+          BackdropProps: {
+            sx: {
+              backgroundColor: 'rgba(0, 0, 0, 0.1)',
+              backdropFilter: 'blur(4px)',
+            },
+          },
         }}
       >
-        {/* First chart container - adjusted height */}
-        <Paper
-          elevation={2}
-          sx={{
-            height: 'calc(30% - 0.67rem)', // Adjusted for 3 components with 2 gaps
-            p: 1,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <Box
-            sx={{
-              flex: 1,
-              height: '90%', // Leave room for the title
-              position: 'relative',
-              overflow: 'hidden' // Prevent overflow
-            }}
-          >
-            <ProgressChart
-              steps={activeLearningState.progressTrainingSteps}
-              rewards={activeLearningState.progressRewards}
-              uncertainties={activeLearningState.progressUncertainties}
-              title="Training Progress"
-            />
-          </Box>
-        </Paper>
+        <TrainingProgressPanel onClose={() => setTrainingProgressOpen(false)} />
+      </Drawer>
 
-                <Paper
-          elevation={2}
-          sx={{
-            height: 'calc(30% - 0.67rem)', // Adjusted for 3 components with 2 gaps
-            p: 1,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <Box
+      {/* Training Progress Tab Button */}
+      {!trainingProgressOpen && (
+        <Tooltip title="Training Progress" placement="right">
+          <IconButton
+            onClick={() => setTrainingProgressOpen(true)}
             sx={{
-              flex: 1,
-              height: '90%', // Leave room for the title
-              position: 'relative',
-              overflow: 'hidden' // Prevent overflow
-            }}
-          >
-            <FeedbackCounts 
-              data={feedbackData}
-              title="Feedback History"
-            />
-          </Box>
-        </Paper>
-
-        <Paper
-          elevation={2}
-          sx={{
-            height: 'calc(35% - 0.67rem)', // Adjusted for 3 components with 2 gaps
-            p: 1,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <Box
-            sx={{
-              flex: 1,
-              height: '90%', // Leave room for the title
-              position: 'relative',
-              overflow: 'hidden' // Prevent overflow
-            }}
-          >
-              <GridUncertaintyMap
-                gridPredictionImage={activeLearningState.grid_prediction_image}
-                gridUncertaintyImage={activeLearningState.grid_uncertainty_image}
-                datapointCoordinates={activeLearningState.projectionStates || []}
-                gridCoordinates={undefined}
-                gridUncertainties={undefined}
-                imageOpacity={0.5}
-                title="Decrease in Uncertainty"
-              />
-          </Box>
-        </Paper>
-      </Box>
-
-      {/* Middle section - 50% width with WebGL component */}
-      <Box
-        sx={{
-          width: '50%',
-          p: 1,
-          height: '100%', // Ensure full height
-        }}
-      >
-        <Paper
-          elevation={2}
-          sx={{
-            height: 'calc(97% - 0.5rem)', // Adjusted for 3 components with 2 gaps
-            p: 1.2,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <Box
-            sx={{
-              flex: 1,
+              position: 'fixed',
+              left: 0,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              zIndex: 1200,
+              backgroundColor: 'primary.main',
+              color: 'white',
+              borderRadius: '0 8px 8px 0',
+              '&:hover': {
+                backgroundColor: 'primary.dark',
+              },
+              width: '40px',
+              height: '160px',
               display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
               justifyContent: 'center',
-              alignItems: 'center'
+              gap: 0.5,
             }}
           >
-            <ProjectionComponent
-              width="100%"
-              height="100%"
-            />
-          </Box>
-        </Paper>
-      </Box>
+            <ChevronRight sx={{ fontSize: '16px' }} />
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                writingMode: 'vertical-rl',
+                textOrientation: 'mixed',
+                fontSize: '10px',
+                lineHeight: 1,
+              }}
+            >
+              TRAINING PROGRESS
+            </Typography>
+          </IconButton>
+        </Tooltip>
+      )}
 
-      {/* Right section - 30% width with 2 rows */}
+      {/* Main content area */}
       <Box
         sx={{
-          width: '30%',
           display: 'flex',
-          flexDirection: 'column',
-          p: 1,
-          gap: 1, // Use gap instead of margin for consistent spacing
-          height: '100%', // Ensure full height
+          width: '100%',
+          height: '100%',
         }}
       >
-        <Paper
-          elevation={2}
+        {/* Projection section - 2/3 width */}
+        <Box
           sx={{
-            height: 'calc(50% - 0.5rem)', // Leave room for button at bottom
+            width: '66.67%',
             p: 1,
-            display: 'flex',
-            flexDirection: 'column',
+            height: '100%',
           }}
         >
-          <SelectionView />
-        </Paper>
-
-        <Paper
-          elevation={2}
-          sx={{
-            height: 'calc(35% - 0.5rem)', // Leave room for button at bottom
-            p: 1,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <FeedbackInput />
-        </Paper>
-
-        {/* Button container with fixed height */}
-        <Paper
-          elevation={2}
-          sx={{
-            p: 1,
-            height: 'calc(9% - 0.5rem)', // Fixed height for button area
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleContinue}
+          <Paper
+            elevation={2}
+            sx={{
+              height: 'calc(97% - 0.5rem)',
+              p: 1.2,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
           >
-            Go to Next Phase
-          </Button>
-        </Paper>
+            <Box
+              sx={{
+                flex: 1,
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}
+            >
+              <ProjectionComponent
+                width="100%"
+                height="100%"
+              />
+            </Box>
+          </Paper>
+        </Box>
+
+        {/* Right section - 1/3 width */}
+        <Box
+          sx={{
+            width: '33.33%',
+            display: 'flex',
+            flexDirection: 'column',
+            p: 1,
+            gap: 1,
+            height: '100%',
+          }}
+        >
+          <Paper
+            elevation={2}
+            sx={{
+              height: 'calc(50% - 0.5rem)',
+              p: 1,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <SelectionView />
+          </Paper>
+
+          <Paper
+            elevation={2}
+            sx={{
+              height: 'calc(35% - 0.5rem)',
+              p: 1,
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <FeedbackInput />
+          </Paper>
+
+          {/* Button container with fixed height */}
+          <Paper
+            elevation={2}
+            sx={{
+              p: 1,
+              height: 'calc(9% - 0.5rem)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleContinue}
+            >
+              Go to Next Phase
+            </Button>
+          </Paper>
+        </Box>
       </Box>
       
       {/* Training Progress Box */}

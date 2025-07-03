@@ -6,7 +6,9 @@ import {
     CircularProgress,
     Alert,
     Tooltip,
-    IconButton
+    IconButton,
+    Card,
+    CardMedia
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -19,6 +21,9 @@ import { Color2D } from './projection_utils/2dcolormaps';
 // import vsup
 import * as vsup from 'vsup';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
+import { useAppState } from '../AppStateContext';
+import { IDfromEpisode } from '../id';
+import { useGetter } from '../getter-context';
 
 const canvasImageCache = new Map();
 
@@ -34,6 +39,22 @@ const EmbeddingWrapper = styled(Box)(({ theme }) => ({
 const EmbeddingContainer = styled(Box)(({ theme }) => ({
     flexGrow: 1,
     position: 'relative',
+}));
+
+// Thumbnail overlay styled component
+const ThumbnailOverlay = styled(Card)(({ theme }) => ({
+    position: 'absolute',
+    top: theme.spacing(2),
+    right: theme.spacing(2),
+    width: '200px',
+    height: '200px',
+    zIndex: 30,
+    border: '3px solid',
+    transition: 'opacity 0.3s',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    '&:hover': {
+        opacity: 1,
+    },
 }));
 
 
@@ -100,6 +121,68 @@ const ColorLegend = ({ minMax, width, title }) => {
     );
 };
 
+// Glyph Legend component
+const GlyphLegendComponent = () => {
+    const legendRef = useRef(null);
+
+    useEffect(() => {
+        if (legendRef.current) {
+            d3.select(legendRef.current).select('svg').remove();
+
+            const svg = d3.select(legendRef.current)
+                .append('svg')
+                .attr('width', 160)
+                .attr('height', 80)
+                .append('g')
+                .attr('transform', 'translate(10, 10)');
+
+            // Start glyph example
+            const startGroup = svg.append('g')
+                .attr('transform', 'translate(15, 20)');
+            
+            startGroup.append('polygon')
+                .attr('points', '-7,-7 7,0 -7,7')
+                .attr('fill', '#4CAF50')
+                .attr('stroke', '#2E7D32')
+                .attr('stroke-width', 2);
+            
+            startGroup.append('text')
+                .attr('x', 20)
+                .attr('y', 4)
+                .attr('font-size', '12px')
+                .attr('fill', '#333333')
+                .text('Start states');
+
+            // End glyph example
+            const endGroup = svg.append('g')
+                .attr('transform', 'translate(15, 45)');
+            
+            endGroup.append('rect')
+                .attr('x', -6)
+                .attr('y', -6)
+                .attr('width', 12)
+                .attr('height', 12)
+                .attr('fill', '#F44336')
+                .attr('stroke', '#C62828')
+                .attr('stroke-width', 2);
+            
+            endGroup.append('text')
+                .attr('x', 20)
+                .attr('y', 4)
+                .attr('font-size', '12px')
+                .attr('fill', '#333333')
+                .text('End states');
+        }
+    }, []);
+
+    return (
+        <Box>
+            <Typography variant="caption" fontWeight="bold">Marker Legend</Typography>
+            <div ref={legendRef} />
+        </Box>
+    );
+};
+
 const LegendContainer = styled(Box)(({ theme }) => ({
     position: 'absolute',
     bottom: theme.spacing(2),
@@ -116,10 +199,19 @@ const ObjectLegend = styled(LegendContainer)(({ theme }) => ({
     zIndex: 15,
 }));
 
-const WebGLProjection = (props) => {
+// Glyph legend positioned on the left side
+const GlyphLegend = styled(LegendContainer)(({ theme }) => ({
+    left: theme.spacing(1),
+    zIndex: 15,
+    width: '180px',
+}));
+
+const StateSequenceProjection = (props) => {
     // Get state and dispatch from context
     const activeLearningState = useActiveLearningState();
     const activeLearningDispatch = useActiveLearningDispatch();
+    const appState = useAppState();
+    const { getThumbnailURL } = useGetter();
 
     // Refs
     const embeddingRef = useRef(null);
@@ -134,10 +226,14 @@ const WebGLProjection = (props) => {
     const [selectedState, setSelectedState] = useState(null);
     const [selectedCoordinate, setSelectedCoordinate] = useState({ x: null, y: null });
     const [selectedCluster, setSelectedCluster] = useState(null);
+    const [hoveredEpisode, setHoveredEpisode] = useState(null);
+    const [clickedEpisode, setClickedEpisode] = useState(null);
+    const [thumbnailUrl, setThumbnailUrl] = useState(null);
     const selectedTrajectoryRef = useRef(null);
     const selectedStateRef = useRef(null);
     const selectedCoordinateRef = useRef();
     const selectedClusterRef = useRef(null);
+
 
     // Extract props from activeLearningState
     const {
@@ -165,6 +261,30 @@ const WebGLProjection = (props) => {
     useEffect(() => {
         selectedClusterRef.current = selectedCluster;
     }, [selectedCluster]);
+
+    // Effect to load thumbnail when episode is hovered or clicked
+    useEffect(() => {
+        const episodeToLoad = clickedEpisode || hoveredEpisode;
+        if (episodeToLoad !== null) {
+            // Find the matching episode in the loaded episodes list to get the correct ID format
+            const matchingEpisode = appState.episodeIDsChronologically?.find(episode => 
+                episode.benchmark_id === props.benchmarkId &&
+                episode.checkpoint_step === props.checkpointStep &&
+                episode.episode_num === episodeToLoad
+            );
+            
+            if (matchingEpisode) {
+                const episodeId = IDfromEpisode(matchingEpisode);
+                getThumbnailURL(episodeId).then((url) => {
+                    if (url !== undefined) {
+                        setThumbnailUrl(url);
+                    }
+                });
+            }
+        } else {
+            setThumbnailUrl(null);
+        }
+    }, [hoveredEpisode, clickedEpisode, getThumbnailURL, appState.episodeIDsChronologically, props.benchmarkId, props.checkpointStep]);
 
     // Drawing function dispatches to specific visualizations
     const drawChart = useCallback((
@@ -197,6 +317,9 @@ const WebGLProjection = (props) => {
     const loadData = useCallback(() => {
         setIsLoading(true);
         setError(null);
+        
+        // Clear the image cache when loading new data to prevent stale images
+        canvasImageCache.clear();
 
         const embedding_method = props.embeddingMethod;
         const use_one_d_embedding = 0;
@@ -416,12 +539,17 @@ const WebGLProjection = (props) => {
             return colorScale(reward, uncertainty);
         });
 
+        // Create unique cache keys based on current parameters to ensure fresh data
+        const cacheKey = `${props.benchmarkId}_${props.checkpointStep}_${props.embeddingMethod}`;
+        const predictionCacheKey = `prediction_${cacheKey}`;
+        const uncertaintyCacheKey = `uncertainty_${cacheKey}`;
+
         // Preload and cache grid images with their bounds
-        if (grid_prediction_image && !canvasImageCache.has('prediction')) {
+        if (grid_prediction_image && !canvasImageCache.has(predictionCacheKey)) {
             const img = new Image();
             img.onload = () => {
                 // Store image with metadata
-                canvasImageCache.set('prediction', {
+                canvasImageCache.set(predictionCacheKey, {
                     image: img,
                     bounds: gridData.bounds
                 });
@@ -429,7 +557,7 @@ const WebGLProjection = (props) => {
                 // Force initial draw if this is the first load
                 if (context) {
                     const initialTransform = d3.zoomIdentity;
-                    drawImageToCanvas(context, 'prediction', initialTransform, svgWidth, svgHeight);
+                    drawImageToCanvas(context, predictionCacheKey, initialTransform, svgWidth, svgHeight);
                 }
             };
 
@@ -441,11 +569,11 @@ const WebGLProjection = (props) => {
         }
 
         // Similarly for uncertainty image
-        if (gridData.uncertainty_image && !canvasImageCache.has('uncertainty')) {
+        if (gridData.uncertainty_image && !canvasImageCache.has(uncertaintyCacheKey)) {
             const img = new Image();
             img.onload = () => {
                 console.log('Grid uncertainty image loaded successfully:', img.width, 'x', img.height);
-                canvasImageCache.set('uncertainty', {
+                canvasImageCache.set(uncertaintyCacheKey, {
                     image: img,
                     bounds: gridData.bounds
                 });
@@ -566,7 +694,22 @@ const WebGLProjection = (props) => {
 
             if (closest && props.setHoverStep && props.infos) {
                 props.setHoverStep(props.infos[closest[2]]);
+                
+                // Set hovered episode for thumbnail display
+                const episodeIdx = processedData[closest[2]] && processedData[closest[2]].length > 3 
+                    ? processedData[closest[2]][processedData[closest[2]].length - 1]
+                    : episodeIndices[closest[2]];
+                    
+                if (episodeIdx !== undefined && episodeIdx !== null) {
+                    setHoveredEpisode(episodeIdx);
+                }
+            } else {
+                setHoveredEpisode(null);
             }
+        });
+
+        view_rect.on('mouseout', function (event) {
+            setHoveredEpisode(null);
         });
 
         view_rect.on('click', function (event) {
@@ -616,6 +759,9 @@ const WebGLProjection = (props) => {
                 if (episodeIdx !== null) {
                     setSelectedTrajectory(episodeIdx);
                     selectedTrajectoryRef.current = episodeIdx;
+                    
+                    // Set clicked episode for thumbnail display
+                    setClickedEpisode(episodeIdx);
 
                     // Force a redraw to show the highlighted trajectory
                     const currentTransform = d3.zoomTransform(view.node());
@@ -634,6 +780,7 @@ const WebGLProjection = (props) => {
                 selectedStateRef.current = null;
                 setSelectedCluster(null);
                 selectedClusterRef.current = null;
+                setClickedEpisode(null);
 
                 // Reset cluster hull strokes
                 /*d3.selectAll(".cluster_hull").style("stroke", function() {
@@ -704,10 +851,12 @@ const WebGLProjection = (props) => {
         }
 
         for (let i = 0; i < done_idx.length; i++) {
-            if (!label_data_map.has(done_idx[i])) {
-                label_data_map.set(done_idx[i], ['Done']);
+            // Place "Done" label one step earlier (on the last actual step before termination)
+            const donePosition = Math.max(0, done_idx[i] - 1);
+            if (!label_data_map.has(donePosition)) {
+                label_data_map.set(donePosition, ['Done']);
             } else {
-                label_data_map.get(done_idx[i]).push('Done');
+                label_data_map.get(donePosition).push('Done');
             }
         }
 
@@ -724,25 +873,55 @@ const WebGLProjection = (props) => {
             }
         }
 
-        // Create text labels
-        const text_labels = view
-            .selectAll('label-g')
+        // Create glyph labels for start/end states
+        const glyph_labels = view
+            .selectAll('glyph-g')
             .data(processedData.map((d, i) => [d[0], d[1], i]).filter((d) => label_data_map.has(d[2])))
             .enter()
             .append('g')
-            .attr('class', 'label-g')
-            .attr('id', (d) => 'label-g_' + d[2]);
+            .attr('class', 'glyph-g')
+            .attr('id', (d) => 'glyph-g_' + d[2])
+            .attr('transform', (d) => `translate(${xScale(d[0])}, ${yScale(d[1])})`);
 
-        // Add text labels
-        const text_labels_text = text_labels
-            .append('text')
-            .attr('class', 'label')
-            .attr('x', (d) => xScale(d[0]) + 10)
-            .attr('y', (d) => yScale(d[1]) + 10)
-            .attr('text-anchor', 'center')
-            .attr('fill', '#333333')
-            .attr('font-size', '12px')
-            .text((d) => label_data_map.get(d[2]).join('/'));
+        // Function to create start glyph (play triangle)
+        const createStartGlyph = (container, size = 12) => {
+            const triangle = container.append('polygon')
+                .attr('class', 'start-glyph')
+                .attr('points', `${-size/2},${-size/2} ${size/2},0 ${-size/2},${size/2}`)
+                .attr('fill', '#4CAF50')
+                .attr('stroke', '#2E7D32')
+                .attr('stroke-width', 2);
+            return triangle;
+        };
+
+        // Function to create end glyph (square stop)
+        const createEndGlyph = (container, size = 10) => {
+            const square = container.append('rect')
+                .attr('class', 'end-glyph')
+                .attr('x', -size/2)
+                .attr('y', -size/2)
+                .attr('width', size)
+                .attr('height', size)
+                .attr('fill', '#F44336')
+                .attr('stroke', '#C62828')
+                .attr('stroke-width', 2);
+            return square;
+        };
+
+        // Add appropriate glyphs based on label type
+        glyph_labels.each(function(d) {
+            const labels = label_data_map.get(d[2]);
+            const container = d3.select(this);
+            
+            if (labels.includes('Start')) {
+                createStartGlyph(container, 14);
+            }
+            if (labels.includes('Done')) {
+                createEndGlyph(container, 12);
+            }
+        });
+
+        const text_labels_text = glyph_labels; // Keep reference for zoom handling
 
         const unique_labels = new Set(labels);
 
@@ -871,7 +1050,7 @@ const WebGLProjection = (props) => {
             // First, draw the grid image to the canvas with proper transformation
             if (context) {
                 // Draw the appropriate image based on visualization mode
-                const imageKey = 'prediction'; // or 'uncertainty' based on UI state
+                const imageKey = predictionCacheKey; // or uncertaintyCacheKey based on UI state
                 drawImageToCanvas(context, imageKey, transform, svgWidth, svgHeight);
 
                 // Draw additional items on top if needed
@@ -897,7 +1076,7 @@ const WebGLProjection = (props) => {
                         //    return;
 
                         // Set path styling
-                        context.strokeStyle = d3.interpolateCool(episodeIdx / episodeToPaths.size);
+                        context.strokeStyle = d3.interpolateCool(episodeIdx / 20);
                         context.lineWidth = isHighlighted ? width * 1.5 : width;
                         context.globalAlpha = isHighlighted ? 1.0 : 0.8;
 
@@ -930,10 +1109,15 @@ const WebGLProjection = (props) => {
                         const pointEpisodeIdx = episodeIndices[i] || 0;
                         const isHighlighted = currentHighlightedTrajectory === pointEpisodeIdx;
                         if (!isHighlighted) continue;
+                        
+                        // Skip rendering circle if this point has a glyph (start/end state)
+                        const hasGlyph = label_data_map.has(i);
+                        if (hasGlyph) continue;
+                        
                         const fillStyle = point_colors[i];
                         context.fillStyle = fillStyle;
                         // color stroke of point based on episode index
-                        context.strokeStyle = d3.interpolateCool(pointEpisodeIdx / episodeToPaths.size);
+                        context.strokeStyle = d3.interpolateCool(pointEpisodeIdx / 20);
                         context.lineWidth = width;
                         context.globalAlpha = isHighlighted ? 0.9 : 0.5;
                         context.beginPath();
@@ -973,23 +1157,29 @@ const WebGLProjection = (props) => {
                     .style("stroke-width", 2);
             }
 
-            // Update SVG elements visibility based on zoom level
-            if (transform.k > 2) {
-                text_labels.attr('display', 'inline');
+            // Update SVG elements visibility and scaling based on zoom level
+            if (transform.k > 0.2) {
+                glyph_labels.attr('display', 'inline');
             } else {
-                text_labels.attr('display', 'none');
+                glyph_labels.attr('display', 'none');
             }
 
-            // Update text size
-            text_labels_text.attr('font-size', 16 / transform.k);
+            // Scale glyphs inversely to zoom level to maintain consistent size
+            const glyphScale = 1 / transform.k;
+            glyph_labels.selectAll('.start-glyph, .end-glyph')
+                .attr('transform', `scale(${glyphScale})`);
+            
+            // Update stroke width to maintain consistent appearance
+            glyph_labels.selectAll('.start-glyph, .end-glyph')
+                .attr('stroke-width', 2 * glyphScale);
         }
 
         svg.call(zoom);
 
         // Draw initial state with identity transform
-        if (canvasImageCache.has('prediction')) {
+        if (canvasImageCache.has(predictionCacheKey)) {
             const initialTransform = d3.zoomIdentity;
-            drawImageToCanvas(context, 'prediction', initialTransform, svgWidth, svgHeight);
+            drawImageToCanvas(context, predictionCacheKey, initialTransform, svgWidth, svgHeight);
         } else {
             // If image is not cached yet but we have the data, trigger a redraw when the image loads
             if (grid_prediction_image) {
@@ -1034,6 +1224,38 @@ const WebGLProjection = (props) => {
             {/* Main visualization area */}
             <EmbeddingContainer ref={embeddingRef} />
 
+            {/* Thumbnail overlay */}
+            {thumbnailUrl && (clickedEpisode !== null || hoveredEpisode !== null) && (
+                <ThumbnailOverlay
+                    sx={{
+                        borderColor: d3.interpolateCool(((clickedEpisode || hoveredEpisode) || 0) / 20),
+                        opacity: clickedEpisode !== null ? 1 : 0.8,
+                    }}
+                >
+                    <CardMedia
+                        component="img"
+                        height="100%"
+                        image={thumbnailUrl}
+                        alt={`Episode ${clickedEpisode || hoveredEpisode} thumbnail`}
+                        sx={{ objectFit: 'cover' }}
+                    />
+                    <Box
+                        position="absolute"
+                        top={8}
+                        left={8}
+                        bgcolor="rgba(0, 0, 0, 0.7)"
+                        color="white"
+                        px={1}
+                        py={0.5}
+                        borderRadius={1}
+                        fontSize="12px"
+                        fontWeight="bold"
+                    >
+                        Episode {clickedEpisode || hoveredEpisode}
+                    </Box>
+                </ThumbnailOverlay>
+            )}
+
             <Box
                 position="absolute"
                 bottom="20px"
@@ -1058,6 +1280,9 @@ const WebGLProjection = (props) => {
                                 type: 'SET_SELECTION',
                                 payload: []
                             });
+                            // Clear thumbnail display
+                            setClickedEpisode(null);
+                            setHoveredEpisode(null);
                         }}
                     >
                         <DeleteIcon />
@@ -1161,9 +1386,14 @@ const WebGLProjection = (props) => {
                     />
                 </ObjectLegend>
             )}
+
+            {/* Glyph legend */}
+            <GlyphLegend>
+                <GlyphLegendComponent />
+            </GlyphLegend>
         </EmbeddingWrapper>
     );
 
 };
 
-export default WebGLProjection;
+export default StateSequenceProjection;

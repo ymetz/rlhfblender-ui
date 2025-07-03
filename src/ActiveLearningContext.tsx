@@ -1,6 +1,15 @@
 import React, { createContext, useReducer, useContext, ReactNode } from "react";
 import { Episode } from "./types";
 
+export interface FeedbackHistoryEntry {
+  id: string;
+  type: string;
+  target: any;
+  uncertaintyEffect: number; // The change in uncertainty caused by this feedback
+  timestamp: number;
+  phase: number;
+}
+
 export interface ActiveLearningState {
   // Original state properties
   currentPhase: number;
@@ -56,6 +65,7 @@ export interface ActiveLearningState {
     total: number;
     current: number;
   }[];
+  feedbackHistory: FeedbackHistoryEntry[];
 }
 
 type ActiveLearningAction =
@@ -95,7 +105,9 @@ type ActiveLearningAction =
   | { type: "SET_CURRENT_REWARD_DATA"; payload: number[] }
   | { type: 'SET_EPISODE_INDICES', payload: number[] }
   | { type: 'SET_FEEDBACK_COUNTS', payload: { category: string; total: number; current: number; }[] }
-  | { type: 'UPDATE_FEEDBACK_COUNT', payload: { category: string; isCurrentSession: boolean } };
+  | { type: 'UPDATE_FEEDBACK_COUNT', payload: { category: string; isCurrentSession: boolean } }
+  | { type: 'SET_FEEDBACK_HISTORY', payload: FeedbackHistoryEntry[] }
+  | { type: 'ADD_FEEDBACK_HISTORY_ENTRY', payload: FeedbackHistoryEntry };
 
 const initialState: ActiveLearningState = {
   // Original state
@@ -144,6 +156,7 @@ const initialState: ActiveLearningState = {
     { category: 'Demo', total: 0, current: 0 },
     { category: 'Cluster', total: 0, current: 0 },
   ],
+  feedbackHistory: [],
 };
 
 const ActiveLearningContext = createContext<ActiveLearningState | undefined>(
@@ -243,6 +256,10 @@ function activeLearningReducer(
       });
       return { ...state, feedbackCounts: updatedCounts };
     }
+    case "SET_FEEDBACK_HISTORY":
+      return { ...state, feedbackHistory: action.payload };
+    case "ADD_FEEDBACK_HISTORY_ENTRY":
+      return { ...state, feedbackHistory: [...state.feedbackHistory, action.payload] };
     default:
       throw new Error(`Unhandled action type: ${(action as any).type}`);
   }
