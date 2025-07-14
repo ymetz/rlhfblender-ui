@@ -27,6 +27,343 @@ import { useGetter } from '../getter-context';
 
 const canvasImageCache = new Map();
 
+// Enhanced trajectory visualization functions to reduce overplotting
+
+function drawTrajectory(context, points, color, lineWidth = 2) {
+    if (points.length < 2) return;
+    
+    context.strokeStyle = color;
+    context.lineWidth = lineWidth;
+    context.beginPath();
+    
+    context.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i++) {
+        context.lineTo(points[i][0], points[i][1]);
+    }
+    context.stroke();
+}
+
+// Similarity-based color assignment using final states
+function computeTrajectoryColors(episodeToPaths: Map<number, number[][]>): Map<number, string> {
+    const trajectoryColors = new Map<number, string>();
+    const finalStates = new Map<number, [number, number]>();
+    
+    // Extract final states for each trajectory
+    episodeToPaths.forEach((pathPoints, episodeIdx) => {
+        if (pathPoints.length > 0) {
+            const finalState = pathPoints[pathPoints.length - 1];
+            finalStates.set(episodeIdx, [finalState[0], finalState[1]]);
+        }
+    });
+    
+    // Compute similarity matrix and assign colors
+    const episodes = Array.from(finalStates.keys());
+    const finalStateArray = episodes.map(ep => finalStates.get(ep)).filter(Boolean) as [number, number][];
+    
+    if (finalStateArray.length === 0) return trajectoryColors;
+    
+    // Use 2D color mapping based on final state position
+    episodes.forEach((episodeIdx, i) => {
+        const finalState = finalStateArray[i];
+        if (finalState) {
+            // Use hue based on angle from center, saturation based on distance
+            const centerX = finalStateArray.reduce((sum, state) => sum + state[0], 0) / finalStateArray.length;
+            const centerY = finalStateArray.reduce((sum, state) => sum + state[1], 0) / finalStateArray.length;
+            
+            const dx = finalState[0] - centerX;
+            const dy = finalState[1] - centerY;
+            const angle = Math.atan2(dy, dx);
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Convert to hue (0-360)
+            const hue = ((angle + Math.PI) / (2 * Math.PI)) * 360;
+            
+            // Normalize distance for saturation (0-100)
+            const maxDistance = Math.max(...finalStateArray.map(state => {
+                const dx2 = state[0] - centerX;
+                const dy2 = state[1] - centerY;
+                return Math.sqrt(dx2 * dx2 + dy2 * dy2);
+            }));
+            const saturation = maxDistance > 0 ? Math.min(100, (distance / maxDistance) * 80 + 20) : 50;
+            
+            trajectoryColors.set(episodeIdx, `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, 50%)`);
+        }
+    });
+    
+    return trajectoryColors;
+}
+
+// Fallback color function for episodes without final states
+function getFallbackColor(index: number): string {
+    const hue = (index * 137.508) % 360; // Golden angle for good distribution
+    return `hsl(${Math.round(hue)}, 70%, 50%)`;
+}
+
+// Segment extraction and processing for RLHF
+interface TrajectorySegment {
+    id: string;
+    episodeIdx: number;
+    startIdx: number;
+    endIdx: number;
+    points: number[][];
+    centroid: [number, number];
+    similarity?: number;
+}
+
+interface MergedSegment {
+    id: string;
+    segments: TrajectorySegment[];
+    centroid: [number, number];
+    boundingBox: { minX: number, maxX: number, minY: number, maxY: number };
+    representative: TrajectorySegment;
+    convexHull?: [number, number][];
+    directionalBox?: {
+        startPoint: [number, number];
+        endPoint: [number, number];
+        width: number;
+        angle: number;
+    };
+}
+
+// Extract K-step segments from trajectories
+function extractSegments(episodeToPaths: Map<number, number[][]>, segmentSize: number = 50): TrajectorySegment[] {
+    const segments: TrajectorySegment[] = [];
+
+    
+    episodeToPaths.forEach((pathPoints, episodeIdx) => {
+        if (pathPoints.length < segmentSize) return;
+        
+        // Extract overlapping segments (stride = segmentSize/2 for overlap)
+        const stride = Math.max(1, Math.floor(segmentSize / 2));
+        
+        for (let startIdx = 0; startIdx <= pathPoints.length - segmentSize; startIdx += stride) {
+            const endIdx = startIdx + segmentSize - 1;
+            const segmentPoints = pathPoints.slice(startIdx, startIdx + segmentSize);
+            
+            // Calculate centroid
+            const centroidX = segmentPoints.reduce((sum, p) => sum + p[0], 0) / segmentPoints.length;
+            const centroidY = segmentPoints.reduce((sum, p) => sum + p[1], 0) / segmentPoints.length;
+            
+            segments.push({
+                id: `${episodeIdx}_${startIdx}_${endIdx}`,
+                episodeIdx,
+                startIdx,
+                endIdx,
+                points: segmentPoints,
+                centroid: [centroidX, centroidY]
+            });
+        }
+    });
+    
+    return segments;
+}
+
+// Calculate similarity between two segments
+function calculateSegmentSimilarity(seg1: TrajectorySegment, seg2: TrajectorySegment): number {
+    // Use centroid distance and start/end point similarity
+    const centroidDist = Math.sqrt(
+        Math.pow(seg1.centroid[0] - seg2.centroid[0], 2) +
+        Math.pow(seg1.centroid[1] - seg2.centroid[1], 2)
+    );
+    
+    // Start point similarity
+    const startDist = Math.sqrt(
+        Math.pow(seg1.points[0][0] - seg2.points[0][0], 2) +
+        Math.pow(seg1.points[0][1] - seg2.points[0][1], 2)
+    );
+    
+    // End point similarity
+    const endDist = Math.sqrt(
+        Math.pow(seg1.points[seg1.points.length-1][0] - seg2.points[seg2.points.length-1][0], 2) +
+        Math.pow(seg1.points[seg1.points.length-1][1] - seg2.points[seg2.points.length-1][1], 2)
+    );
+    
+    // Combined similarity score (lower is more similar)
+    return (centroidDist + startDist + endDist) / 3;
+}
+
+// Merge similar segments using clustering
+function mergeSegments(segments: TrajectorySegment[], similarityThreshold: number = 0.05): MergedSegment[] {
+    const mergedSegments: MergedSegment[] = [];
+    const used = new Set<string>();
+    
+    segments.forEach(segment => {
+        if (used.has(segment.id)) return;
+        
+        const cluster: TrajectorySegment[] = [segment];
+        used.add(segment.id);
+        
+        // Find similar segments
+        segments.forEach(otherSegment => {
+            if (used.has(otherSegment.id) || segment.id === otherSegment.id) return;
+            
+            const similarity = calculateSegmentSimilarity(segment, otherSegment);
+            if (similarity <= similarityThreshold) {
+                cluster.push(otherSegment);
+                used.add(otherSegment.id);
+            }
+        });
+        
+        // Calculate merged segment properties
+        const allPoints = cluster.flatMap(s => s.points);
+        const centroidX = allPoints.reduce((sum, p) => sum + p[0], 0) / allPoints.length;
+        const centroidY = allPoints.reduce((sum, p) => sum + p[1], 0) / allPoints.length;
+        
+        const minX = Math.min(...allPoints.map(p => p[0]));
+        const maxX = Math.max(...allPoints.map(p => p[0]));
+        const minY = Math.min(...allPoints.map(p => p[1]));
+        const maxY = Math.max(...allPoints.map(p => p[1]));
+        
+        // Calculate convex hull for the merged segment
+        const convexHull = calculateSimpleConcaveHull(allPoints);
+        
+        // Calculate directional box based on representative segment
+        const repStartPoint = segment.points[0];
+        const repEndPoint = segment.points[segment.points.length - 1];
+        const segmentLength = Math.sqrt(
+            Math.pow(repEndPoint[0] - repStartPoint[0], 2) + 
+            Math.pow(repEndPoint[1] - repStartPoint[1], 2)
+        );
+        const angle = Math.atan2(repEndPoint[1] - repStartPoint[1], repEndPoint[0] - repStartPoint[0]);
+        
+        // Width scales with number of segments (more segments = wider box)
+        const baseWidth = 0.1; // Base width in data units
+        const scaledWidth = baseWidth * Math.log(cluster.length + 1);
+        
+        mergedSegments.push({
+            id: `merged_${segment.id}`,
+            segments: cluster,
+            centroid: [centroidX, centroidY],
+            boundingBox: { minX, maxX, minY, maxY },
+            representative: segment,
+            convexHull,
+            directionalBox: {
+                startPoint: [repStartPoint[0], repStartPoint[1]],
+                endPoint: [repEndPoint[0], repEndPoint[1]],
+                width: scaledWidth,
+                angle
+            }
+        });
+    });
+    
+    return mergedSegments;
+}
+
+// Calculate convex hull using Graham scan algorithm
+function calculateConvexHull(points: number[][]): [number, number][] {
+    if (points.length < 3) return points.map(p => [p[0], p[1]] as [number, number]);
+    
+    // Find the bottom-most point (and leftmost in case of tie)
+    let bottom = 0;
+    for (let i = 1; i < points.length; i++) {
+        if (points[i][1] < points[bottom][1] || 
+            (points[i][1] === points[bottom][1] && points[i][0] < points[bottom][0])) {
+            bottom = i;
+        }
+    }
+    
+    // Swap bottom point to index 0
+    [points[0], points[bottom]] = [points[bottom], points[0]];
+    const pivot = points[0];
+    
+    // Sort points by polar angle with respect to pivot
+    const sortedPoints = points.slice(1).sort((a, b) => {
+        const angleA = Math.atan2(a[1] - pivot[1], a[0] - pivot[0]);
+        const angleB = Math.atan2(b[1] - pivot[1], b[0] - pivot[0]);
+        if (angleA === angleB) {
+            // If angles are equal, sort by distance
+            const distA = Math.pow(a[0] - pivot[0], 2) + Math.pow(a[1] - pivot[1], 2);
+            const distB = Math.pow(b[0] - pivot[0], 2) + Math.pow(b[1] - pivot[1], 2);
+            return distA - distB;
+        }
+        return angleA - angleB;
+    });
+    
+    // Graham scan
+    const hull: [number, number][] = [[pivot[0], pivot[1]]];
+    
+    for (const point of sortedPoints) {
+        // Remove points that make clockwise turn
+        while (hull.length > 1) {
+            const [p1, p2] = [hull[hull.length - 2], hull[hull.length - 1]];
+            const cross = (p2[0] - p1[0]) * (point[1] - p1[1]) - (p2[1] - p1[1]) * (point[0] - p1[0]);
+            if (cross <= 0) {
+                hull.pop();
+            } else {
+                break;
+            }
+        }
+        hull.push([point[0], point[1]]);
+    }
+    
+    return hull;
+}
+
+// Alternative: Simple concave hull using edge length threshold
+function calculateSimpleConcaveHull(points: number[][], maxEdgeLength?: number): [number, number][] {
+    if (points.length < 3) return points.map(p => [p[0], p[1]] as [number, number]);
+    
+    // Calculate average distance between points to determine threshold
+    if (!maxEdgeLength) {
+        let totalDistance = 0;
+        let count = 0;
+        for (let i = 0; i < Math.min(points.length, 20); i++) {
+            for (let j = i + 1; j < Math.min(points.length, 20); j++) {
+                totalDistance += Math.sqrt(
+                    Math.pow(points[i][0] - points[j][0], 2) + 
+                    Math.pow(points[i][1] - points[j][1], 2)
+                );
+                count++;
+            }
+        }
+        maxEdgeLength = (totalDistance / count) * 2; // 2x average distance
+    }
+    
+    // Start with convex hull
+    const convexHull = calculateConvexHull(points);
+    
+    // Check if any edges are too long and need to be "cut"
+    const result: [number, number][] = [];
+    
+    for (let i = 0; i < convexHull.length; i++) {
+        const current = convexHull[i];
+        const next = convexHull[(i + 1) % convexHull.length];
+        
+        result.push(current);
+        
+        const edgeLength = Math.sqrt(
+            Math.pow(next[0] - current[0], 2) + 
+            Math.pow(next[1] - current[1], 2)
+        );
+        
+        // If edge is too long, try to find intermediate points
+        if (edgeLength > maxEdgeLength) {
+            const intermediatePoints = points.filter(p => {
+                const distToCurrent = Math.sqrt(Math.pow(p[0] - current[0], 2) + Math.pow(p[1] - current[1], 2));
+                const distToNext = Math.sqrt(Math.pow(p[0] - next[0], 2) + Math.pow(p[1] - next[1], 2));
+                
+                // Point should be closer to the edge than the edge length threshold
+                return distToCurrent < maxEdgeLength && distToNext < maxEdgeLength && 
+                       distToCurrent > 0.01 && distToNext > 0.01; // Avoid duplicates
+            });
+            
+            // Sort by distance from current point
+            intermediatePoints.sort((a, b) => {
+                const distA = Math.sqrt(Math.pow(a[0] - current[0], 2) + Math.pow(a[1] - current[1], 2));
+                const distB = Math.sqrt(Math.pow(b[0] - current[0], 2) + Math.pow(b[1] - current[1], 2));
+                return distA - distB;
+            });
+            
+            // Add a few intermediate points
+            for (let j = 0; j < Math.min(2, intermediatePoints.length); j++) {
+                result.push([intermediatePoints[j][0], intermediatePoints[j][1]]);
+            }
+        }
+    }
+    
+    return result;
+}
+
 // Styled components
 const EmbeddingWrapper = styled(Box)(({ theme }) => ({
     display: 'flex',
@@ -229,10 +566,14 @@ const StateSequenceProjection = (props) => {
     const [hoveredEpisode, setHoveredEpisode] = useState(null);
     const [clickedEpisode, setClickedEpisode] = useState(null);
     const [thumbnailUrl, setThumbnailUrl] = useState(null);
+    const [selectedSegment, setSelectedSegment] = useState<MergedSegment | null>(null);
+    const [segmentSize, setSegmentSize] = useState(50);
+    const [segmentError, setSegmentError] = useState<string | null>(null);
     const selectedTrajectoryRef = useRef(null);
     const selectedStateRef = useRef(null);
     const selectedCoordinateRef = useRef();
     const selectedClusterRef = useRef(null);
+    
 
 
     // Extract props from activeLearningState
@@ -286,6 +627,8 @@ const StateSequenceProjection = (props) => {
         }
     }, [hoveredEpisode, clickedEpisode, getThumbnailURL, appState.episodeIDsChronologically, props.benchmarkId, props.checkpointStep]);
 
+
+
     // Drawing function dispatches to specific visualizations
     const drawChart = useCallback((
         mode = 'state_space',
@@ -302,14 +645,15 @@ const StateSequenceProjection = (props) => {
             uncertainty_image: null,
             bounds: null,
         },
+        segments = []
     ) => {
 
         switch (mode) {
             case 'state_space':
-                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, predictedRewards, predictedUncertainties);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, predictedRewards, predictedUncertainties, segments);
                 break;
             default:
-                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, predictedRewards, predictedUncertainties);
+                drawStateSpace(data, labels, doneData, labelInfos, episodeIndices, gridData, predictedRewards, predictedUncertainties, segments);
         }
     }, []);
 
@@ -318,7 +662,11 @@ const StateSequenceProjection = (props) => {
         setIsLoading(true);
         setError(null);
         
-        // Clear the image cache when loading new data to prevent stale images
+        // Clear segment selection
+        setSelectedSegment(null);
+        setSegmentError(null);
+        
+        // Clear image cache
         canvasImageCache.clear();
 
         const embedding_method = props.embeddingMethod;
@@ -347,7 +695,7 @@ const StateSequenceProjection = (props) => {
             .map(([key, value]) => `${key}=${value}`)
             .join('&');
 
-        // call load_grid_projection_image a second time for uncertainty, replace map type in the querying string
+        // Load uncertainty grid projection
         const uncertainty_grid_projection_params = {
             ...params,
             map_type: 'uncertainty',
@@ -420,7 +768,36 @@ const StateSequenceProjection = (props) => {
                     setObjectColorScale(() => uncertaintyScale);
                 }*/
 
-                // Now that we have all data, draw the chart with the grid data included
+                // Process segments with the loaded data
+                let processedSegments = [];
+                if (data.projection && data.episode_indices) {
+                    const episodeToPaths = new Map();
+                    data.episode_indices.forEach((episodeIdx, i) => {
+                        if (!episodeToPaths.has(episodeIdx)) {
+                            episodeToPaths.set(episodeIdx, []);
+                        }
+                        if (i < data.projection.length) {
+                            episodeToPaths.get(episodeIdx).push(data.projection[i]);
+                        }
+                    });
+                    
+                    // Trim last observation from each trajectory
+                    episodeToPaths.forEach((pathPoints, episodeIdx) => {
+                        if (pathPoints.length > 1) {
+                            pathPoints.pop();
+                        }
+                    });
+                    
+                    // Process segments
+                    try {
+                        const segments = extractSegments(episodeToPaths, segmentSize);
+                        processedSegments = mergeSegments(segments, 0.1);
+                    } catch (error) {
+                        console.error('Error processing segments:', error);
+                    }
+                }
+
+                // Draw the chart with all data including segments
                 drawChart(
                     viewMode,
                     data.projection,
@@ -431,11 +808,12 @@ const StateSequenceProjection = (props) => {
                     [],
                     grid_data.original_predictions,
                     grid_data.original_uncertainties,
-                    { // Pass grid data directly as an object
+                    {
                         "prediction_image": grid_prediction_image_path,
                         "uncertainty_image": grid_uncertainty_image_path,
                         "bounds": grid_data.projection_bounds
                     },
+                    processedSegments
                 );
 
                 setIsLoading(false);
@@ -445,15 +823,16 @@ const StateSequenceProjection = (props) => {
                 setError("Failed to load data. Please try again.");
                 setIsLoading(false);
             });
-    }, [props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkId, props.checkpointStep, props.embeddingSettings, props.benchmarkedModels, props.infos, props.timeStamp, embeddingSequenceLength, activeLearningDispatch, drawChart, viewMode]);
+    }, [props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkId, props.checkpointStep, props.embeddingSettings, props.benchmarkedModels, props.infos, props.timeStamp, embeddingSequenceLength, activeLearningDispatch, drawChart, viewMode, segmentSize]);
 
-    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }, predicted_rewards = [], predicted_uncertainties = []) => {
+    const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }, predicted_rewards = [], predicted_uncertainties = [], segments = []) => {
 
         const margin = { top: 0, right: 0, bottom: 0, left: 0 };
         const done_idx = doneData.reduce((a, elem, i) => (elem === true && a.push(i), a), []);
 
         if (!embeddingRef.current || !embeddingRef.current.parentElement) return;
 
+        // Clear any existing SVG content including segment overlays
         d3.select(embeddingRef.current).selectAll('*').remove();
 
         const svgHeight = embeddingRef.current.parentElement.clientHeight;
@@ -572,7 +951,6 @@ const StateSequenceProjection = (props) => {
         if (gridData.uncertainty_image && !canvasImageCache.has(uncertaintyCacheKey)) {
             const img = new Image();
             img.onload = () => {
-                console.log('Grid uncertainty image loaded successfully:', img.width, 'x', img.height);
                 canvasImageCache.set(uncertaintyCacheKey, {
                     image: img,
                     bounds: gridData.bounds
@@ -884,18 +1262,24 @@ const StateSequenceProjection = (props) => {
             .attr('transform', (d) => `translate(${xScale(d[0])}, ${yScale(d[1])})`);
 
         // Function to create start glyph (play triangle)
-        const createStartGlyph = (container, size = 12) => {
+        const createStartGlyph = (container, size = 12, isHighlighted = false) => {
             const triangle = container.append('polygon')
                 .attr('class', 'start-glyph')
                 .attr('points', `${-size/2},${-size/2} ${size/2},0 ${-size/2},${size/2}`)
                 .attr('fill', '#4CAF50')
-                .attr('stroke', '#2E7D32')
-                .attr('stroke-width', 2);
+                .attr('stroke', isHighlighted ? '#FFD700' : '#2E7D32')
+                .attr('stroke-width', isHighlighted ? 4 : 2);
+            
+            // Add highlight glow effect for selected episodes
+            if (isHighlighted) {
+                triangle.attr('filter', 'drop-shadow(0 0 6px #FFD700)');
+            }
+            
             return triangle;
         };
 
         // Function to create end glyph (square stop)
-        const createEndGlyph = (container, size = 10) => {
+        const createEndGlyph = (container, size = 10, isHighlighted = false) => {
             const square = container.append('rect')
                 .attr('class', 'end-glyph')
                 .attr('x', -size/2)
@@ -903,8 +1287,14 @@ const StateSequenceProjection = (props) => {
                 .attr('width', size)
                 .attr('height', size)
                 .attr('fill', '#F44336')
-                .attr('stroke', '#C62828')
-                .attr('stroke-width', 2);
+                .attr('stroke', isHighlighted ? '#FFD700' : '#C62828')
+                .attr('stroke-width', isHighlighted ? 4 : 2);
+            
+            // Add highlight glow effect for selected episodes
+            if (isHighlighted) {
+                square.attr('filter', 'drop-shadow(0 0 6px #FFD700)');
+            }
+            
             return square;
         };
 
@@ -913,19 +1303,100 @@ const StateSequenceProjection = (props) => {
             const labels = label_data_map.get(d[2]);
             const container = d3.select(this);
             
+            // Determine which episode this glyph belongs to
+            const glyphEpisodeIdx = episodeIndices[d[2]] || 0;
+            const isHighlighted = selectedTrajectoryRef.current === glyphEpisodeIdx;
+            
             if (labels.includes('Start')) {
-                createStartGlyph(container, 14);
+                createStartGlyph(container, 14, isHighlighted);
             }
             if (labels.includes('Done')) {
-                createEndGlyph(container, 12);
+                createEndGlyph(container, 12, isHighlighted);
             }
         });
+        
+        // Render segment overlays if segments exist
+        if (segments.length > 0) {
+            const segmentOverlays = view.append('g').attr('class', 'segment-overlays');
+            
+            segments.forEach((mergedSegment, index) => {
+            
+            const segmentGroup = segmentOverlays.append('g')
+                .attr('class', 'segment-group')
+                .attr('id', `segment-${mergedSegment.id}`);
+            
+            let pathData: string;
+            if (mergedSegment.convexHull) {
+                const hullPoints = mergedSegment.convexHull.map(p => [xScale(p[0]), yScale(p[1])]);
+                pathData = `M${hullPoints.map(p => `${p[0]},${p[1]}`).join(' L')} Z`;
+            }  else {
+                // Fallback to simple rectangle
+                const bbox = mergedSegment.boundingBox;
+                const padding = 10;
+                const x = xScale(bbox.minX) - padding;
+                const y = yScale(bbox.maxY) - padding;
+                const width = xScale(bbox.maxX) - xScale(bbox.minX) + 2 * padding;
+                const height = yScale(bbox.minY) - yScale(bbox.maxY) + 2 * padding;
+                pathData = `M${x},${y} L${x+width},${y} L${x+width},${y+height} L${x},${y+height} Z`;
+            }
+            
+            // Create segment shape
+            segmentGroup.append('path')
+                .attr('class', 'segment-bbox')
+                .attr('d', pathData)
+                .attr('fill', 'rgba(255, 165, 0, 0.2)')
+                .attr('stroke', 'rgba(255, 165, 0, 0.8)')
+                .attr('stroke-width', 2)
+                .attr('stroke-dasharray', '5,5')
+                .style('cursor', 'pointer')
+                .on('mouseover', function() {
+                    d3.select(this)
+                        .attr('fill', 'rgba(255, 165, 0, 0.3)')
+                        .attr('stroke-width', 3);
+                })
+                .on('mouseout', function() {
+                    const isSelected = selectedSegment?.id === mergedSegment.id;
+                    d3.select(this)
+                        .attr('fill', isSelected ? 'rgba(255, 165, 0, 0.4)' : 'rgba(255, 165, 0, 0.2)')
+                        .attr('stroke-width', isSelected ? 3 : 2);
+                })
+                .on('click', function(event) {
+                    event.stopPropagation();
+                    
+                    // Update selection
+                    setSelectedSegment(mergedSegment);
+                    
+                    // Update visual state
+                    segmentOverlays.selectAll('.segment-bbox')
+                        .attr('fill', 'rgba(255, 165, 0, 0.2)')
+                        .attr('stroke-width', 2);
+                    
+                    d3.select(this)
+                        .attr('fill', 'rgba(255, 165, 0, 0.4)')
+                        .attr('stroke-width', 3);
+                });
+            
+                // Add segment label
+                const centroid = mergedSegment.centroid;
+                segmentGroup.append('text')
+                    .attr('class', 'segment-label')
+                    .attr('x', xScale(centroid[0]))
+                    .attr('y', yScale(centroid[1]))
+                    .attr('text-anchor', 'middle')
+                    .attr('dy', '0.3em')
+                    .attr('font-size', '12px')
+                    .attr('font-weight', 'bold')
+                    .attr('fill', '#FF8C00')
+                    .attr('pointer-events', 'none')
+                    .text(`S${index + 1} (${mergedSegment.segments.length})`);
+            });
+        }
 
-        const text_labels_text = glyph_labels; // Keep reference for zoom handling
+        const text_labels_text = glyph_labels;
 
         const unique_labels = new Set(labels);
 
-        // For each labeled cluster, draw a convex hull
+        // For each labeled cluster, draw a hull
         for (const label of unique_labels) {
             if (label === -1) continue;
 
@@ -940,9 +1411,10 @@ const StateSequenceProjection = (props) => {
                 .filter((element) => element !== undefined);
 
             const cluster_data = processedData.filter((_, i) => labels[i] === label);
-            const hull = d3.polygonHull(cluster_data.map((d) => [d[0], d[1]]));
+            const clusterPoints = cluster_data.map((d) => [d[0], d[1]]);
+            const hull = calculateSimpleConcaveHull(clusterPoints);
 
-            if (!hull) continue;
+            if (!hull || hull.length < 3) continue;
 
             // Map hull points to screen coordinates
             const mappedHull = hull.map(p => [xScale(p[0]), yScale(p[1])]);
@@ -1035,7 +1507,15 @@ const StateSequenceProjection = (props) => {
                 episodeToPaths.get(episodeIdx).push(processedData[i]);
             }
         });
-
+        
+        // Trim last observation from each trajectory to handle gym environment overlap
+        episodeToPaths.forEach((pathPoints, episodeIdx) => {
+            if (pathPoints.length > 1) {
+                // Remove the last point (which is the first point of the next episode)
+                pathPoints.pop();
+            }
+        });
+        
         // Zoom handler function
         function zoomed(event) {
             const transform = event.transform;
@@ -1047,6 +1527,9 @@ const StateSequenceProjection = (props) => {
             //    (event.sourceEvent.type === 'mouseup' || event.sourceEvent.type === 'touchend');
             const isZoomEnd = true;
 
+            // Compute similarity-based colors for all trajectories outside the canvas context
+            const trajectoryColors = computeTrajectoryColors(episodeToPaths);
+            
             // First, draw the grid image to the canvas with proper transformation
             if (context) {
                 // Draw the appropriate image based on visualization mode
@@ -1064,7 +1547,7 @@ const StateSequenceProjection = (props) => {
                     // Apply the same transformation as the background image
                     context.translate(transform.x, transform.y);
                     context.scale(transform.k, transform.k);
-
+                    
                     // Draw paths with efficient batching
                     episodeToPaths.forEach((pathPoints, episodeIdx) => {
                         if (pathPoints.length === 0) return;
@@ -1072,29 +1555,13 @@ const StateSequenceProjection = (props) => {
                         // Highlight the selected trajectory
                         const isHighlighted = currentHighlightedTrajectory === episodeIdx;
 
-                        //if (!isHighlighted)
-                        //    return;
-
-                        // Set path styling
-                        context.strokeStyle = d3.interpolateCool(episodeIdx / 20);
-                        context.lineWidth = isHighlighted ? width * 1.5 : width;
-                        context.globalAlpha = isHighlighted ? 1.0 : 0.8;
-
-                        // Draw the path
-                        context.beginPath();
-                        context.moveTo(xScale(pathPoints[0][0]), yScale(pathPoints[0][1]));
-
-                        for (let j = 1; j < pathPoints.length - 1; j++) {
-                            // Don't draw lines between distant points
-                            /*if (Math.hypot(pathPoints[j][0] - pathPoints[j - 1][0], pathPoints[j][1] - pathPoints[j - 1][1]) > 0.3) {
-                                context.moveTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
-                            } else {
-                                context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
-                            }*/
-                            context.lineTo(xScale(pathPoints[j][0]), yScale(pathPoints[j][1]));
-                        }
-
-                        context.stroke();
+                        // Use similarity-based color
+                        const trajectoryColor = trajectoryColors.get(episodeIdx) || getFallbackColor(episodeIdx);
+                        
+                        // Transform points to screen coordinates
+                        const screenPoints = pathPoints.map(p => [xScale(p[0]), yScale(p[1])]);
+                        
+                        drawTrajectory(context, screenPoints, trajectoryColor, width);
                     });
 
                     // Batch draw points for better performance
@@ -1114,10 +1581,9 @@ const StateSequenceProjection = (props) => {
                         const hasGlyph = label_data_map.has(i);
                         if (hasGlyph) continue;
                         
-                        const fillStyle = point_colors[i];
-                        context.fillStyle = fillStyle;
-                        // color stroke of point based on episode index
-                        context.strokeStyle = d3.interpolateCool(pointEpisodeIdx / 20);
+                        const pointColor = point_colors[i];
+                        context.fillStyle = pointColor;
+                        context.strokeStyle = pointColor;
                         context.lineWidth = width;
                         context.globalAlpha = isHighlighted ? 0.9 : 0.5;
                         context.beginPath();
@@ -1157,11 +1623,12 @@ const StateSequenceProjection = (props) => {
                     .style("stroke-width", 2);
             }
 
-            // Update SVG elements visibility and scaling based on zoom level
             if (transform.k > 0.2) {
                 glyph_labels.attr('display', 'inline');
+                view.selectAll('.segment-overlays').attr('display', 'inline');
             } else {
                 glyph_labels.attr('display', 'none');
+                view.selectAll('.segment-overlays').attr('display', 'none');
             }
 
             // Scale glyphs inversely to zoom level to maintain consistent size
@@ -1169,9 +1636,22 @@ const StateSequenceProjection = (props) => {
             glyph_labels.selectAll('.start-glyph, .end-glyph')
                 .attr('transform', `scale(${glyphScale})`);
             
-            // Update stroke width to maintain consistent appearance
-            glyph_labels.selectAll('.start-glyph, .end-glyph')
-                .attr('stroke-width', 2 * glyphScale);
+            // Scale segment labels
+            view.selectAll('.segment-label')
+                .attr('font-size', `${12 * glyphScale}px`);
+            
+            // Update stroke width and highlighting based on selection
+            glyph_labels.each(function(d) {
+                const glyphEpisodeIdx = episodeIndices[d[2]] || 0;
+                const isHighlighted = currentHighlightedTrajectory === glyphEpisodeIdx;
+                
+                d3.select(this).selectAll('.start-glyph, .end-glyph')
+                    .attr('stroke-width', (isHighlighted ? 4 : 2) * glyphScale)
+                    .attr('stroke', isHighlighted ? '#FFD700' : function() {
+                        return d3.select(this).classed('start-glyph') ? '#2E7D32' : '#C62828';
+                    })
+                    .attr('filter', isHighlighted ? 'drop-shadow(0 0 6px #FFD700)' : null);
+            });
         }
 
         svg.call(zoom);
@@ -1181,20 +1661,17 @@ const StateSequenceProjection = (props) => {
             const initialTransform = d3.zoomIdentity;
             drawImageToCanvas(context, predictionCacheKey, initialTransform, svgWidth, svgHeight);
         } else {
-            // If image is not cached yet but we have the data, trigger a redraw when the image loads
+            // If image is not cached yet but we have the data, it will load asynchronously
             if (grid_prediction_image) {
-                console.log('Waiting for image to load before initial render');
+                // Image will render when loaded
             }
         }
 
-        // Add cleanup for component unmount
         return () => {
-            // Reset any resources that need cleanup
+            // Cleanup on unmount
         };
-    }, [props, activeLearningState.grid_prediction_image]);
+    }, [props, activeLearningState.grid_prediction_image, selectedSegment]);
 
-    // If there's an error, display it along with the Load Data button
-    // Replace the current error return statement with this code:
     return (
         <EmbeddingWrapper>
             {/* Error alert */}
@@ -1228,7 +1705,7 @@ const StateSequenceProjection = (props) => {
             {thumbnailUrl && (clickedEpisode !== null || hoveredEpisode !== null) && (
                 <ThumbnailOverlay
                     sx={{
-                        borderColor: d3.interpolateCool(((clickedEpisode || hoveredEpisode) || 0) / 20),
+                        borderColor: getFallbackColor((clickedEpisode || hoveredEpisode) || 0),
                         opacity: clickedEpisode !== null ? 1 : 0.8,
                     }}
                 >
@@ -1364,16 +1841,45 @@ const StateSequenceProjection = (props) => {
                 </Tooltip>
             </Box>
 
-            {/* Always show the Load Data button */}
+            {/* Load Data button and segment controls */}
             <Box
                 position="absolute"
                 top="10px"
                 left="50px"
-                sx={{ zIndex: 10 }}
+                sx={{ zIndex: 10, display: 'flex', gap: 2, alignItems: 'center' }}
             >
                 <Button variant="contained" color="primary" onClick={loadData} disabled={isLoading}>
                     {isLoading ? 'Loading...' : 'Load Data'}
                 </Button>
+                
+                {/*<Box sx={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: 1, borderRadius: 1 }}>
+                    <Typography variant="caption" sx={{ mr: 1 }}>Segment Size:</Typography>
+                    <input 
+                        type="number" 
+                        value={segmentSize} 
+                        onChange={(e) => setSegmentSize(Math.max(10, parseInt(e.target.value) || 50))}
+                        style={{ width: '60px', padding: '2px' }}
+                        min="10"
+                        max="200"
+                    />
+                </Box>*/}
+                
+                
+                {segmentError && (
+                    <Box sx={{ backgroundColor: 'rgba(244, 67, 54, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
+                        <Typography variant="caption" fontWeight="bold">
+                            Error: {segmentError}
+                        </Typography>
+                    </Box>
+                )}
+                
+                {selectedSegment && (
+                    <Box sx={{ backgroundColor: 'rgba(255, 165, 0, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
+                        <Typography variant="caption" fontWeight="bold">
+                            Selected: {selectedSegment.segments.length} similar segments
+                        </Typography>
+                    </Box>
+                )}
             </Box>
 
             {/* Legend for object color */}

@@ -32,12 +32,42 @@ const SelectionView = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const [videoURLs, setVideoURLs] = useState<Map<string, string>>(new Map<string, string>());
+  
+  // State for cluster frame images
+  const [clusterFrameImages, setClusterFrameImages] = useState<string[]>([]);
 
   // Get video URL from context
   const { getVideoURL } = useGetter();
 
-  // Use selection directly from state (no useRef for selection in this version)
-  const selection = activeLearningState.selection || [];
+  // Fetch cluster frame images from backend
+  const fetchClusterFrames = useCallback(async (clusterIndices: number[], episodeData: any[]) => {
+    try {
+      const response = await fetch('/data/get_cluster_frames', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          cluster_indices: clusterIndices,
+          episode_data: episodeData,
+          max_states_to_show: 12
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch cluster frames');
+      }
+      
+      const frameImages = await response.json();
+      setClusterFrameImages(frameImages);
+    } catch (error) {
+      console.error('Error fetching cluster frames:', error);
+      setClusterFrameImages([]);
+    }
+  }, []);
+
+  // Use selection directly from state (wrapped in useMemo for performance)
+  const selection = useMemo(() => activeLearningState.selection || [], [activeLearningState.selection]);
   
   // Get all episodes for color calculation
   const allEpisodes = useMemo(() => appState.episodeIDsChronologically || [], [appState.episodeIDsChronologically]);
@@ -108,6 +138,82 @@ const SelectionView = () => {
     };
     
   }, [selection, getVideoURL, allEpisodes, videoURLs]);
+
+  // Fetch cluster frame images when cluster is selected
+  useEffect(() => {
+    if (selectionData.type === 'cluster' && selectionData.data && selectionData.data.length > 0) {
+      // Use the episodeIndices mapping from ActiveLearningState
+      const episodeIndices = activeLearningState.episodeIndices;
+      
+      if (!episodeIndices || episodeIndices.length === 0) {
+        console.warn('No episodeIndices available for cluster mapping');
+        setClusterFrameImages([]);
+        return;
+      }
+      
+      // Ensure we have all episodes available
+      if (!allEpisodes || allEpisodes.length === 0) {
+        console.warn('No episodes available for cluster mapping');
+        setClusterFrameImages([]);
+        return;
+      }
+      
+      let clusterIndices = selectionData.data;
+      if (clusterIndices.length === 0) return;
+      
+      // Sample maxStatesToShow randomly to avoid too many images
+      if (clusterIndices.length > 12) {
+        const sampledIndices = d3.shuffle(clusterIndices).slice(0, 12);
+        clusterIndices = sampledIndices;
+      }
+      
+      // Map cluster indices to actual episode data using episodeIndices
+      const episodeStepPairs = clusterIndices.map((stateIndex: number) => {
+        // Get the episode number for this state index
+        const episodeNumber = episodeIndices[stateIndex];
+        
+        if (episodeNumber === undefined) {
+          console.warn(`No episode mapping found for state index ${stateIndex}`);
+          return null;
+        }
+        
+        // Get the actual episode data
+        const episode = allEpisodes[episodeNumber];
+        if (!episode) {
+          console.warn(`Episode ${episodeNumber} not found in allEpisodes`);
+          return null;
+        }
+        
+        // Calculate the step within the episode
+        // Find the first occurrence of this episode in episodeIndices to get the episode start
+        const episodeStart = episodeIndices.indexOf(episodeNumber);
+        const stepWithinEpisode = stateIndex - episodeStart;
+        
+        return {
+          stateIndex,
+          episodeNumber,
+          stepWithinEpisode,
+          episode: {
+            env_name: episode.env_name,
+            benchmark_id: episode.benchmark_id,
+            checkpoint_step: episode.checkpoint_step,
+            episode_num: episode.episode_num,
+          }
+        };
+      }).filter(Boolean);
+      
+      if (episodeStepPairs.length > 0) {
+        // Extract the episode data and step indices for the backend call
+        const episodeData = episodeStepPairs.map(pair => pair.episode);
+        const stepIndices = episodeStepPairs.map(pair => pair.stepWithinEpisode);
+        
+        fetchClusterFrames(stepIndices, episodeData);
+      }
+    } else {
+      // Clear cluster frames when not a cluster selection
+      setClusterFrameImages([]);
+    }
+  }, [selectionData, allEpisodes, activeLearningState.episodeIndices, fetchClusterFrames]);
 
   // Handle video playback
   const handlePlayPause = useCallback((index: number) => {
@@ -329,7 +435,7 @@ const SelectionView = () => {
         const clusterIndices = selectionData.data;
         
         // Limit the number of states shown to avoid rendering too many
-        const maxStatesToShow = 8;
+        const maxStatesToShow = 12;
         const limitedIndices = clusterIndices.slice(0, maxStatesToShow);
         
         return (
@@ -338,11 +444,35 @@ const SelectionView = () => {
               Cluster {clusterLabel} Selected ({clusterIndices.length} states)
             </Typography>
             <Grid container spacing={2}>
-              {limitedIndices.map((i) => (
+              {limitedIndices.map((i: number, index: number) => (
                 <Grid item xs={6} sm={4} md={3} key={`cluster-state-${i}`}>
                   <Card>
                     <CardContent>
-                      {renderStatePlaceholder()}
+                      {clusterFrameImages[index] ? (
+                        <Box
+                          sx={{
+                            height: 200,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            bgcolor: 'background.paper',
+                            borderRadius: 1,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <img
+                            src={clusterFrameImages[index]}
+                            alt={`Cluster state ${i}`}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                            }}
+                          />
+                        </Box>
+                      ) : (
+                        renderStatePlaceholder()
+                      )}
                       <Typography variant="caption" align="center" display="block">
                         State #{i}
                       </Typography>
