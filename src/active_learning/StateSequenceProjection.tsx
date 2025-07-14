@@ -705,7 +705,7 @@ const StateSequenceProjection = (props) => {
             .map(([key, value]) => `${key}=${value}`)
             .join('&');
 
-        // Use Promise.all to wait for both API calls to complete
+        // Load all projection data
         Promise.all([
             axios.post(`${url}?${queryString}`, {
                 benchmarks: props.benchmarkedModels,
