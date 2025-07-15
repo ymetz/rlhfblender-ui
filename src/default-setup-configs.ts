@@ -1,4 +1,6 @@
+import { cluster } from "d3";
 import { BackendConfig, UIConfig } from "./types";
+import { common } from "@mui/material/colors";
 
 // Make sure that this config mirrors the format of the UIConfig model in the backend
 const defaultUIConfig: UIConfig = {
@@ -19,11 +21,13 @@ const defaultUIConfig: UIConfig = {
   },
   feedbackComponents: {
     rating: true,
-    ranking: true,
+    ranking: false,
+    comparison: true,
     demonstration: true,
     correction: true,
-    featureSelection: true,
-    text: true,
+    clusterRating: true,
+    featureSelection: false,
+    text: false,
   },
   max_ranking_elements: 2,
   customInput: "",

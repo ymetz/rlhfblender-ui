@@ -58,17 +58,16 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
       key,
       description: {
         rating:
-          "Rate episodes by using the slider. This feedback is always given for entire episodes.",
-        ranking:
-          "Drag & Drop Episodes to rank them. You can also rank multiple episodes equally.",
+          "Select a single trajectory from the projection and rate it using the slider (0-10). Videos of the episode will be displayed for review.",
+        comparison:
+          "Select multiple trajectories to compare them. Choose the best performing episode from the available options.",
         correction:
-          "Select a specific step. You can open the correction window by clicking.",
-        featureSelection:
-          "Open the feature selection window by clicking the pen in the rendering window. You can select relevant features via brushing.",
+          "Select a specific state coordinate in the projection and provide textual feedback describing what the agent should do differently in that situation.",
         demonstration:
-          "Demonstrate a sequence of steps by selecting an action and wait for the next step",
-        text: "Provide textual feedback for the given segment. Hover over the info icon for suggestions.",
-      }[key],
+          "Select a coordinate in the projection to start a live demonstration. Use WebRTC to show the agent how to behave from that state.",
+        clusterRating:
+          "Select a cluster of states and rate the overall performance of that cluster.",
+        }[key],
     }));
 
   return (
@@ -137,28 +136,68 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
           {/* Introduction Tab */}
           {activeTab === 0 && (
             <Box>
-              <Typography paragraph>
-                Welcome to the experiment! Please watch the following video to
-                get an introduction to the interface:
+              <Typography variant="h6" gutterBottom>
+                Welcome to RLHF-Blender!
               </Typography>
-              {/* Reduced video size using Container */}
-              <Container maxWidth="md" sx={{ mb: 4 }}>
-                <Box sx={{ position: "relative", paddingTop: "56.25%" }}>
-                  <iframe
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                    }}
-                    src="https://www.youtube.com/embed/u5Ey8KojoiY?si=O3KxwcHiSe_P8tTs"
-                    title="YouTube video player"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                  />
-                </Box>
-              </Container>
+              <Typography paragraph>
+                RLHF-Blender is an interactive tool for providing feedback on reinforcement learning agent behavior. 
+                The interface consists of two main areas:
+              </Typography>
+              
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                🗺️ State Sequence Projection (Left Panel)
+              </Typography>
+              <Typography paragraph>
+                The main visualization shows a 2D projection of agent state sequences from multiple episodes. 
+                Each trajectory represents an episode, with different colors indicating different episodes or similarity groups.
+              </Typography>
+              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <img
+                  src="/files/state_sequence_projection.png"
+                  alt="State Sequence Projection"
+                  style={{ width: "80%", height: "auto", objectFit: "contain" }}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  State sequence projection showing trajectories
+                </Typography>
+              </Box>
+              <Typography paragraph>
+                <strong>How to interact:</strong>
+              </Typography>
+              <Typography component="div" paragraph>
+                • <strong>Click Load Data</strong> to load episode trajectories into the projection<br/>
+                • <strong>Click on trajectories</strong> to select individual episodes<br/>
+                • <strong>Click on coordinates</strong> to select specific states for demonstration<br/>
+                • <strong>Use action buttons</strong> (Add ➕, Clear 🗑️, Mark ✏️) to manage selections
+              </Typography>
+
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                📝 Feedback Input (Right Panel)
+              </Typography>
+              <Typography paragraph>
+                Once you select items from the projection, the feedback panel will display options for providing different types of feedback based on your selection.
+              </Typography>
+              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <img
+                  src="/files/feedback_panel.png"
+                  alt="Feedback Panel"
+                  style={{ width: "80%", height: "auto", objectFit: "contain" }}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Feedback panel with one contextual feedback interaction, here a comparison.
+                </Typography>
+              </Box>
+
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                🎯 Getting Started
+              </Typography>
+              <Typography component="div" paragraph>
+                1. <strong>Load Data:</strong> Click "Load Data" to populate the projection with episodes<br/>
+                2. <strong>Explore:</strong> Click on trajectories or coordinates to select them<br/>
+                3. <strong>Provide Feedback:</strong> Use the right panel to rate, compare, or correct selected items<br/>
+                4. <strong>Submit:</strong> Your feedback helps improve the AI agent's behavior
+              </Typography>
+
               {startModalContent}
             </Box>
           )}
@@ -169,6 +208,17 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               <Typography variant="h6" gutterBottom>
                 Available Feedback Options
               </Typography>
+              <Typography paragraph color="text.secondary">
+                Based on what you select in the state sequence projection, different feedback options become available. 
+                The feedback panel on the right will automatically adapt to show the appropriate interface for your selection.
+              </Typography>
+              
+              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  [Screenshot placeholder: Feedback options panel showing different feedback types]
+                </Typography>
+              </Box>
+
               {/* Centered container with reduced width */}
               <Container maxWidth="lg">
                 <Grid container spacing={3} justifyContent="center">

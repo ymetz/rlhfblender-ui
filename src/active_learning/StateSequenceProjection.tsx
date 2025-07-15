@@ -1806,6 +1806,13 @@ const StateSequenceProjection = (props) => {
                     {isLoading ? 'Loading...' : 'Load Data'}
                 </Button>
                 
+                {/* Episodes overview */}
+                <Box sx={{ backgroundColor: 'rgba(158, 158, 158, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
+                    <Typography variant="caption" fontWeight="bold">
+                        Episodes: {new Set(activeLearningState.episodeIndices).size} displayed
+                    </Typography>
+                </Box>
+                
                 {/*<Box sx={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: 1, borderRadius: 1 }}>
                     <Typography variant="caption" sx={{ mr: 1 }}>Segment Size:</Typography>
                     <input 
