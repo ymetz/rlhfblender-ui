@@ -24,6 +24,7 @@ import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLear
 import { useAppState } from '../AppStateContext';
 import { IDfromEpisode } from '../id';
 import { useGetter } from '../getter-context';
+import { computeTrajectoryColors, getFallbackColor, getEpisodeColor } from './utils/trajectoryColors';
 
 const canvasImageCache = new Map();
 
@@ -43,61 +44,6 @@ function drawTrajectory(context, points, color, lineWidth = 2) {
     context.stroke();
 }
 
-// Similarity-based color assignment using final states
-function computeTrajectoryColors(episodeToPaths: Map<number, number[][]>): Map<number, string> {
-    const trajectoryColors = new Map<number, string>();
-    const finalStates = new Map<number, [number, number]>();
-    
-    // Extract final states for each trajectory
-    episodeToPaths.forEach((pathPoints, episodeIdx) => {
-        if (pathPoints.length > 0) {
-            const finalState = pathPoints[pathPoints.length - 1];
-            finalStates.set(episodeIdx, [finalState[0], finalState[1]]);
-        }
-    });
-    
-    // Compute similarity matrix and assign colors
-    const episodes = Array.from(finalStates.keys());
-    const finalStateArray = episodes.map(ep => finalStates.get(ep)).filter(Boolean) as [number, number][];
-    
-    if (finalStateArray.length === 0) return trajectoryColors;
-    
-    // Use 2D color mapping based on final state position
-    episodes.forEach((episodeIdx, i) => {
-        const finalState = finalStateArray[i];
-        if (finalState) {
-            // Use hue based on angle from center, saturation based on distance
-            const centerX = finalStateArray.reduce((sum, state) => sum + state[0], 0) / finalStateArray.length;
-            const centerY = finalStateArray.reduce((sum, state) => sum + state[1], 0) / finalStateArray.length;
-            
-            const dx = finalState[0] - centerX;
-            const dy = finalState[1] - centerY;
-            const angle = Math.atan2(dy, dx);
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            // Convert to hue (0-360)
-            const hue = ((angle + Math.PI) / (2 * Math.PI)) * 360;
-            
-            // Normalize distance for saturation (0-100)
-            const maxDistance = Math.max(...finalStateArray.map(state => {
-                const dx2 = state[0] - centerX;
-                const dy2 = state[1] - centerY;
-                return Math.sqrt(dx2 * dx2 + dy2 * dy2);
-            }));
-            const saturation = maxDistance > 0 ? Math.min(100, (distance / maxDistance) * 80 + 20) : 50;
-            
-            trajectoryColors.set(episodeIdx, `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, 50%)`);
-        }
-    });
-    
-    return trajectoryColors;
-}
-
-// Fallback color function for episodes without final states
-function getFallbackColor(index: number): string {
-    const hue = (index * 137.508) % 360; // Golden angle for good distribution
-    return `hsl(${Math.round(hue)}, 70%, 50%)`;
-}
 
 // Segment extraction and processing for RLHF
 interface TrajectorySegment {
@@ -569,6 +515,7 @@ const StateSequenceProjection = (props) => {
     const [selectedSegment, setSelectedSegment] = useState<MergedSegment | null>(null);
     const [segmentSize, setSegmentSize] = useState(50);
     const [segmentError, setSegmentError] = useState<string | null>(null);
+    const [trajectoryColors, setTrajectoryColors] = useState(new Map<number, string>());
     const selectedTrajectoryRef = useRef(null);
     const selectedStateRef = useRef(null);
     const selectedCoordinateRef = useRef();
@@ -1316,7 +1263,7 @@ const StateSequenceProjection = (props) => {
         });
         
         // Render segment overlays if segments exist
-        if (segments.length > 0) {
+       /*if (segments.length > 0) {
             const segmentOverlays = view.append('g').attr('class', 'segment-overlays');
             
             segments.forEach((mergedSegment, index) => {
@@ -1390,7 +1337,7 @@ const StateSequenceProjection = (props) => {
                     .attr('pointer-events', 'none')
                     .text(`S${index + 1} (${mergedSegment.segments.length})`);
             });
-        }
+        }*/
 
         const text_labels_text = glyph_labels;
 
@@ -1528,7 +1475,14 @@ const StateSequenceProjection = (props) => {
             const isZoomEnd = true;
 
             // Compute similarity-based colors for all trajectories outside the canvas context
-            const trajectoryColors = computeTrajectoryColors(episodeToPaths);
+            const computedTrajectoryColors = computeTrajectoryColors(episodeToPaths);
+            setTrajectoryColors(computedTrajectoryColors);
+            
+            // Dispatch the colors to the active learning context
+            activeLearningDispatch({
+                type: 'SET_TRAJECTORY_COLORS',
+                payload: computedTrajectoryColors
+            });
             
             // First, draw the grid image to the canvas with proper transformation
             if (context) {
@@ -1556,7 +1510,7 @@ const StateSequenceProjection = (props) => {
                         const isHighlighted = currentHighlightedTrajectory === episodeIdx;
 
                         // Use similarity-based color
-                        const trajectoryColor = trajectoryColors.get(episodeIdx) || getFallbackColor(episodeIdx);
+                        const trajectoryColor = computedTrajectoryColors.get(episodeIdx) || getFallbackColor(episodeIdx);
                         
                         // Transform points to screen coordinates
                         const screenPoints = pathPoints.map(p => [xScale(p[0]), yScale(p[1])]);
@@ -1705,7 +1659,7 @@ const StateSequenceProjection = (props) => {
             {thumbnailUrl && (clickedEpisode !== null || hoveredEpisode !== null) && (
                 <ThumbnailOverlay
                     sx={{
-                        borderColor: getFallbackColor((clickedEpisode || hoveredEpisode) || 0),
+                        borderColor: trajectoryColors.get((clickedEpisode || hoveredEpisode) || 0) || getFallbackColor((clickedEpisode || hoveredEpisode) || 0),
                         opacity: clickedEpisode !== null ? 1 : 0.8,
                     }}
                 >

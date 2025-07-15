@@ -21,6 +21,7 @@ import * as d3 from 'd3';
 import { IDfromEpisode } from "../id";
 import { useGetter } from "../getter-context";
 import { Episode } from '../types';
+import { getEpisodeColor as getEpisodeColorFromUtil } from './utils/trajectoryColors';
 
 const SelectionView = () => {
   const appState = useAppState();
@@ -248,9 +249,16 @@ const SelectionView = () => {
 
   // Get color for an episode based on its index
   const getEpisodeColor = useCallback((episodeIdx: any) => {
+    // Use the shared color utility with fallback to d3 interpolation
+    const color = getEpisodeColorFromUtil(episodeIdx, activeLearningState.trajectoryColors, false);
+    if (color !== '#888888') {
+      return color;
+    }
+    
+    // Fallback to original color scheme if no similarity color is available
     if (episodeIdx === -1) return '#888888';
     return d3.interpolateCool(episodeIdx / Math.max(1, allEpisodes.length - 1));
-  }, [allEpisodes.length]);
+  }, [allEpisodes.length, activeLearningState.trajectoryColors]);
 
   // Render placeholder image for states
   const renderStatePlaceholder = useCallback(() => (

@@ -24,6 +24,7 @@ import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLear
 import { FeedbackType, Feedback, Episode } from '../types';
 import { IDfromEpisode } from "../id";
 import { useGetter } from "../getter-context";
+import { getEpisodeColor as getEpisodeColorFromUtil } from './utils/trajectoryColors';
 import WebRTCDemoComponent from './WebRTCDemoComponent';
 
 // Helper function to map feedback type to category
@@ -280,8 +281,15 @@ const FeedbackInput = () => {
 
   // Color generator for trajectory items
   const getEpisodeColor = useCallback((episodeIdx: number) => {
+    // Use the shared color utility with fallback to d3 interpolation
+    const color = getEpisodeColorFromUtil(episodeIdx, activeState.trajectoryColors, false);
+    if (color !== '#888888') {
+      return color;
+    }
+    
+    // Fallback to original color scheme if no similarity color is available
     return d3.interpolateCool(episodeIdx / Math.max(1, episodeIDsChronologically.length - 1));
-  }, [episodeIDsChronologically.length]);
+  }, [episodeIDsChronologically.length, activeState.trajectoryColors]);
 
   // Get video element for an episode
   const getVideoElement = (episode: Episode, index: number, small = false) => {
