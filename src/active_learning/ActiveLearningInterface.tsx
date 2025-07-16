@@ -4,8 +4,7 @@ import { ChevronRight } from '@mui/icons-material';
 import axios from 'axios';
 // Import components
 import ProjectionComponent from './ProjectionComponent';
-import SelectionView from './SelectionView';
-import FeedbackInput from './FeedbackInput';
+import MergedSelectionFeedback from './MergedSelectionFeedback';
 import TrainingProgressBox from './TrainingProgressBox';
 import TrainingProgressPanel from './TrainingProgressPanel';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
@@ -364,28 +363,17 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             height: '100%',
           }}
         >
+          {/* Merged Selection and Feedback */}
           <Paper
             elevation={2}
             sx={{
-              height: 'calc(50% - 0.5rem)',
+              height: 'calc(85% - 0.5rem)',
               p: 1,
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <SelectionView />
-          </Paper>
-
-          <Paper
-            elevation={2}
-            sx={{
-              height: 'calc(35% - 0.5rem)',
-              p: 1,
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <FeedbackInput />
+            <MergedSelectionFeedback />
           </Paper>
 
           {/* Button container with fixed height */}

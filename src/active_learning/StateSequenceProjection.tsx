@@ -552,7 +552,10 @@ const StateSequenceProjection = (props) => {
 
     // Effect to load thumbnail when episode is hovered or clicked
     useEffect(() => {
-        const episodeToLoad = clickedEpisode || hoveredEpisode;
+        const episodeToLoad = (clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode;
+
+        console.log(appState.episodeIDsChronologically, episodeToLoad, clickedEpisode, hoveredEpisode);
+
         if (episodeToLoad !== null) {
             // Find the matching episode in the loaded episodes list to get the correct ID format
             const matchingEpisode = appState.episodeIDsChronologically?.find(episode => 
@@ -1081,7 +1084,7 @@ const StateSequenceProjection = (props) => {
                     episodeIdx = episodeIndices[closest[2]];
                 }
 
-                if (episodeIdx !== null) {
+                if (episodeIdx !== null && episodeIdx !== undefined) {
                     setSelectedTrajectory(episodeIdx);
                     selectedTrajectoryRef.current = episodeIdx;
                     
@@ -1656,18 +1659,18 @@ const StateSequenceProjection = (props) => {
             <EmbeddingContainer ref={embeddingRef} />
 
             {/* Thumbnail overlay */}
-            {thumbnailUrl && (clickedEpisode !== null || hoveredEpisode !== null) && (
+            {thumbnailUrl && ((clickedEpisode !== null && clickedEpisode !== undefined) || (hoveredEpisode !== null && hoveredEpisode !== undefined)) && (
                 <ThumbnailOverlay
                     sx={{
-                        borderColor: trajectoryColors.get((clickedEpisode || hoveredEpisode) || 0) || getFallbackColor((clickedEpisode || hoveredEpisode) || 0),
-                        opacity: clickedEpisode !== null ? 1 : 0.8,
+                        borderColor: trajectoryColors.get(((clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode) || 0) || getFallbackColor(((clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode) || 0),
+                        opacity: (clickedEpisode !== null && clickedEpisode !== undefined) ? 1 : 0.8,
                     }}
                 >
                     <CardMedia
                         component="img"
                         height="100%"
                         image={thumbnailUrl}
-                        alt={`Episode ${clickedEpisode || hoveredEpisode} thumbnail`}
+                        alt={`Episode ${(clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode} thumbnail`}
                         sx={{ objectFit: 'cover' }}
                     />
                     <Box
@@ -1682,7 +1685,7 @@ const StateSequenceProjection = (props) => {
                         fontSize="12px"
                         fontWeight="bold"
                     >
-                        Episode {clickedEpisode || hoveredEpisode}
+                        Episode {(clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode}
                     </Box>
                 </ThumbnailOverlay>
             )}
@@ -1736,7 +1739,7 @@ const StateSequenceProjection = (props) => {
 
                             // add to combined selected if selected
                             const combinedSelection = [];
-                            if (selectedTrajectory) {
+                            if (selectedTrajectory !== null && selectedTrajectory !== undefined) {
                                 combinedSelection.push({ type: "trajectory", data: selectedTrajectory });
                             }
                             else if (selectedCluster) {
