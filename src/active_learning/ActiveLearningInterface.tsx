@@ -88,6 +88,12 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           payload: activeLearningState.currentPhase + 1 
         });
 
+        // Set flag to indicate new data should be loaded
+        activeLearningDispatch({
+          type: 'SET_SHOULD_LOAD_NEW_DATA',
+          payload: true
+        });
+
         // Reset current session feedback counts
         const updatedFeedbackCounts = activeLearningState.feedbackCounts.map(item => ({
           ...item,
@@ -108,10 +114,14 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           // Move to the next checkpoint
           const nextCheckpoint = parseInt(checkpoints[currentIndex + 1]);
           appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: nextCheckpoint });
+          
+          // Use the existing stepSampler function to advance to the next batch
+          await stepSampler();
+        } else {
+          // No more checkpoints available - trigger experiment end modal
+          appStateDispatch({ type: 'SET_END_MODAL_OPEN' });
         }
         
-        // Use the existing stepSampler function to advance to the next batch
-        await stepSampler();
         setWaiting(false);
       }
 
@@ -393,7 +403,12 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
               color="primary"
               onClick={handleContinue}
             >
-              Go to Next Phase
+              {(() => {
+                const checkpoints = appState.selectedExperiment.checkpoint_list || [];
+                const currentIndex = checkpoints.indexOf(appState.selectedCheckpoint.toString());
+                const isLastCheckpoint = currentIndex >= checkpoints.length - 1;
+                return isLastCheckpoint ? 'Complete Experiment' : 'Go to Next Phase';
+              })()}
             </Button>
           </Paper>
         </Box>

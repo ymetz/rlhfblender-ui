@@ -16,6 +16,7 @@ export interface ActiveLearningState {
   progressTrainingSteps: number[];
   progressRewards: number[];
   progressUncertainties: number[];
+  shouldLoadNewData: boolean;
   selection: {type: string, data: any[] | any}[];
   selectedEpisode: Episode | null;
   projectionStates: number[][];
@@ -109,7 +110,8 @@ type ActiveLearningAction =
   | { type: 'SET_FEEDBACK_COUNTS', payload: { category: string; total: number; current: number; }[] }
   | { type: 'UPDATE_FEEDBACK_COUNT', payload: { category: string; isCurrentSession: boolean } }
   | { type: 'SET_FEEDBACK_HISTORY', payload: FeedbackHistoryEntry[] }
-  | { type: 'ADD_FEEDBACK_HISTORY_ENTRY', payload: FeedbackHistoryEntry };
+  | { type: 'ADD_FEEDBACK_HISTORY_ENTRY', payload: FeedbackHistoryEntry }
+  | { type: 'SET_SHOULD_LOAD_NEW_DATA', payload: boolean };
 
 const initialState: ActiveLearningState = {
   // Original state
@@ -117,6 +119,7 @@ const initialState: ActiveLearningState = {
   progressTrainingSteps: [],
   progressRewards: [],
   progressUncertainties: [],
+  shouldLoadNewData: false,
   selection: [],
   selectedEpisode: null,
   projectionStates: [],
@@ -184,6 +187,8 @@ function activeLearningReducer(
       return { ...state, progressRewards: action.payload };
     case "SET_PROGRESS_UNCERTAINTIES":
       return { ...state, progressUncertainties: action.payload };
+    case "SET_SHOULD_LOAD_NEW_DATA":
+      return { ...state, shouldLoadNewData: action.payload };
     case "SET_SELECTION":
       return { ...state, selection: action.payload };
     case "SET_SELECTED_EPISODE":

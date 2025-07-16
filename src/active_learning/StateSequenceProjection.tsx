@@ -8,7 +8,8 @@ import {
     Tooltip,
     IconButton,
     Card,
-    CardMedia
+    CardMedia,
+    Paper
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -611,6 +612,12 @@ const StateSequenceProjection = (props) => {
     const loadData = useCallback(() => {
         setIsLoading(true);
         setError(null);
+        
+        // Clear the shouldLoadNewData flag when loading starts
+        activeLearningDispatch({
+            type: 'SET_SHOULD_LOAD_NEW_DATA',
+            payload: false
+        });
         
         // Clear segment selection
         setSelectedSegment(null);
@@ -1861,6 +1868,58 @@ const StateSequenceProjection = (props) => {
             <GlyphLegend>
                 <GlyphLegendComponent />
             </GlyphLegend>
+
+            {/* Load Data Hint Overlay */}
+            {activeLearningState.shouldLoadNewData && (
+                <Box
+                    sx={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1000,
+                        backdropFilter: 'blur(2px)',
+                    }}
+                >
+                    <Paper
+                        elevation={8}
+                        sx={{
+                            p: 3,
+                            maxWidth: 400,
+                            textAlign: 'center',
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            borderRadius: 2,
+                        }}
+                    >
+                        <Typography variant="h6" sx={{ mb: 2, color: 'primary.main', fontWeight: 'bold' }}>
+                            Training Stage Complete
+                        </Typography>
+                        <Typography variant="body1" sx={{ mb: 3, color: 'text.primary' }}>
+                            Based on your feedback, the model has been updated. Continue with new data from the updated model.
+                        </Typography>
+                        <Button
+                            variant="contained"
+                            color="primary"
+                            onClick={loadData}
+                            disabled={isLoading}
+                            size="large"
+                            sx={{
+                                px: 4,
+                                py: 1.5,
+                                fontSize: '1.1rem',
+                                fontWeight: 'bold',
+                            }}
+                        >
+                            {isLoading ? 'Loading...' : 'Continue To Next Phase'}
+                        </Button>
+                    </Paper>
+                </Box>
+            )}
         </EmbeddingWrapper>
     );
 
