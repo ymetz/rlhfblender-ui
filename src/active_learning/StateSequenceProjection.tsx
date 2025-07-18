@@ -72,6 +72,7 @@ interface MergedSegment {
     };
 }
 
+
 // Extract K-step segments from trajectories
 function extractSegments(episodeToPaths: Map<number, number[][]>, segmentSize: number = 50): TrajectorySegment[] {
     const segments: TrajectorySegment[] = [];
@@ -513,8 +514,8 @@ const StateSequenceProjection = (props) => {
     const [hoveredEpisode, setHoveredEpisode] = useState(null);
     const [clickedEpisode, setClickedEpisode] = useState(null);
     const [thumbnailUrl, setThumbnailUrl] = useState(null);
-    const [selectedSegment, setSelectedSegment] = useState<MergedSegment | null>(null);
     const [segmentSize, setSegmentSize] = useState(50);
+    const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
     const [segmentError, setSegmentError] = useState<string | null>(null);
     const [trajectoryColors, setTrajectoryColors] = useState(new Map<number, string>());
     const selectedTrajectoryRef = useRef(null);
@@ -554,8 +555,6 @@ const StateSequenceProjection = (props) => {
     // Effect to load thumbnail when episode is hovered or clicked
     useEffect(() => {
         const episodeToLoad = (clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode;
-
-        console.log(appState.episodeIDsChronologically, episodeToLoad, clickedEpisode, hoveredEpisode);
 
         if (episodeToLoad !== null) {
             // Find the matching episode in the loaded episodes list to get the correct ID format
@@ -620,7 +619,6 @@ const StateSequenceProjection = (props) => {
         });
         
         // Clear segment selection
-        setSelectedSegment(null);
         setSegmentError(null);
         
         // Clear image cache
@@ -1272,184 +1270,149 @@ const StateSequenceProjection = (props) => {
             }
         });
         
-        // Render segment overlays if segments exist
-       /*if (segments.length > 0) {
-            const segmentOverlays = view.append('g').attr('class', 'segment-overlays');
+
+        // Render top K merged segments by uncertainty 
+        const maxSegments = maxUncertaintySegments;
+        if (segments.length > 0 && predicted_uncertainties.length > 0) {
+            // Calculate average uncertainty for each merged segment
+            const mergedSegmentsWithUncertainty = segments.map(mergedSegment => {
+                // Get uncertainty values for all points in this merged segment
+                const segmentUncertainties = [];
+                const segmentGlobalIndices = [];
+                
+                // Iterate through all inner segments within this merged segment
+                mergedSegment.segments.forEach(innerSegment => {
+                    // Map segment's episode and local indices to global state indices
+                    for (let i = 0; i < episodeIndices.length; i++) {
+                        const stateEpisodeIdx = episodeIndices[i];
+                        
+                        // Check if this state belongs to the inner segment's episode
+                        if (stateEpisodeIdx === innerSegment.episodeIdx) {
+                            // Find the position of this state within its episode
+                            const statesInThisEpisode = episodeIndices.slice(0, i + 1).filter(eIdx => eIdx === stateEpisodeIdx);
+                            const positionInEpisode = statesInThisEpisode.length - 1; // 0-based position
+                            
+                            // Check if this position falls within the inner segment's range
+                            if (positionInEpisode >= innerSegment.startIdx && positionInEpisode <= innerSegment.endIdx) {
+                                segmentGlobalIndices.push(i);
+                                if (predicted_uncertainties[i] !== undefined) {
+                                    segmentUncertainties.push(predicted_uncertainties[i]);
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Calculate average uncertainty
+                const avgUncertainty = segmentUncertainties.length > 0 
+                    ? segmentUncertainties.reduce((sum, u) => sum + u, 0) / segmentUncertainties.length
+                    : 0;
+                
+                return { mergedSegment, avgUncertainty, globalIndices: segmentGlobalIndices };
+            });
             
-            segments.forEach((mergedSegment, index) => {
+            // Sort by uncertainty (highest first)
+            const sortedSegments = mergedSegmentsWithUncertainty
+                .sort((a, b) => b.avgUncertainty - a.avgUncertainty);
             
-            const segmentGroup = segmentOverlays.append('g')
-                .attr('class', 'segment-group')
-                .attr('id', `segment-${mergedSegment.id}`);
+            // Apply minimum distance constraint to avoid overlapping segments
+            const selectedSegments = [];
+            const minDistance = 0.15; // Adjust based on your data scale
             
-            let pathData: string;
-            if (mergedSegment.convexHull) {
-                const hullPoints = mergedSegment.convexHull.map(p => [xScale(p[0]), yScale(p[1])]);
-                pathData = `M${hullPoints.map(p => `${p[0]},${p[1]}`).join(' L')} Z`;
-            }  else {
-                // Fallback to simple rectangle
-                const bbox = mergedSegment.boundingBox;
-                const padding = 10;
-                const x = xScale(bbox.minX) - padding;
-                const y = yScale(bbox.maxY) - padding;
-                const width = xScale(bbox.maxX) - xScale(bbox.minX) + 2 * padding;
-                const height = yScale(bbox.minY) - yScale(bbox.maxY) + 2 * padding;
-                pathData = `M${x},${y} L${x+width},${y} L${x+width},${y+height} L${x},${y+height} Z`;
+            for (const segmentData of sortedSegments) {
+                const tooClose = selectedSegments.some(selected => {
+                    const dx = segmentData.mergedSegment.centroid[0] - selected.mergedSegment.centroid[0];
+                    const dy = segmentData.mergedSegment.centroid[1] - selected.mergedSegment.centroid[1];
+                    return Math.sqrt(dx * dx + dy * dy) < minDistance;
+                });
+                
+                if (!tooClose) {
+                    selectedSegments.push(segmentData);
+                    if (selectedSegments.length >= maxSegments) break;
+                }
             }
             
-            // Create segment shape
-            segmentGroup.append('path')
-                .attr('class', 'segment-bbox')
-                .attr('d', pathData)
-                .attr('fill', 'rgba(255, 165, 0, 0.2)')
-                .attr('stroke', 'rgba(255, 165, 0, 0.8)')
-                .attr('stroke-width', 2)
-                .attr('stroke-dasharray', '5,5')
-                .style('cursor', 'pointer')
-                .on('mouseover', function() {
-                    d3.select(this)
-                        .attr('fill', 'rgba(255, 165, 0, 0.3)')
-                        .attr('stroke-width', 3);
-                })
-                .on('mouseout', function() {
-                    const isSelected = selectedSegment?.id === mergedSegment.id;
-                    d3.select(this)
-                        .attr('fill', isSelected ? 'rgba(255, 165, 0, 0.4)' : 'rgba(255, 165, 0, 0.2)')
-                        .attr('stroke-width', isSelected ? 3 : 2);
-                })
-                .on('click', function(event) {
-                    event.stopPropagation();
-                    
-                    // Update selection
-                    setSelectedSegment(mergedSegment);
-                    
-                    // Update visual state
-                    segmentOverlays.selectAll('.segment-bbox')
-                        .attr('fill', 'rgba(255, 165, 0, 0.2)')
-                        .attr('stroke-width', 2);
-                    
-                    d3.select(this)
-                        .attr('fill', 'rgba(255, 165, 0, 0.4)')
-                        .attr('stroke-width', 3);
-                });
+            const topMergedSegments = selectedSegments;
             
-                // Add segment label
-                const centroid = mergedSegment.centroid;
-                segmentGroup.append('text')
-                    .attr('class', 'segment-label')
-                    .attr('x', xScale(centroid[0]))
-                    .attr('y', yScale(centroid[1]))
+            // Render the top merged segments
+            const segmentGroup = view.append('g').attr('class', 'top-uncertainty-segments');
+            
+            topMergedSegments.forEach(({ mergedSegment }, index) => {
+                if (!mergedSegment.convexHull || mergedSegment.convexHull.length < 3) return;
+
+                // Map hull points to screen coordinates
+                const mappedHull = mergedSegment.convexHull.map(p => [xScale(p[0]), yScale(p[1])]);
+                
+                const segmentElement = segmentGroup.append('g')
+                    .attr('class', 'uncertainty-segment')
+                    .attr('id', `uncertainty-segment-${mergedSegment.id}`);
+                
+                // Add hull path with yellow outline, no fill
+                segmentElement
+                    .append('path')
+                    .attr('class', 'uncertainty-segment-hull')
+                    .attr('d', 'M' + mappedHull.join('L') + 'Z')
+                    .attr('fill', 'none')
+                    .attr('stroke', '#FF6B35') // Bright orange for high visibility
+                    .attr('stroke-width', 3)
+                    .attr('opacity', 1.0)
+                    .style('cursor', 'pointer')
+                    .on('click', function (event) {
+                        event.stopPropagation();
+                        
+                        // Clear other selections
+                        setSelectedTrajectory(null);
+                        selectedTrajectoryRef.current = null;
+                        setSelectedState(null);
+                        selectedStateRef.current = null;
+                        setSelectedCoordinate(null);
+                        selectedCoordinateRef.current = null;
+                        
+                        // Clear any existing coordinate marker
+                        view.selectAll('.coordinate-marker').remove();
+                        
+                        // Reset all segment strokes
+                        segmentGroup.selectAll('.uncertainty-segment-hull')
+                            .attr('stroke', '#FF6B35')
+                            .attr('stroke-width', 3);
+                        
+                        // Highlight this segment
+                        d3.select(this)
+                            .attr('stroke', '#FFFFFF')
+                            .attr('stroke-width', 4);
+                        
+                        // Get all indices belonging to this merged segment (precomputed)
+                        const segmentIndices = topMergedSegments[index].globalIndices || [];
+                        
+                        // Debug: log merged segment information
+                        console.log(`Selected merged segment H${index + 1}:`, {
+                            id: mergedSegment.id,
+                            numInnerSegments: mergedSegment.segments.length,
+                            globalIndices: segmentIndices,
+                            totalStates: segmentIndices.length
+                        });
+                        
+                        // Store segment selection
+                        setSelectedCluster({ label: `H${index + 1}`, indices: segmentIndices });
+                        selectedClusterRef.current = { label: `H${index + 1}`, indices: segmentIndices };
+                    });
+                
+                // Add merged segment label (H1, H2, etc. for "High uncertainty")
+                const center = mergedSegment.centroid;
+                segmentElement
+                    .append('text')
+                    .attr('class', 'uncertainty-segment-label')
+                    .attr('x', xScale(center[0]))
+                    .attr('y', yScale(center[1]))
                     .attr('text-anchor', 'middle')
                     .attr('dy', '0.3em')
-                    .attr('font-size', '12px')
+                    .attr('font-size', '16px')
                     .attr('font-weight', 'bold')
-                    .attr('fill', '#FF8C00')
+                    .attr('fill', '#000000')
+                    .attr('stroke-width', 2)
                     .attr('pointer-events', 'none')
-                    .text(`S${index + 1} (${mergedSegment.segments.length})`);
+                    .text(`${index + 1}`);
             });
-        }*/
-
-        const text_labels_text = glyph_labels;
-
-        const unique_labels = new Set(labels);
-
-        // For each labeled cluster, draw a hull
-        for (const label of unique_labels) {
-            if (label === -1) continue;
-
-            const label_g = view.append('g').attr('class', 'label-g');
-
-            const cluster_indices = processedData
-                .map((element, index) => {
-                    if (labels[index] === label) {
-                        return index;
-                    }
-                })
-                .filter((element) => element !== undefined);
-
-            const cluster_data = processedData.filter((_, i) => labels[i] === label);
-            const clusterPoints = cluster_data.map((d) => [d[0], d[1]]);
-            const hull = calculateSimpleConcaveHull(clusterPoints);
-
-            if (!hull || hull.length < 3) continue;
-
-            // Map hull points to screen coordinates
-            const mappedHull = hull.map(p => [xScale(p[0]), yScale(p[1])]);
-
-            // Add convex hull path
-            label_g
-                .append('path')
-                .attr('class', "cluster_hull")
-                .attr('d', 'M' + mappedHull.join('L') + 'Z')
-                /*.attr('fill', () => {
-                    const center = d3.polygonCentroid(mappedHull);
-                    return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-                })*/
-                .attr('fill', 'none')
-                .style('opacity', 0.8)
-                .style('stroke', () => {
-                    const center = d3.polygonCentroid(mappedHull);
-                    return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-                })
-                .style('stroke-width', 2.5)
-                .on('mouseover', function (event) {
-                    d3.select(this).style('opacity', 0.6);
-                })
-                .on('mouseout', function (event) {
-                    d3.select(this).style('opacity', 0.4);
-                })
-                .on('click', function (event) {
-                    // Clear other selections
-                    setSelectedTrajectory(null);
-                    selectedTrajectoryRef.current = null;
-                    setSelectedState(null);
-                    selectedStateRef.current = null;
-                    setSelectedCoordinate(null);
-                    selectedCoordinateRef.current = null;
-
-                    // Clear any existing coordinate marker
-                    view.selectAll('.coordinate-marker').remove();
-
-                    // Reset all cluster strokes first
-                    /*d3.selectAll(".cluster_hull").style('stroke', function() {
-                        const center = d3.polygonCentroid(d3.select(this).data()[0]);
-                        return Color2D.getColor(xScale.invert(center[0]), yScale.invert(center[1]));
-                    });*/
-
-                    // Highlight this cluster
-                    d3.select(this).style('opacity', 0.7).style('stroke', "white");
-
-                    // Get all indices belonging to this cluster
-                    const clusterIndices = processedData
-                        .map((element, index) => {
-                            if (labels[index] === label) {
-                                return index;
-                            }
-                        })
-                        .filter((element) => element !== undefined);
-
-                    // Store both the label and the indices
-                    setSelectedCluster({ label: label, indices: clusterIndices });
-                    selectedClusterRef.current = { label: label, indices: clusterIndices };
-                });
-
-            // Check if label in props.annotationSets, if so, use the label in props.annotated_sets
-            const label_text = props.annotationSets && label in props.annotationSets ?
-                props.annotationSets[label] :
-                label;
-
-            // Add center text label
-            const center = d3.polygonCentroid(mappedHull);
-            label_g
-                .append('text')
-                .attr('class', 'label')
-                .attr('font-size', '20px')
-                .attr('font-weight', 'bold')
-                .attr('x', center[0])
-                .attr('y', center[1])
-                .attr('text-anchor', 'middle')
-                .attr('fill', '#333333')
-                .text(label_text);
         }
 
         // Create episodeToPaths mapping for efficient rendering
@@ -1634,7 +1597,7 @@ const StateSequenceProjection = (props) => {
         return () => {
             // Cleanup on unmount
         };
-    }, [props, activeLearningState.grid_prediction_image, selectedSegment]);
+    }, [props, activeLearningState.grid_prediction_image, activeLearningDispatch, maxUncertaintySegments]);
 
     return (
         <EmbeddingWrapper>
@@ -1823,19 +1786,6 @@ const StateSequenceProjection = (props) => {
                     </Typography>
                 </Box>
                 
-                {/*<Box sx={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: 1, borderRadius: 1 }}>
-                    <Typography variant="caption" sx={{ mr: 1 }}>Segment Size:</Typography>
-                    <input 
-                        type="number" 
-                        value={segmentSize} 
-                        onChange={(e) => setSegmentSize(Math.max(10, parseInt(e.target.value) || 50))}
-                        style={{ width: '60px', padding: '2px' }}
-                        min="10"
-                        max="200"
-                    />
-                </Box>*/}
-                
-                
                 {segmentError && (
                     <Box sx={{ backgroundColor: 'rgba(244, 67, 54, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
                         <Typography variant="caption" fontWeight="bold">
@@ -1844,13 +1794,6 @@ const StateSequenceProjection = (props) => {
                     </Box>
                 )}
                 
-                {selectedSegment && (
-                    <Box sx={{ backgroundColor: 'rgba(255, 165, 0, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
-                        <Typography variant="caption" fontWeight="bold">
-                            Selected: {selectedSegment.segments.length} similar segments
-                        </Typography>
-                    </Box>
-                )}
             </Box>
 
             {/* Legend for object color */}
