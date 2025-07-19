@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export function useWebRTC({ serverUrl = '/data/gym_offer', sessionId, environmentId }) {
+export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId, environmentId }) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const dcIntervalRef = useRef<number | null>(null);
@@ -45,26 +45,14 @@ export function useWebRTC({ serverUrl = '/data/gym_offer', sessionId, environmen
     appendLog('iceGathering', pc.iceGatheringState);
 
     pc.addEventListener('iceconnectionstatechange', () => {
-      console.log(">>> ICE connection state changed:", pc.iceConnectionState);
-      appendLog('iceConnection', ` -> ${pc.iceConnectionState}`);
     });
-    appendLog('iceConnection', pc.iceConnectionState);
 
     pc.addEventListener('signalingstatechange', () => {
-      console.log(">>> Signaling state changed:", pc.signalingState);
       appendLog('signaling', ` -> ${pc.signalingState}`);
     });
     appendLog('signaling', pc.signalingState);
 
     pc.ontrack = (event) => {
-      console.log(">>> ONTRACK EVENT FIRED! Stream received.", event.streams, event.track);
-      console.log(">>> Track details:", {
-        kind: event.track.kind,
-        id: event.track.id,
-        label: event.track.label,
-        enabled: event.track.enabled,
-        readyState: event.track.readyState
-      });
       const [stream] = event.streams;
       if (stream) {
         console.log(">>> Stream details:", {
@@ -82,9 +70,7 @@ export function useWebRTC({ serverUrl = '/data/gym_offer', sessionId, environmen
     });
 
     pc.addEventListener('connectionstatechange', () => {
-      console.log(">>> Connection state changed:", pc.connectionState);
       if (pc.connectionState === 'connected') {
-        console.log(">>> Connection established! Checking for remote tracks...");
         const receivers = pc.getReceivers();
         console.log(">>> Receivers:", receivers.map(r => ({ 
           track: r.track ? { kind: r.track.kind, id: r.track.id, readyState: r.track.readyState } : null 
@@ -103,8 +89,6 @@ export function useWebRTC({ serverUrl = '/data/gym_offer', sessionId, environmen
   const start = async ({ useDataChannel }) => {
     const pc = createPeerConnection();
 
-    // Add video transceiver to indicate we want to receive video
-    console.log(">>> Adding video transceiver for receiving...");
     pc.addTransceiver('video', { direction: 'recvonly' });
 
     if (useDataChannel) {
@@ -135,11 +119,7 @@ export function useWebRTC({ serverUrl = '/data/gym_offer', sessionId, environmen
     
     console.log(">>> Creating offer...");
     const offer = await pc.createOffer();
-    console.log(">>> Offer created:", offer);
-    console.log(">>> Offer SDP contains video?", offer.sdp.includes('m=video'));
-    console.log(">>> Offer SDP contains audio?", offer.sdp.includes('m=audio')); 
     await pc.setLocalDescription(offer);
-    console.log(">>> Local description set");
     
     await new Promise<void>((resolve) => {
       if (pc.iceGatheringState === 'complete') {
@@ -166,9 +146,6 @@ export function useWebRTC({ serverUrl = '/data/gym_offer', sessionId, environmen
       environment_id: environmentId,
       experiment_id: 4,
     };
-
-    console.log(">>> Sending offer to server:", serverUrl);
-    console.log(">>> Request body:", requestBody);
     
     const res = await fetch(serverUrl, {
       method: 'POST',
@@ -177,15 +154,9 @@ export function useWebRTC({ serverUrl = '/data/gym_offer', sessionId, environmen
     });
 
     const answer = await res.json();
-    console.log(">>> Received answer from server:", answer);
-    console.log(">>> Answer SDP contains video?", answer.sdp.includes('m=video'));
-    console.log(">>> Answer SDP contains audio?", answer.sdp.includes('m=audio'));
-    console.log(">>> Full Answer SDP:", answer.sdp);
     setLogs((prev) => ({ ...prev, answerSDP: answer.sdp }));
     
-    console.log(">>> Setting remote description...");
     await pc.setRemoteDescription(answer);
-    console.log(">>> Remote description set successfully");
   };
 
   const sendControlMessage = (message) => {

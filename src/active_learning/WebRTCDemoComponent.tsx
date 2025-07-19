@@ -53,7 +53,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const { start, stop, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction } = useWebRTC({
     sessionId,
     environmentId,
-    serverUrl: '/data/gym_offer'
+    serverUrl: '/demo_generation/gym_offer'
   });
 
   // Handle keyboard events

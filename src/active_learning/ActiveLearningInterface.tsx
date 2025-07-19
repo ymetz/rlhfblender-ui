@@ -44,8 +44,8 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
     try {
       const [statusResponse, resultsResponse] = await Promise.all([
-        axios.get(`/data/get_training_status?session_id=${appState.sessionId}&phase=${activeLearningState.currentPhase}`),
-        axios.get(`/data/get_training_results?session_id=${appState.sessionId}&phase=${activeLearningState.currentPhase}`)
+        axios.get(`/dynamic_rlhf/get_training_status?session_id=${appState.sessionId}&phase=${activeLearningState.currentPhase}`),
+        axios.get(`/dynamic_rlhf/get_training_results?session_id=${appState.sessionId}&phase=${activeLearningState.currentPhase}`)
       ]);
 
       const statusData = statusResponse.data;
@@ -106,20 +106,28 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           payload: updatedFeedbackCounts 
         });
 
-        // Find the next checkpoint
-        const checkpoints = appState.selectedExperiment.checkpoint_list || [];
-        const currentIndex = checkpoints.indexOf(appState.selectedCheckpoint.toString());
+        // For DynamicRLHF, move to the next checkpoint (increment by 1)
+        const nextCheckpoint = activeLearningState.currentPhase;
         
-        if (currentIndex < checkpoints.length - 1) {
-          // Move to the next checkpoint
-          const nextCheckpoint = parseInt(checkpoints[currentIndex + 1]);
-          appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: nextCheckpoint });
-          
-          // Use the existing stepSampler function to advance to the next batch
-          await stepSampler();
-        } else {
-          // No more checkpoints available - trigger experiment end modal
+        // Add the new checkpoint to the experiment's checkpoint list and update UI
+        const updatedExperiment = {
+          ...appState.selectedExperiment,
+          checkpoint_list: [...(appState.selectedExperiment.checkpoint_list || []), nextCheckpoint.toString()]
+        };
+        
+        appStateDispatch({ type: 'SET_SELECTED_EXPERIMENT', payload: updatedExperiment });
+        appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: nextCheckpoint });
+        
+        // Check if we've reached the maximum number of iterations
+        const maxIterations = 5; // This should ideally come from the session data
+        if (activeLearningState.currentPhase >= maxIterations) {
+          // Trigger experiment end modal
           appStateDispatch({ type: 'SET_END_MODAL_OPEN' });
+        } else {
+          // Only generate new data if we're continuing to the next phase
+          // and there will be another training iteration
+          console.log('Generating new data for next phase...');
+          await stepSampler();
         }
         
         setWaiting(false);
@@ -205,7 +213,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
       }
 
       // Then, train the current iteration
-      const response = await axios.post(`/data/train_iteration?session_id=${appState.sessionId}&experiment_id=${appState.selectedExperiment.id}&phase=${activeLearningState.currentPhase}`);
+      const response = await axios.post(`/dynamic_rlhf/train_iteration?session_id=${appState.sessionId}&experiment_id=${appState.selectedExperiment.id}&phase=${activeLearningState.currentPhase}`);
       const data = response.data;
 
       // Check if training started successfully

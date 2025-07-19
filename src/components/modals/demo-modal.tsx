@@ -91,7 +91,7 @@ export default function DemoModal(props: DemoModalProps) {
   React.useEffect(() => {
     if (initDemo) {
       axios
-        .post("/data/initialize_demo_session", {
+        .post("/demo_generation/initialize_demo_session", {
           exp_id: props.activeExpId,
           env_id: props.activeEnvId,
           seed: props.seed,
@@ -113,7 +113,7 @@ export default function DemoModal(props: DemoModalProps) {
   React.useEffect(() => {
     if (processId !== -1) {
       axios
-        .get(`data/get_demo_image?session_id=${props.sessionId}`, {
+        .get(`/demo_generation/get_demo_image?session_id=${props.sessionId}`, {
           responseType: "blob",
         })
         .then((response) => {
@@ -125,7 +125,7 @@ export default function DemoModal(props: DemoModalProps) {
 
   const performAction = (action: number | number[]) => {
     axios
-      .post("/data/demo_step", {
+      .post("/demo_generation/demo_step", {
         session_id: props.sessionId,
         action,
       })
@@ -142,7 +142,7 @@ export default function DemoModal(props: DemoModalProps) {
   React.useEffect(() => {
     if (!props.open && processId !== -1) {
       axios
-        .post("/data/end_demo_session", {
+        .post("/demo_generation/end_demo_session", {
           session_id: props.sessionId,
           pid: processId,
         })
