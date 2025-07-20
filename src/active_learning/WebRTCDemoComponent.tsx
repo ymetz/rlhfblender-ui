@@ -53,6 +53,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const { start, stop, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction } = useWebRTC({
     sessionId,
     environmentId,
+    experimentId,
     serverUrl: '/demo_generation/gym_offer'
   });
 
@@ -180,12 +181,12 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Keyboard controls info
+  // Keyboard controls info - updated for Metaworld
   const keyboardControls = {
-    'W/A/S/D': 'Movement',
-    'Q/E': 'Up/Down (3D)',
-    'Space': 'Action/Gripper',
-    'Enter': 'Done (BabyAI)',
+    'W/S': 'Forward/Backward (dx)',
+    'A/D': 'Left/Right (dy)',
+    'Shift/Ctrl': 'Up/Down (dz)',
+    'Q/E': 'Gripper Open/Close',
   };
 
   if (loading) {
@@ -387,7 +388,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
             {!fullscreen && (
               <Typography variant="caption" color="text.secondary">
                 {connected ?
-                  'Use keyboard to control the environment (WASD + Space)' :
+                  'Use keyboard to control the robot (WASD + Q/E + Shift/Ctrl)' :
                   'Waiting for connection...'
                 }
               </Typography>

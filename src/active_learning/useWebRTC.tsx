@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId, environmentId }) {
+export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId }) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const dcIntervalRef = useRef<number | null>(null);
@@ -23,21 +23,16 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   };
 
   const createPeerConnection = () => {
-    console.log(">>> Creating peer connection...");
-
     const iceConfig = {
       iceServers: [
         {
           urls: 'stun:stun.l.google.com:19302',
         },
-        // You can add more STUN or TURN servers here
       ],
     };
 
     pcRef.current = new RTCPeerConnection(iceConfig); 
-
     const pc = pcRef.current;
-    console.log(">>> Peer connection created:", pc);
 
     pc.addEventListener('icegatheringstatechange', () => {
       appendLog('iceGathering', ` -> ${pc.iceGatheringState}`);
@@ -45,6 +40,8 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     appendLog('iceGathering', pc.iceGatheringState);
 
     pc.addEventListener('iceconnectionstatechange', () => {
+      // console.log('ICE connection state:', pc.iceConnectionState);
+      appendLog('iceConnection', ` -> ${pc.iceConnectionState}`);
     });
 
     pc.addEventListener('signalingstatechange', () => {
@@ -64,22 +61,9 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       }
     };
 
-    // Add additional event listeners for debugging
-    pc.addEventListener('track', (event) => {
-      console.log(">>> TRACK EVENT (addEventListener):", event);
-    });
-
     pc.addEventListener('connectionstatechange', () => {
       if (pc.connectionState === 'connected') {
-        const receivers = pc.getReceivers();
-        console.log(">>> Receivers:", receivers.map(r => ({ 
-          track: r.track ? { kind: r.track.kind, id: r.track.id, readyState: r.track.readyState } : null 
-        })));
-        const transceivers = pc.getTransceivers();
-        console.log(">>> Transceivers:", transceivers.map(t => ({ 
-          direction: t.direction, 
-          receiver: t.receiver.track ? { kind: t.receiver.track.kind, id: t.receiver.track.id } : null 
-        })));
+        console.log('WebRTC connected');
       }
     });
 
@@ -96,16 +80,39 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       dcRef.current = dc;
 
       dc.onopen = () => {
+        console.log('Data channel opened');
         appendLog('dataChannel', '- open');
+        
+        // Send a test ping to confirm channel is working
+        try {
+          dc.send('ping test_connection');
+        } catch (error) {
+          console.error('Error sending ping test:', error);
+        }
       };
 
       dc.onclose = () => {
+        console.log('>>> Data channel closed');
         appendLog('dataChannel', '- close');
         if (dcIntervalRef.current) clearInterval(dcIntervalRef.current);
       };
 
       dc.onmessage = (evt) => {
-        appendLog('dataChannel', '< ' + evt.data);
+        let messageStr = '';
+        if (typeof evt.data === 'string') {
+          messageStr = evt.data;
+        } else if (evt.data instanceof ArrayBuffer) {
+          messageStr = new TextDecoder().decode(evt.data);
+        } else {
+          messageStr = String(evt.data);
+        }
+        
+        appendLog('dataChannel', '< ' + messageStr);
+      };
+
+      dc.onerror = (error) => {
+        console.error('>>> Data channel error:', error);
+        appendLog('dataChannel', '! error: ' + error);
       };
     }
 
@@ -113,11 +120,9 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   };
 
   const negotiate = async () => {
-    console.log(">>> Starting negotiation...");
     const pc = pcRef.current;
     if (!pc) return;
     
-    console.log(">>> Creating offer...");
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     
@@ -144,7 +149,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       type: finalOffer.type, 
       session_id: sessionId,
       environment_id: environmentId,
-      experiment_id: 4,
+      experiment_id: experimentId,
     };
     
     const res = await fetch(serverUrl, {
@@ -159,21 +164,27 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     await pc.setRemoteDescription(answer);
   };
 
-  const sendControlMessage = (message) => {
-    if (dcRef.current && dcRef.current.readyState === 'open') {
-      dcRef.current.send(JSON.stringify(message));
+  const sendControlMessage = (message: any) => {
+    const dc = dcRef.current;
+    if (dc && dc.readyState === 'open') {
+      try {
+        const messageStr = JSON.stringify(message);
+        dc.send(messageStr);
+      } catch (error) {
+        console.error('Error sending control message:', error);
+      }
     }
   };
 
-  const sendKeyDown = (key) => {
+  const sendKeyDown = (key: string) => {
     sendControlMessage({ type: 'keydown', key });
   };
 
-  const sendKeyUp = (key) => {
+  const sendKeyUp = (key: string) => {
     sendControlMessage({ type: 'keyup', key });
   };
 
-  const sendAction = (action) => {
+  const sendAction = (action: any) => {
     sendControlMessage({ type: 'action', action });
   };
 
