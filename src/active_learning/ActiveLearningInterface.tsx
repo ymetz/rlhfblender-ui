@@ -50,8 +50,6 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
       const statusData = statusResponse.data;
       const resultsData = resultsResponse.data;
-      
-      console.log(resultsData);
 
       setTrainingStatus({
         phaseStatus: resultsData.phaseStatus || statusData.status,
@@ -82,11 +80,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         activeLearningDispatch({ type: 'SET_PROGRESS_REWARDS', payload: updatedProgressRewards });
         activeLearningDispatch({ type: 'SET_PROGRESS_UNCERTAINTIES', payload: updatedProgressUncertainties });
 
-        // Update the current phase
-        activeLearningDispatch({ 
-          type: 'SET_CURRENT_PHASE', 
-          payload: activeLearningState.currentPhase + 1 
-        });
+        // Phase was already updated before training started, no need to increment again
 
         // Set flag to indicate new data should be loaded
         activeLearningDispatch({
@@ -106,7 +100,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           payload: updatedFeedbackCounts 
         });
 
-        // For DynamicRLHF, move to the next checkpoint (increment by 1)
+        // For DynamicRLHF, use the current phase as the checkpoint
         const nextCheckpoint = activeLearningState.currentPhase;
         
         // Add the new checkpoint to the experiment's checkpoint list and update UI
@@ -212,8 +206,27 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         }
       }
 
+      // Submit the session to integrate feedback before training
+      try {
+        await axios.post(`/data/submit_session?session_id=${appState.sessionId}&saveDynamicRLHFFormat=true`);
+        console.log("Session feedback submitted successfully");
+      } catch (error) {
+        console.error("Error submitting session:", error);
+      }
+
+      // Determine the correct phase to call
+      // Phase 0 = initial data collection (called from dynamic-rlhf-modal)
+      // Phase 1+ = training iterations with feedback
+      const phaseToCall = activeLearningState.currentPhase === 0 ? 1 : activeLearningState.currentPhase + 1;
+      
+      // Update the current phase before training
+      activeLearningDispatch({ 
+        type: 'SET_CURRENT_PHASE', 
+        payload: phaseToCall 
+      });
+
       // Then, train the current iteration
-      const response = await axios.post(`/dynamic_rlhf/train_iteration?session_id=${appState.sessionId}&experiment_id=${appState.selectedExperiment.id}&phase=${activeLearningState.currentPhase}`);
+      const response = await axios.post(`/dynamic_rlhf/train_iteration?session_id=${appState.sessionId}&experiment_id=${appState.selectedExperiment.id}&phase=${phaseToCall}`);
       const data = response.data;
 
       // Check if training started successfully
