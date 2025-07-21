@@ -62,9 +62,9 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
         comparison:
           "Select multiple trajectories to compare them. Choose the best performing episode from the available options.",
         correction:
-          "Select a specific state coordinate in the projection and provide textual feedback describing what the agent should do differently in that situation.",
+          "Select a specific state coordinate in the projection and control the agent via keyboard controls to show correct behavior.",
         demonstration:
-          "Select a coordinate in the projection to start a live demonstration. Use WebRTC to show the agent how to behave from that state.",
+          "Select a coordinate in the projection to start a live demonstration for an unknown state. Demonstrate behavior via keyboard controls",
         clusterRating:
           "Select a cluster of states and rate the overall performance of that cluster.",
         }[key],
@@ -139,9 +139,25 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               <Typography variant="h6" gutterBottom>
                 Welcome to RLHF-Blender!
               </Typography>
+
               <Typography paragraph>
                 RLHF-Blender is an interactive tool for providing feedback on reinforcement learning agent behavior. 
-                The interface consists of two main areas:
+                The following instructions will guide you through the interface and how to provide feedback.
+              </Typography>
+
+              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <img
+                  src="/files/tool_workflow.png"
+                  alt="Feedback Panel"
+                  style={{ width: "100%", height: "auto", objectFit: "contain" }}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  The full workflow of our tool: Based on sampled trajectories, select the most relevant ones and provide feedback. 
+                </Typography>
+              </Box>
+
+              <Typography paragraph>
+                The interface consists of two main components:
               </Typography>
               
               <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
@@ -212,12 +228,6 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
                 Based on what you select in the state sequence projection, different feedback options become available. 
                 The feedback panel on the right will automatically adapt to show the appropriate interface for your selection.
               </Typography>
-              
-              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  [Screenshot placeholder: Feedback options panel showing different feedback types]
-                </Typography>
-              </Box>
 
               {/* Centered container with reduced width */}
               <Container maxWidth="lg">
