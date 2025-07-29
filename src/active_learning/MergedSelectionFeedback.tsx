@@ -135,33 +135,6 @@ const MergedSelectionFeedback = () => {
     }
   }, []);
 
-  // Fetch single state frame image from backend
-  const fetchStateFrame = useCallback(async (stateIndex: number, episode: any, stepIndex: number) => {
-    try {
-      const response = await fetch('/data/get_cluster_frames', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          cluster_indices: [stepIndex], // Single step within episode
-          episode_data: [episode], // Single episode
-          max_states_to_show: 1
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch state frame');
-      }
-      
-      const frameImages = await response.json();
-      setStateFrameImage(frameImages[0] || null);
-    } catch (error) {
-      console.error('Error fetching state frame:', error);
-      setStateFrameImage(null);
-    }
-  }, []);
-
   // Fetch video URLs for trajectories
   useEffect(() => {
     if (selectionData.type === 'trajectory' || selectionData.type === 'multi_trajectory') {

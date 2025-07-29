@@ -72,6 +72,31 @@ interface MergedSegment {
     };
 }
 
+interface SelectedState {
+    episode: number | null;
+    step: number | null;
+    coords: [number, number];
+    x: number;
+    y: number;
+    index: number;
+}
+
+interface SelectedCoordinate {
+    x: number | null;
+    y: number | null;
+}
+
+interface SelectedCluster {
+    label: string;
+    indices: number[];
+}
+
+interface SelectionItem {
+    type: "trajectory" | "cluster" | "coordinate" | "state";
+    data: any;
+    label?: string;
+}
+
 
 // Extract K-step segments from trajectories
 function extractSegments(episodeToPaths: Map<number, number[][]>, segmentSize: number = 50): TrajectorySegment[] {
@@ -508,9 +533,9 @@ const StateSequenceProjection = (props) => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
     const [selectedTrajectory, setSelectedTrajectory] = useState(null);
-    const [selectedState, setSelectedState] = useState(null);
-    const [selectedCoordinate, setSelectedCoordinate] = useState({ x: null, y: null });
-    const [selectedCluster, setSelectedCluster] = useState(null);
+    const [selectedState, setSelectedState] = useState<SelectedState | null>(null);
+    const [selectedCoordinate, setSelectedCoordinate] = useState<SelectedCoordinate>({ x: null, y: null });
+    const [selectedCluster, setSelectedCluster] = useState<SelectedCluster | null>(null);
     const [hoveredEpisode, setHoveredEpisode] = useState(null);
     const [clickedEpisode, setClickedEpisode] = useState(null);
     const [selectedStateFrameUrl, setSelectedStateFrameUrl] = useState(null);
@@ -519,9 +544,9 @@ const StateSequenceProjection = (props) => {
     const [segmentError, setSegmentError] = useState<string | null>(null);
     const [trajectoryColors, setTrajectoryColors] = useState(new Map<number, string>());
     const selectedTrajectoryRef = useRef(null);
-    const selectedStateRef = useRef(null);
-    const selectedCoordinateRef = useRef();
-    const selectedClusterRef = useRef(null);
+    const selectedStateRef = useRef<SelectedState | null>(null);
+    const selectedCoordinateRef = useRef<SelectedCoordinate>();
+    const selectedClusterRef = useRef<SelectedCluster | null>(null);
     
 
 
@@ -550,53 +575,27 @@ const StateSequenceProjection = (props) => {
 
     // Effect to load frame when a state is selected
     useEffect(() => {
-        if (selectedState && Array.isArray(selectedState) && selectedState.length >= 3) {
-            const stateIndex = selectedState[2];
-            const episodeIndices = activeLearningState.episodeIndices;
+        if (selectedState && selectedState.episode !== null && selectedState.step !== null) {
             
-            if (!episodeIndices || episodeIndices.length === 0) {
-                setSelectedStateFrameUrl(null);
-                return;
-            }
-            
-            // Debug: Check the episode distribution
-            const uniqueEpisodes = [...new Set(episodeIndices)];
-            console.log(`Total states: ${episodeIndices.length}, Unique episodes: ${uniqueEpisodes.length}`, uniqueEpisodes.slice(0, 10));
-            
-            // Find the matching episode for this state
-            const episodeNumber = episodeIndices[stateIndex];
-            console.log(`Selected state ${stateIndex}, episode ${episodeNumber}`);
-            console.log(`EpisodeIndices around this state:`, episodeIndices.slice(Math.max(0, stateIndex-5), stateIndex+6));
-            
-            if (episodeNumber === undefined) {
-                setSelectedStateFrameUrl(null);
-                return;
-            }
-            
-            const matchingEpisode = appState.episodeIDsChronologically?.find(episode => 
-                episode.benchmark_id === props.benchmarkId &&
-                episode.checkpoint_step === props.checkpointStep &&
-                episode.episode_num === episodeNumber
-            );
-            
+
+                const matchingEpisode = appState.episodeIDsChronologically.find(episode => {
+                    return episode.benchmark_id === props.benchmarkId &&
+                        episode.checkpoint_step === props.checkpointStep &&
+                        episode.episode_num === selectedState.episode;
+                });
+
             if (matchingEpisode) {
-                // Calculate step within episode
-                const episodeStart = episodeIndices.indexOf(episodeNumber);
-                const stepWithinEpisode = stateIndex - episodeStart;
-                
-                console.log(`State ${stateIndex} -> Episode ${episodeNumber}, EpisodeStart ${episodeStart}, Step ${stepWithinEpisode}`);
-                
                 // Fetch frame using get_cluster_frames endpoint
                 const fetchFrame = async () => {
                     try {
-                        console.log(`Fetching frame for episode ${episodeNumber}, step ${stepWithinEpisode}`);
+                        console.log(`Fetching frame for episode ${selectedState.episode}, step ${selectedState.step}`);
                         const response = await fetch('/data/get_cluster_frames', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                             },
                             body: JSON.stringify({
-                                cluster_indices: [stepWithinEpisode], // Single step within episode
+                                cluster_indices: [selectedState.step], // Single step within episode
                                 episode_data: [{
                                     env_name: matchingEpisode.env_name,
                                     benchmark_id: matchingEpisode.benchmark_id,
@@ -623,6 +622,7 @@ const StateSequenceProjection = (props) => {
                 
                 fetchFrame();
             } else {
+                console.log('No matching episode found for frame loading');
                 setSelectedStateFrameUrl(null);
             }
         } else {
@@ -1119,8 +1119,8 @@ const StateSequenceProjection = (props) => {
                 let episodeIdx = null;
 
                 // Clear all other selections
-                setSelectedCoordinate(null);
-                selectedCoordinateRef.current = null;
+                setSelectedCoordinate({ x: null, y: null });
+                selectedCoordinateRef.current = { x: null, y: null };
                 setSelectedCluster(null);
                 selectedClusterRef.current = null;
 
@@ -1142,11 +1142,25 @@ const StateSequenceProjection = (props) => {
                 else if (episodeIndices && episodeIndices[closest[2]] !== undefined) {
                     episodeIdx = episodeIndices[closest[2]];
                 }
+                // Get index within the selected episode (i.e. from start of episode)
+                if (episodeIdx !== null) {
+                    const episodeStart = episodeIndices.indexOf(episodeIdx);
+                    if (episodeStart !== -1) {
+                        closest[2] -= episodeStart; // Adjust index to be relative to the episode start
+                    }
+                }
 
                 // First save selected point
-                const selectedState = processedData[closest[2]];
-                setSelectedState(selectedState);
-                selectedStateRef.current = selectedState;
+                const newSelectedState: SelectedState = {
+                    episode: episodeIdx,
+                    step: closest[2],
+                    coords: [xClicked, yClicked],
+                    x: xClicked,
+                    y: yClicked,
+                    index: closest[2]
+                };
+                setSelectedState(newSelectedState);
+                selectedStateRef.current = newSelectedState;
 
                 if (episodeIdx !== null && episodeIdx !== undefined) {
                     setSelectedTrajectory(episodeIdx);
@@ -1419,8 +1433,8 @@ const StateSequenceProjection = (props) => {
                         selectedTrajectoryRef.current = null;
                         setSelectedState(null);
                         selectedStateRef.current = null;
-                        setSelectedCoordinate(null);
-                        selectedCoordinateRef.current = null;
+                        setSelectedCoordinate({ x: null, y: null });
+                        selectedCoordinateRef.current = { x: null, y: null };
                         
                         // Clear any existing coordinate marker
                         view.selectAll('.coordinate-marker').remove();
@@ -1437,14 +1451,6 @@ const StateSequenceProjection = (props) => {
                         
                         // Get all indices belonging to this merged segment (precomputed)
                         const segmentIndices = topMergedSegments[index].globalIndices || [];
-                        
-                        // Debug: log merged segment information
-                        console.log(`Selected merged segment H${index + 1}:`, {
-                            id: mergedSegment.id,
-                            numInnerSegments: mergedSegment.segments.length,
-                            globalIndices: segmentIndices,
-                            totalStates: segmentIndices.length
-                        });
                         
                         // Store segment selection
                         setSelectedCluster({ label: `H${index + 1}`, indices: segmentIndices });
@@ -1549,7 +1555,7 @@ const StateSequenceProjection = (props) => {
                     //context.globalAlpha = 0.5;
                     context.beginPath();
 
-                    const selectedStateIndex = selectedStateRef.current ? selectedStateRef.current[2] : null;
+                    const selectedStateIndex = selectedStateRef.current ? selectedStateRef.current.index : null;
 
                     for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
 
@@ -1580,38 +1586,41 @@ const StateSequenceProjection = (props) => {
             }
 
 
-            if (selectedCoordinateRef.current?.x) {
+            if (selectedCoordinateRef.current?.x !== null && selectedCoordinateRef.current?.x !== undefined) {
                 const crossSize = 10;
                 const markerGroup = view.append("g")
                     .attr("class", "coordinate-marker");
 
+                const coordX = selectedCoordinateRef.current.x!;
+                const coordY = selectedCoordinateRef.current.y!;
+                
                 // Horizontal line
                 markerGroup.append("line")
-                    .attr("x1", xScale(selectedCoordinateRef.current.x) - crossSize)
-                    .attr("y1", yScale(selectedCoordinateRef.current.y))
-                    .attr("x2", xScale(selectedCoordinateRef.current.x) + crossSize)
-                    .attr("y2", yScale(selectedCoordinateRef.current.y))
+                    .attr("x1", xScale(coordX) - crossSize)
+                    .attr("y1", yScale(coordY))
+                    .attr("x2", xScale(coordX) + crossSize)
+                    .attr("y2", yScale(coordY))
                     .style("stroke", "red")
                     .style("stroke-width", 2);
 
                 // Vertical line
                 markerGroup.append("line")
-                    .attr("x1", xScale(selectedCoordinateRef.current.x))
-                    .attr("y1", yScale(selectedCoordinateRef.current.y) - crossSize)
-                    .attr("x2", xScale(selectedCoordinateRef.current.x))
-                    .attr("y2", yScale(selectedCoordinateRef.current.y) + crossSize)
+                    .attr("x1", xScale(coordX))
+                    .attr("y1", yScale(coordY) - crossSize)
+                    .attr("x2", xScale(coordX))
+                    .attr("y2", yScale(coordY) + crossSize)
                     .style("stroke", "red")
                     .style("stroke-width", 2);
             }
 
             // Highlight selected single state
-            if (selectedStateRef.current && Array.isArray(selectedStateRef.current) && selectedStateRef.current.length >= 3) {
+            if (selectedStateRef.current && selectedStateRef.current.coords) {
                 // Remove any existing selected state markers
                 view.selectAll('.selected-state-marker').remove();
                 
-                const selectedStateX = selectedStateRef.current[0];
-                const selectedStateY = selectedStateRef.current[1];
-                const selectedStateIndex = selectedStateRef.current[2];
+                const selectedStateX = selectedStateRef.current.x;
+                const selectedStateY = selectedStateRef.current.y;
+                const selectedStateIndex = selectedStateRef.current.index;
                 
                 // Create marker group for selected state
                 const stateMarkerGroup = view.append("g")
@@ -1675,7 +1684,7 @@ const StateSequenceProjection = (props) => {
             });
         }
 
-        svg.call(zoom);
+        svg.call(zoom as any);
 
         // Draw initial state with identity transform
         if (canvasImageCache.has(predictionCacheKey)) {
@@ -1723,7 +1732,7 @@ const StateSequenceProjection = (props) => {
             <EmbeddingContainer ref={embeddingRef} />
 
             {/* Selected State Frame overlay */}
-            {selectedStateFrameUrl && selectedState && Array.isArray(selectedState) && (
+            {selectedStateFrameUrl && selectedState && selectedState.episode !== null && selectedState.step !== null && (
                 <ThumbnailOverlay
                     sx={{
                         borderColor: '#ff6b6b',
@@ -1749,7 +1758,7 @@ const StateSequenceProjection = (props) => {
                         fontSize="12px"
                         fontWeight="bold"
                     >
-                        State [{typeof selectedState[0] === 'number' ? selectedState[0].toFixed(2) : selectedState[0]}, {typeof selectedState[1] === 'number' ? selectedState[1].toFixed(2) : selectedState[1]}]
+                        Ep. {selectedState.episode}, Step {selectedState.step}
                     </Box>
                 </ThumbnailOverlay>
             )}
@@ -1802,7 +1811,7 @@ const StateSequenceProjection = (props) => {
                             const selectedCoordinate = selectedCoordinateRef.current;
 
                             // add to combined selected if selected
-                            const combinedSelection = [];
+                            const combinedSelection: SelectionItem[] = [];
                             if (selectedTrajectory !== null && selectedTrajectory !== undefined) {
                                 combinedSelection.push({ type: "trajectory", data: selectedTrajectory });
                             }
@@ -1840,7 +1849,7 @@ const StateSequenceProjection = (props) => {
                             const selectedState = selectedStateRef.current;
 
                             // add to combined selected if selected
-                            const combinedSelection = [];
+                            const combinedSelection: SelectionItem[] = [];
                             if (selectedState) {
                                 combinedSelection.push({ type: "state", data: selectedState });
                             }
