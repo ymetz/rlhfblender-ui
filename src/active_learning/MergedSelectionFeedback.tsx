@@ -4,23 +4,17 @@ import {
   Typography,
   Card,
   CardContent,
-  CardActionArea,
   Grid,
   IconButton,
   Paper,
-  Chip,
   Button,
   Slider,
-  FormControlLabel,
   Radio,
-  RadioGroup,
   TextField,
   Alert,
   CircularProgress,
 } from '@mui/material';
 import {
-  DeleteOutline,
-  VideoLibrary,
   Image as ImageIcon,
   ThumbDown, 
   ThumbUp, 
@@ -66,6 +60,7 @@ const MergedSelectionFeedback = () => {
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const [videoURLs, setVideoURLs] = useState<Map<string, string>>(new Map<string, string>());
   const [clusterFrameImages, setClusterFrameImages] = useState<string[]>([]);
+  const [stateFrameImage, setStateFrameImage] = useState<string | null>(null);
   
   // Feedback state
   const [value, setValue] = useState(5);
@@ -110,6 +105,7 @@ const MergedSelectionFeedback = () => {
     setSubmitted(false);
     setCorrectionText('');
     setUseWebRTC(false);
+    setStateFrameImage(null);
   }, [selection]);
 
   // Fetch cluster frame images from backend
@@ -136,6 +132,33 @@ const MergedSelectionFeedback = () => {
     } catch (error) {
       console.error('Error fetching cluster frames:', error);
       setClusterFrameImages([]);
+    }
+  }, []);
+
+  // Fetch single state frame image from backend
+  const fetchStateFrame = useCallback(async (stateIndex: number, episode: any, stepIndex: number) => {
+    try {
+      const response = await fetch('/data/get_cluster_frames', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          cluster_indices: [stepIndex], // Single step within episode
+          episode_data: [episode], // Single episode
+          max_states_to_show: 1
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch state frame');
+      }
+      
+      const frameImages = await response.json();
+      setStateFrameImage(frameImages[0] || null);
+    } catch (error) {
+      console.error('Error fetching state frame:', error);
+      setStateFrameImage(null);
     }
   }, []);
 

@@ -513,7 +513,7 @@ const StateSequenceProjection = (props) => {
     const [selectedCluster, setSelectedCluster] = useState(null);
     const [hoveredEpisode, setHoveredEpisode] = useState(null);
     const [clickedEpisode, setClickedEpisode] = useState(null);
-    const [thumbnailUrl, setThumbnailUrl] = useState(null);
+    const [selectedStateFrameUrl, setSelectedStateFrameUrl] = useState(null);
     const [segmentSize, setSegmentSize] = useState(50);
     const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
     const [segmentError, setSegmentError] = useState<string | null>(null);
@@ -528,11 +528,7 @@ const StateSequenceProjection = (props) => {
     // Extract props from activeLearningState
     const {
         viewMode = 'state_space',
-        objectColorMode = 'step_reward',
-        backgroundColorMode = 'none',
         embeddingSequenceLength = 1,
-        currentRewardData = [],
-        actionData = []
     } = activeLearningState;
 
 
@@ -552,30 +548,87 @@ const StateSequenceProjection = (props) => {
         selectedClusterRef.current = selectedCluster;
     }, [selectedCluster]);
 
-    // Effect to load thumbnail when episode is hovered or clicked
+    // Effect to load frame when a state is selected
     useEffect(() => {
-        const episodeToLoad = (clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode;
-
-        if (episodeToLoad !== null) {
-            // Find the matching episode in the loaded episodes list to get the correct ID format
+        if (selectedState && Array.isArray(selectedState) && selectedState.length >= 3) {
+            const stateIndex = selectedState[2];
+            const episodeIndices = activeLearningState.episodeIndices;
+            
+            if (!episodeIndices || episodeIndices.length === 0) {
+                setSelectedStateFrameUrl(null);
+                return;
+            }
+            
+            // Debug: Check the episode distribution
+            const uniqueEpisodes = [...new Set(episodeIndices)];
+            console.log(`Total states: ${episodeIndices.length}, Unique episodes: ${uniqueEpisodes.length}`, uniqueEpisodes.slice(0, 10));
+            
+            // Find the matching episode for this state
+            const episodeNumber = episodeIndices[stateIndex];
+            console.log(`Selected state ${stateIndex}, episode ${episodeNumber}`);
+            console.log(`EpisodeIndices around this state:`, episodeIndices.slice(Math.max(0, stateIndex-5), stateIndex+6));
+            
+            if (episodeNumber === undefined) {
+                setSelectedStateFrameUrl(null);
+                return;
+            }
+            
             const matchingEpisode = appState.episodeIDsChronologically?.find(episode => 
                 episode.benchmark_id === props.benchmarkId &&
                 episode.checkpoint_step === props.checkpointStep &&
-                episode.episode_num === episodeToLoad
+                episode.episode_num === episodeNumber
             );
             
             if (matchingEpisode) {
-                const episodeId = IDfromEpisode(matchingEpisode);
-                getThumbnailURL(episodeId).then((url) => {
-                    if (url !== undefined) {
-                        setThumbnailUrl(url);
+                // Calculate step within episode
+                const episodeStart = episodeIndices.indexOf(episodeNumber);
+                const stepWithinEpisode = stateIndex - episodeStart;
+                
+                console.log(`State ${stateIndex} -> Episode ${episodeNumber}, EpisodeStart ${episodeStart}, Step ${stepWithinEpisode}`);
+                
+                // Fetch frame using get_cluster_frames endpoint
+                const fetchFrame = async () => {
+                    try {
+                        console.log(`Fetching frame for episode ${episodeNumber}, step ${stepWithinEpisode}`);
+                        const response = await fetch('/data/get_cluster_frames', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                cluster_indices: [stepWithinEpisode], // Single step within episode
+                                episode_data: [{
+                                    env_name: matchingEpisode.env_name,
+                                    benchmark_id: matchingEpisode.benchmark_id,
+                                    checkpoint_step: matchingEpisode.checkpoint_step,
+                                    episode_num: matchingEpisode.episode_num,
+                                }],
+                                max_states_to_show: 1
+                            }),
+                        });
+                        
+                        if (response.ok) {
+                            const frameImages = await response.json();
+                            console.log(`Received frame image:`, frameImages[0] ? `${frameImages[0].substring(0, 50)}...` : 'null');
+                            setSelectedStateFrameUrl(frameImages[0] || null);
+                        } else {
+                            console.error(`Failed to fetch frame: ${response.status} ${response.statusText}`);
+                            setSelectedStateFrameUrl(null);
+                        }
+                    } catch (error) {
+                        console.error('Error fetching state frame:', error);
+                        setSelectedStateFrameUrl(null);
                     }
-                });
+                };
+                
+                fetchFrame();
+            } else {
+                setSelectedStateFrameUrl(null);
             }
         } else {
-            setThumbnailUrl(null);
+            setSelectedStateFrameUrl(null);
         }
-    }, [hoveredEpisode, clickedEpisode, getThumbnailURL, appState.episodeIDsChronologically, props.benchmarkId, props.checkpointStep]);
+    }, [selectedState, activeLearningState.episodeIndices, appState.episodeIDsChronologically, props.benchmarkId, props.checkpointStep]);
 
 
 
@@ -1071,8 +1124,9 @@ const StateSequenceProjection = (props) => {
                 setSelectedCluster(null);
                 selectedClusterRef.current = null;
 
-                // Clear any existing coordinate marker
+                // Clear any existing coordinate marker and selected state marker
                 view.selectAll('.coordinate-marker').remove();
+                view.selectAll('.selected-state-marker').remove();
 
                 // Reset cluster hull strokes
                 /*d3.selectAll(".cluster_hull").style("stroke", function() {
@@ -1089,6 +1143,11 @@ const StateSequenceProjection = (props) => {
                     episodeIdx = episodeIndices[closest[2]];
                 }
 
+                // First save selected point
+                const selectedState = processedData[closest[2]];
+                setSelectedState(selectedState);
+                selectedStateRef.current = selectedState;
+
                 if (episodeIdx !== null && episodeIdx !== undefined) {
                     setSelectedTrajectory(episodeIdx);
                     selectedTrajectoryRef.current = episodeIdx;
@@ -1096,15 +1155,10 @@ const StateSequenceProjection = (props) => {
                     // Set clicked episode for thumbnail display
                     setClickedEpisode(episodeIdx);
 
-                    // Force a redraw to show the highlighted trajectory
+                    // Force a redraw to show the highlighted trajectory and state
                     const currentTransform = d3.zoomTransform(view.node());
                     zoomed({ transform: currentTransform });
                 }
-
-                // also save selected point
-                const selectedState = processedData[closest[2]];
-                setSelectedState(selectedState);
-                selectedStateRef.current = selectedState;
             } else {
                 // Clear all selections
                 setSelectedTrajectory(null);
@@ -1550,6 +1604,46 @@ const StateSequenceProjection = (props) => {
                     .style("stroke-width", 2);
             }
 
+            // Highlight selected single state
+            if (selectedStateRef.current && Array.isArray(selectedStateRef.current) && selectedStateRef.current.length >= 3) {
+                // Remove any existing selected state markers
+                view.selectAll('.selected-state-marker').remove();
+                
+                const selectedStateX = selectedStateRef.current[0];
+                const selectedStateY = selectedStateRef.current[1];
+                const selectedStateIndex = selectedStateRef.current[2];
+                
+                // Create marker group for selected state
+                const stateMarkerGroup = view.append("g")
+                    .attr("class", "selected-state-marker");
+
+                // Draw larger highlighted circle with stroke
+                const baseRadius = Math.max(4, 3 / transform.k); // Adaptive radius based on zoom
+                const highlightRadius = baseRadius * 1.8; // Make it bigger
+                
+                // Get the original color of the state
+                const stateColor = point_colors[selectedStateIndex] || '#ff6b6b';
+                
+                // Draw the highlighted state point
+                stateMarkerGroup.append("circle")
+                    .attr("cx", xScale(selectedStateX))
+                    .attr("cy", yScale(selectedStateY))
+                    .attr("r", highlightRadius)
+                    .style("fill", stateColor)
+                    .style("stroke", "#000000")
+                    .style("stroke-width", Math.max(2, 2 / transform.k))
+                    .style("opacity", 0.9);
+                
+                // Add a subtle glow effect with a slightly larger circle behind
+                stateMarkerGroup.insert("circle", ":first-child")
+                    .attr("cx", xScale(selectedStateX))
+                    .attr("cy", yScale(selectedStateY))
+                    .attr("r", highlightRadius * 1.3)
+                    .style("fill", stateColor)
+                    .style("stroke", "none")
+                    .style("opacity", 0.3);
+            }
+
             if (transform.k > 0.2) {
                 glyph_labels.attr('display', 'inline');
                 view.selectAll('.segment-overlays').attr('display', 'inline');
@@ -1628,19 +1722,19 @@ const StateSequenceProjection = (props) => {
             {/* Main visualization area */}
             <EmbeddingContainer ref={embeddingRef} />
 
-            {/* Thumbnail overlay */}
-            {thumbnailUrl && ((clickedEpisode !== null && clickedEpisode !== undefined) || (hoveredEpisode !== null && hoveredEpisode !== undefined)) && (
+            {/* Selected State Frame overlay */}
+            {selectedStateFrameUrl && selectedState && Array.isArray(selectedState) && (
                 <ThumbnailOverlay
                     sx={{
-                        borderColor: trajectoryColors.get(((clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode) || 0) || getFallbackColor(((clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode) || 0),
-                        opacity: (clickedEpisode !== null && clickedEpisode !== undefined) ? 1 : 0.8,
+                        borderColor: '#ff6b6b',
+                        opacity: 1,
                     }}
                 >
                     <CardMedia
                         component="img"
                         height="100%"
-                        image={thumbnailUrl}
-                        alt={`Episode ${(clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode} thumbnail`}
+                        image={selectedStateFrameUrl}
+                        alt="Selected state frame"
                         sx={{ objectFit: 'cover' }}
                     />
                     <Box
@@ -1655,7 +1749,7 @@ const StateSequenceProjection = (props) => {
                         fontSize="12px"
                         fontWeight="bold"
                     >
-                        Episode {(clickedEpisode !== null && clickedEpisode !== undefined) ? clickedEpisode : hoveredEpisode}
+                        State [{typeof selectedState[0] === 'number' ? selectedState[0].toFixed(2) : selectedState[0]}, {typeof selectedState[1] === 'number' ? selectedState[1].toFixed(2) : selectedState[1]}]
                     </Box>
                 </ThumbnailOverlay>
             )}
@@ -1684,9 +1778,9 @@ const StateSequenceProjection = (props) => {
                                 type: 'SET_SELECTION',
                                 payload: []
                             });
-                            // Clear thumbnail display
-                            setClickedEpisode(null);
-                            setHoveredEpisode(null);
+                            // Clear selected state frame
+                            setSelectedState(null);
+                            setSelectedStateFrameUrl(null);
                         }}
                     >
                         <DeleteIcon />

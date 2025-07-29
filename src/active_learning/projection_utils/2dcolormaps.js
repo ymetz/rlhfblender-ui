@@ -122,7 +122,6 @@ Color2D.getColor = function (x, y) {
 };
 
 Color2D.setColormap(Colormap, function () {
-    console.log('Colormap loaded');
 });
 
 export { Color2D };
