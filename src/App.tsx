@@ -501,7 +501,7 @@ const App: React.FC = () => {
                   >
                     Active Feedback Generation for RL
                   </Typography>
-                  <IconButton
+                  {/*<IconButton
                     onClick={() =>
                       dispatch({ type: "SET_START_MODAL_OPEN", payload: true })
                     }
@@ -509,6 +509,7 @@ const App: React.FC = () => {
                   >
                     <HelpIcon />
                   </IconButton>
+                */}
                 </>
               )}
             </Box>
