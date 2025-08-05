@@ -23,9 +23,9 @@ import { Color2D } from './projection_utils/2dcolormaps';
 import * as vsup from 'vsup';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import { useAppState } from '../AppStateContext';
-import { IDfromEpisode } from '../id';
 import { useGetter } from '../getter-context';
-import { computeTrajectoryColors, getFallbackColor, getEpisodeColor } from './utils/trajectoryColors';
+import { computeTrajectoryColors, getFallbackColor } from './utils/trajectoryColors';
+import { OnboardingHighlight } from './OnboardingSystem';
 
 const canvasImageCache = new Map();
 
@@ -349,6 +349,10 @@ const EmbeddingWrapper = styled(Box)(({ theme }) => ({
 const EmbeddingContainer = styled(Box)(({ theme }) => ({
     flexGrow: 1,
     position: 'relative',
+    width: '100%',
+    height: '100%',
+    minHeight: '400px', // Fallback minimum height
+    minWidth: '400px',  // Fallback minimum width
 }));
 
 // Thumbnail overlay styled component
@@ -664,6 +668,8 @@ const StateSequenceProjection = (props) => {
     const loadData = useCallback(() => {
         setIsLoading(true);
         setError(null);
+
+        console.log("Loading data for embedding method:", props.embeddingMethod);
         
         // Clear the shouldLoadNewData flag when loading starts
         activeLearningDispatch({
@@ -671,8 +677,6 @@ const StateSequenceProjection = (props) => {
             payload: false
         });
         
-        // Clear segment selection
-        setSegmentError(null);
         
         // Clear image cache
         canvasImageCache.clear();
@@ -846,7 +850,10 @@ const StateSequenceProjection = (props) => {
         const svgHeight = embeddingRef.current.parentElement.clientHeight;
         const svgWidth = embeddingRef.current.parentElement.clientWidth;
 
-        if (svgWidth < 0 || svgHeight < 0) return;
+        if (svgWidth <= 0 || svgHeight <= 0) {
+            console.warn('StateSequenceProjection: Invalid dimensions detected, skipping render', { svgWidth, svgHeight });
+            return;
+        }
 
         let processedData = data.map((k, i) => [...k, episodeIndices[i] || 0]);
 
@@ -1154,7 +1161,7 @@ const StateSequenceProjection = (props) => {
                 const newSelectedState: SelectedState = {
                     episode: episodeIdx,
                     step: closest[2],
-                    coords: [xClicked, yClicked],
+                    coords: [closest[0], closest[1]],
                     x: xClicked,
                     y: yClicked,
                     index: closest[2]
@@ -1452,9 +1459,11 @@ const StateSequenceProjection = (props) => {
                         // Get all indices belonging to this merged segment (precomputed)
                         const segmentIndices = topMergedSegments[index].globalIndices || [];
                         
-                        // Store segment selection
-                        setSelectedCluster({ label: `H${index + 1}`, indices: segmentIndices });
-                        selectedClusterRef.current = { label: `H${index + 1}`, indices: segmentIndices };
+                        // Store segment selection with more detailed information
+                        const clusterLabel = `Cluster H${index + 1}`;
+                        const clusterInfo = { label: clusterLabel, indices: segmentIndices };
+                        setSelectedCluster(clusterInfo);
+                        selectedClusterRef.current = clusterInfo;
                     });
                 
                 // Add merged segment label (H1, H2, etc. for "High uncertainty")
@@ -1548,14 +1557,15 @@ const StateSequenceProjection = (props) => {
                         // Transform points to screen coordinates
                         const screenPoints = pathPoints.map(p => [xScale(p[0]), yScale(p[1])]);
                         
-                        drawTrajectory(context, screenPoints, trajectoryColor, width);
+                        // Use thicker stroke for selected episode
+                        const strokeWidth = isHighlighted ? width * 2 : width;
+                        drawTrajectory(context, screenPoints, trajectoryColor, strokeWidth);
                     });
 
                     // Batch draw points for better performance
                     //context.globalAlpha = 0.5;
                     context.beginPath();
 
-                    const selectedStateIndex = selectedStateRef.current ? selectedStateRef.current.index : null;
 
                     for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
 
@@ -1618,8 +1628,8 @@ const StateSequenceProjection = (props) => {
                 // Remove any existing selected state markers
                 view.selectAll('.selected-state-marker').remove();
                 
-                const selectedStateX = selectedStateRef.current.x;
-                const selectedStateY = selectedStateRef.current.y;
+                const selectedStateX = selectedStateRef.current.coords[0];
+                const selectedStateY = selectedStateRef.current.coords[1];
                 const selectedStateIndex = selectedStateRef.current.index;
                 
                 // Create marker group for selected state
@@ -1729,7 +1739,9 @@ const StateSequenceProjection = (props) => {
             )}
 
             {/* Main visualization area */}
-            <EmbeddingContainer ref={embeddingRef} />
+            <OnboardingHighlight stepId="select-trajectory" pulse={true} preserveLayout={true}>
+                <EmbeddingContainer ref={embeddingRef} />
+            </OnboardingHighlight>
 
             {/* Selected State Frame overlay */}
             {selectedStateFrameUrl && selectedState && selectedState.episode !== null && selectedState.step !== null && (
@@ -1796,47 +1808,49 @@ const StateSequenceProjection = (props) => {
                     </IconButton>
                 </Tooltip>
 
-                <Tooltip title="Add to Selection">
-                    <IconButton
-                        color="default"
-                        sx={{
-                            backgroundColor: 'rgba(185, 185, 185, 0.7)',
-                            '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
-                        }}
-                        onClick={() => {
-                            const selectedTrajectory = selectedTrajectoryRef.current;
+                <OnboardingHighlight stepId="add-to-selection" pulse={true}>
+                    <Tooltip title="Add to Selection">
+                        <IconButton
+                            color="default"
+                            sx={{
+                                backgroundColor: 'rgba(185, 185, 185, 0.7)',
+                                '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
+                            }}
+                            onClick={() => {
+                                const selectedTrajectory = selectedTrajectoryRef.current;
 
-                            const selectedCluster = selectedClusterRef.current;
+                                const selectedCluster = selectedClusterRef.current;
 
-                            const selectedCoordinate = selectedCoordinateRef.current;
+                                const selectedCoordinate = selectedCoordinateRef.current;
 
-                            // add to combined selected if selected
-                            const combinedSelection: SelectionItem[] = [];
-                            if (selectedTrajectory !== null && selectedTrajectory !== undefined) {
-                                combinedSelection.push({ type: "trajectory", data: selectedTrajectory });
-                            }
-                            else if (selectedCluster) {
-                                // Pass the cluster indices, not just the label
-                                combinedSelection.push({ type: "cluster", data: selectedCluster.indices, label: selectedCluster.label });
-                            }
-                            else if (selectedCoordinate) {
-                                combinedSelection.push({ type: "coordinate", data: selectedCoordinate });
-                            }
-                            if (combinedSelection.length === 0) {
-                                return;
-                            }
+                                // add to combined selected if selected
+                                const combinedSelection: SelectionItem[] = [];
+                                if (selectedTrajectory !== null && selectedTrajectory !== undefined) {
+                                    combinedSelection.push({ type: "trajectory", data: selectedTrajectory });
+                                }
+                                else if (selectedCluster) {
+                                    // Pass the cluster indices, not just the label
+                                    combinedSelection.push({ type: "cluster", data: selectedCluster.indices, label: selectedCluster.label });
+                                }
+                                else if (selectedCoordinate) {
+                                    combinedSelection.push({ type: "coordinate", data: selectedCoordinate });
+                                }
+                                if (combinedSelection.length === 0) {
+                                    return;
+                                }
 
-                            const selected = activeLearningState.selection;
-                            const newSelection = [...selected, ...combinedSelection];
-                            activeLearningDispatch({
-                                type: 'SET_SELECTION',
-                                payload: newSelection
-                            });
-                        }}
-                    >
-                        <AddIcon />
-                    </IconButton>
-                </Tooltip>
+                                const selected = activeLearningState.selection;
+                                const newSelection = [...selected, ...combinedSelection];
+                                activeLearningDispatch({
+                                    type: 'SET_SELECTION',
+                                    payload: newSelection
+                                });
+                            }}
+                        >
+                            <AddIcon />
+                        </IconButton>
+                    </Tooltip>
+                </OnboardingHighlight>
 
                 <Tooltip title="Mark to Correct/Generate">
                     <IconButton
@@ -1871,6 +1885,34 @@ const StateSequenceProjection = (props) => {
                 </Tooltip>
             </Box>
 
+            {/* Selected cluster info display */}
+            {selectedCluster && (
+                <Box
+                    position="absolute"
+                    top="10px"
+                    right="10px"
+                    sx={{
+                        zIndex: 15,
+                        backgroundColor: 'rgba(255, 107, 53, 0.9)', // Match cluster color
+                        color: 'white',
+                        padding: 2,
+                        borderRadius: 2,
+                        border: '2px solid #FF6B35',
+                        boxShadow: '0 4px 8px rgba(0,0,0,0.3)'
+                    }}
+                >
+                    <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                        🎯 {selectedCluster.label}
+                    </Typography>
+                    <Typography variant="body2">
+                        📊 {selectedCluster.indices.length} states included
+                    </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                        High uncertainty region
+                    </Typography>
+                </Box>
+            )}
+
             {/* Load Data button and segment controls */}
             <Box
                 position="absolute"
@@ -1878,9 +1920,11 @@ const StateSequenceProjection = (props) => {
                 left="50px"
                 sx={{ zIndex: 10, display: 'flex', gap: 2, alignItems: 'center' }}
             >
-                <Button variant="contained" color="primary" onClick={loadData} disabled={isLoading}>
-                    {isLoading ? 'Loading...' : 'Load Data'}
-                </Button>
+                <OnboardingHighlight stepId="load-data" pulse={true}>
+                    <Button variant="contained" color="primary" onClick={loadData} disabled={isLoading}>
+                        {isLoading ? 'Loading...' : 'Load Data'}
+                    </Button>
+                </OnboardingHighlight>
                 
                 {/* Episodes overview */}
                 <Box sx={{ backgroundColor: 'rgba(158, 158, 158, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>

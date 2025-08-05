@@ -30,6 +30,7 @@ import { Episode, FeedbackType, Feedback } from '../types';
 import { getEpisodeColor as getEpisodeColorFromUtil } from './utils/trajectoryColors';
 import axios from 'axios';
 import WebRTCDemoComponent from './WebRTCDemoComponent';
+import { OnboardingHighlight, useOnboarding } from './OnboardingSystem';
 
 // Helper function to map feedback type to category
 const getFeedbackCategory = (feedbackType: FeedbackType, selectionType?: string): string => {
@@ -53,6 +54,7 @@ const MergedSelectionFeedback = () => {
   const activeLearningState = useActiveLearningState();
   const activeLearningDispatch = useActiveLearningDispatch();
   const { getVideoURL } = useGetter();
+  const { triggerStepComplete } = useOnboarding();
 
   // State for videos and interaction
   const [currentVideoIndex, setCurrentVideoIndex] = useState<number | null>(null);
@@ -295,6 +297,10 @@ const MergedSelectionFeedback = () => {
     });
     
     setSubmitted(true);
+    
+    // Trigger onboarding step completion for feedback submission
+    triggerStepComplete('provide-feedback');
+    
     setTimeout(() => activeLearningDispatch({ type: 'SET_SELECTION', payload: [] }), 1500);
   };
 
@@ -416,9 +422,18 @@ const MergedSelectionFeedback = () => {
   }, []);
 
   // Get video element for an episode
-  const getVideoElement = (episode: Episode, index: number, small = false) => {
+  const getVideoElement = (episode: Episode, index: number, small = false, singleTrajectory = false) => {
     const episodeId = IDfromEpisode(episode);
     const videoUrl = videoURLs.get(episodeId);
+    
+    // For single trajectory on large screens, make video significantly larger
+    const getMaxWidth = () => {
+      if (singleTrajectory) {
+        // Use viewport width to scale appropriately for large screens
+        return 'min(600px, 60vw)';
+      }
+      return small ? '200px' : '300px';
+    };
     
     return (
       <Box 
@@ -430,7 +445,7 @@ const MergedSelectionFeedback = () => {
           overflow: 'hidden',
           aspectRatio: '16/9',
           margin: '0 auto',
-          maxWidth: small ? '200px' : '300px',
+          maxWidth: getMaxWidth(),
         }}
       >
         {videoUrl ? (
@@ -591,11 +606,11 @@ const MergedSelectionFeedback = () => {
               flex: 1,
               alignItems: 'center',
               mb: 2,
-              minHeight: '350px'
+              minHeight: 'min(450px, 50vh)' // Larger minimum height for single trajectory
             }}>
               {episode && (
                 <Box sx={{ width: '100%' }}>
-                  {getVideoElement(episode, selectionData.data[0])}
+                  {getVideoElement(episode, selectionData.data[0], false, true)}
                 </Box>
               )}
             </Box>
@@ -1000,35 +1015,37 @@ const MergedSelectionFeedback = () => {
   };
 
   return (
-    <Box 
-      ref={containerRef}
-      sx={{ 
-        height: '100%', 
-        display: 'flex', 
-        flexDirection: 'column',
-        p: 1,
-        overflow: 'hidden',
-        position: 'relative'
-      }}
-    >
-      {loading && (
-        <Box sx={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          bgcolor: 'rgba(255, 255, 255, 0.7)',
-          zIndex: 10
-        }}>
-          <CircularProgress size={24} />
-        </Box>
-      )}
-      {renderContent()}
-    </Box>
+    <OnboardingHighlight stepId="provide-feedback" pulse={true} preserveLayout={true}>
+      <Box 
+        ref={containerRef}
+        sx={{ 
+          height: '100%', 
+          display: 'flex', 
+          flexDirection: 'column',
+          p: 1,
+          overflow: 'hidden',
+          position: 'relative'
+        }}
+      >
+        {loading && (
+          <Box sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: 'rgba(255, 255, 255, 0.7)',
+            zIndex: 10
+          }}>
+            <CircularProgress size={24} />
+          </Box>
+        )}
+        {renderContent()}
+      </Box>
+    </OnboardingHighlight>
   );
 };
 

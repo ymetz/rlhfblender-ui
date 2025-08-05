@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Box, Paper, Button, CircularProgress, IconButton, Drawer, Typography, Tooltip } from '@mui/material';
-import { ChevronRight } from '@mui/icons-material';
+import { ChevronRight, Help } from '@mui/icons-material';
 import axios from 'axios';
 // Import components
 import ProjectionComponent from './ProjectionComponent';
@@ -10,6 +10,8 @@ import TrainingProgressPanel from './TrainingProgressPanel';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import { FeedbackType, Feedback } from '../types';
 import { useAppState, useAppDispatch } from '../AppStateContext';
+import { OnboardingHighlight } from './OnboardingSystem';
+import { useActiveLearningOnboarding } from './useActiveLearningOnboarding';
 
 
 // define props for the active learning interface, stepSampler function
@@ -37,6 +39,14 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   const appStateDispatch = useAppDispatch();
   
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Get onboarding hook (will only work when wrapped in OnboardingProvider)
+  const { startOnboardingIfFirstTime, startActiveLearningTour, isOnboardingReady, triggerStepComplete } = useActiveLearningOnboarding();
+
+  // Start onboarding when component mounts (only if first time)
+  useEffect(() => {
+    startOnboardingIfFirstTime();
+  }, [startOnboardingIfFirstTime]);
 
   // Function to poll training status and results
   const pollTrainingProgress = useCallback(async () => {
@@ -144,7 +154,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
       }
       setWaiting(false);
     }
-  }, [appState.sessionId, appState.selectedCheckpoint, appState.selectedExperiment.checkpoint_list, activeLearningState, activeLearningDispatch, appStateDispatch, stepSampler]);
+  }, [appState.sessionId, appState.selectedExperiment, activeLearningState.currentPhase, activeLearningState.progressTrainingSteps, activeLearningState.progressRewards, activeLearningState.progressUncertainties, activeLearningState.feedbackCounts, activeLearningDispatch, appStateDispatch, stepSampler]);
 
   // Start polling function
   const startPolling = useCallback(() => {
@@ -176,6 +186,10 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
   const handleContinue = async () => {
     setWaiting(true);
+    
+    // Trigger onboarding step completion for next-phase
+    triggerStepComplete('next-phase');
+    
     try {
       // First, submit any scheduled feedback that hasn't been submitted yet
       if (appState.scheduledFeedback.length > 0) {
@@ -342,6 +356,33 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         </Tooltip>
       )}
 
+      {/* Onboarding Help Button - Only show when conditions are met */}
+      {isOnboardingReady() && (
+        <Tooltip title="Start Onboarding Tour" placement="left">
+          <IconButton
+            onClick={startActiveLearningTour}
+            sx={{
+              position: 'fixed',
+              right: 16,
+              top: 16,
+              zIndex: 1200,
+              backgroundColor: 'rgba(25, 118, 210, 0.1)',
+              color: 'primary.main',
+              border: '2px solid',
+              borderColor: 'primary.main',
+              '&:hover': {
+                backgroundColor: 'primary.main',
+                color: 'white',
+              },
+              width: '48px',
+              height: '48px',
+            }}
+          >
+            <Help />
+          </IconButton>
+        </Tooltip>
+      )}
+
       {/* Main content area */}
       <Box
         sx={{
@@ -419,18 +460,20 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
               justifyContent: 'center',
             }}
           >
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleContinue}
-            >
-              {(() => {
-                const checkpoints = appState.selectedExperiment.checkpoint_list || [];
-                const currentIndex = checkpoints.indexOf(appState.selectedCheckpoint.toString());
-                const isLastCheckpoint = currentIndex >= checkpoints.length - 1;
-                return isLastCheckpoint ? 'Complete Experiment' : 'Go to Next Phase';
-              })()}
-            </Button>
+            <OnboardingHighlight stepId="next-phase" pulse={true}>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleContinue}
+              >
+                {(() => {
+                  const checkpoints = appState.selectedExperiment.checkpoint_list || [];
+                  const currentIndex = checkpoints.indexOf(appState.selectedCheckpoint.toString());
+                  const isLastCheckpoint = currentIndex >= checkpoints.length - 1;
+                  return isLastCheckpoint ? 'Complete Experiment' : 'Go to Next Phase';
+                })()}
+              </Button>
+            </OnboardingHighlight>
           </Paper>
         </Box>
       </Box>

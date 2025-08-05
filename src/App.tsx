@@ -16,6 +16,7 @@ import ExperimentStartModal from "./components/modals/experiment-start-modal";
 import ExperimentEndModal from "./components/modals/experiment-end-modal";
 import FeedbackInterface from "./components/FeedbackInterface";
 import ActiveLearningInterface from "./active_learning/ActiveLearningInterface";
+import { OnboardingProvider } from "./active_learning/OnboardingSystem";
 import { GetterContext } from "./getter-context";
 
 import {
@@ -514,9 +515,11 @@ const App: React.FC = () => {
           </Box>
           {state.app_mode === "active-learning" || state.app_mode === "study-active-learning" ? (
             <ActiveLearningProvider>
-              <ActiveLearningInterface
-                stepSampler={stepSampler}
-              />
+              <OnboardingProvider>
+                <ActiveLearningInterface
+                  stepSampler={stepSampler}
+                />
+              </OnboardingProvider>
             </ActiveLearningProvider>
           ) : (
             state.selectedProject?.id >= 0 ? <FeedbackInterface /> : null

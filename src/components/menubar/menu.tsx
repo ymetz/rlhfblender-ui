@@ -401,7 +401,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
         {showDynamicRLHFButton && (
           <Button
             sx={{
-              marginRight: "2vw",
+              marginRight: "3vw",
               marginTop: "1vh",
               fontSize: "0.8rem",
               width: "12vw",
