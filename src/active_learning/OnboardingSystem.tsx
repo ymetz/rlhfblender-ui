@@ -69,7 +69,7 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSteps(newSteps);
     setCurrentStep(0);
     setIsActive(true);
-    setTargetElements(new Map());
+    // Don't clear targetElements - keep the already registered elements
   }, []);
 
   const nextStep = useCallback(() => {
@@ -91,7 +91,18 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [nextStep]);
 
   const setTargetElement = useCallback((stepId: string, element: HTMLElement | null) => {
-    setTargetElements(prev => new Map(prev).set(stepId, element));
+    console.log(`setTargetElement called for ${stepId}:`, {
+      element,
+      hasElement: !!element,
+      elementTagName: element?.tagName,
+      elementId: element?.id,
+      elementClassName: element?.className
+    });
+    setTargetElements(prev => {
+      const newMap = new Map(prev).set(stepId, element);
+      console.log(`Updated targetElements map:`, Array.from(newMap.entries()).map(([id, el]) => [id, !!el]));
+      return newMap;
+    });
   }, []);
 
   const triggerStepComplete = useCallback((stepId: string) => {
@@ -130,7 +141,18 @@ export const OnboardingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           step={steps[currentStep]}
           currentStepIndex={currentStep}
           totalSteps={steps.length}
-          targetElement={targetElements.get(steps[currentStep].id) || null}
+          targetElement={(() => {
+            const stepId = steps[currentStep].id;
+            const element = targetElements.get(stepId);
+            console.log(`Looking up target element for step "${stepId}":`, {
+              stepId,
+              element,
+              hasElement: !!element,
+              allRegisteredSteps: Array.from(targetElements.keys()),
+              targetElementsMapSize: targetElements.size
+            });
+            return element || null;
+          })()}
           onNext={nextStep}
           onPrevious={previousStep}
           onSkip={skipStep}
@@ -154,9 +176,16 @@ export const OnboardingHighlight: React.FC<{
   
   // Register this element as a target when component mounts
   useEffect(() => {
+    console.log(`OnboardingHighlight attempting to register element for step: ${stepId}`, {
+      elementRef: elementRef.current,
+      hasElement: !!elementRef.current
+    });
+    
     if (elementRef.current) {
-      // console.log(`Registering onboarding element for step: ${stepId}`, elementRef.current);
+      console.log(`Successfully registering onboarding element for step: ${stepId}`, elementRef.current);
       setTargetElement(stepId, elementRef.current);
+    } else {
+      console.warn(`No element found to register for step: ${stepId}`);
     }
   }, [stepId, setTargetElement]);
 
@@ -316,8 +345,45 @@ const OnboardingOverlay: React.FC<{
 
   // Calculate tooltip position based on target element
   useEffect(() => {
+    console.log(`Positioning effect running for ${step.id}:`, {
+      targetElement,
+      hasTargetElement: !!targetElement
+    });
+    
     if (targetElement) {
       const rect = targetElement.getBoundingClientRect();
+      
+      // Add debug logging to understand what's happening
+      console.log(`Onboarding positioning debug for ${step.id}:`, {
+        targetElement,
+        rect: {
+          top: rect.top,
+          left: rect.left,
+          bottom: rect.bottom,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height
+        },
+        hasValidDimensions: rect.width > 0 && rect.height > 0
+      });
+      
+      // If element has no dimensions, it might not be rendered yet - wait
+      if (rect.width === 0 || rect.height === 0) {
+        console.warn(`Target element for ${step.id} has no dimensions, waiting...`);
+        setTimeout(() => {
+          // Retry positioning after a short delay
+          if (targetElement) {
+            const newRect = targetElement.getBoundingClientRect();
+            if (newRect.width > 0 && newRect.height > 0) {
+              console.log(`Retrying positioning for ${step.id} with rect:`, newRect);
+              // Trigger re-run of this effect
+              setTooltipPosition({ top: -1, left: -1 });
+            }
+          }
+        }, 100);
+        return;
+      }
+      
       const viewport = {
         width: window.innerWidth,
         height: window.innerHeight,
@@ -327,8 +393,8 @@ const OnboardingOverlay: React.FC<{
       const tooltipHeight = 200; // Estimated height
       const margin = 20; // Safety margin from screen edges
 
-      // Use extra spacing for load-data step to avoid covering the button
-      const spacing = step.id === 'load-data' ? 50 : 20; // Distance from target element
+      // Use smaller spacing for better proximity to target elements
+      const spacing = 12; // Distance from target element
       
       let placement: 'top' | 'bottom' | 'left' | 'right' = step.position || 'bottom';
       let top = 0;
@@ -372,19 +438,19 @@ const OnboardingOverlay: React.FC<{
         }
       }
       
-      // Calculate position based on final placement
+      // Calculate position based on final placement with fine-tuning
       switch (placement) {
         case 'top':
-          top = rect.top - tooltipHeight - spacing;
+          top = rect.top - tooltipHeight - spacing - 45; // Move up more to avoid overlap
           left = rect.left + rect.width / 2 - tooltipWidth / 2;
           break;
         case 'bottom':
-          top = rect.bottom + spacing;
+          top = rect.bottom + spacing - 4; // Fine-tune for Load Data button
           left = rect.left + rect.width / 2 - tooltipWidth / 2;
           break;
         case 'left':
           top = rect.top + rect.height / 2 - tooltipHeight / 2;
-          left = rect.left - tooltipWidth - spacing;
+          left = rect.left - tooltipWidth - spacing - 50; // Move right for better proximity
           break;
         case 'right':
           top = rect.top + rect.height / 2 - tooltipHeight / 2;
@@ -401,7 +467,16 @@ const OnboardingOverlay: React.FC<{
         placement,
         finalPosition: { top, left },
         viewport,
-        canPlace: { left: canPlaceLeft, right: canPlaceRight, top: canPlaceTop, bottom: canPlaceBottom }
+        canPlace: { left: canPlaceLeft, right: canPlaceRight, top: canPlaceTop, bottom: canPlaceBottom },
+        elementInfo: {
+          tagName: targetElement.tagName,
+          className: targetElement.className,
+          offsetParent: targetElement.offsetParent?.tagName,
+          computedStyle: {
+            position: window.getComputedStyle(targetElement).position,
+            transform: window.getComputedStyle(targetElement).transform
+          }
+        }
       });
 
       setTooltipPosition({ top, left });
@@ -440,22 +515,14 @@ const OnboardingOverlay: React.FC<{
             p: 3,
             maxWidth: 350,
             minWidth: 280,
-            transform: `translate(${
-              tooltipPlacement === 'left' ? '-100%' : 
-              tooltipPlacement === 'right' ? '0%' : 
-              (tooltipPlacement === 'top' || tooltipPlacement === 'bottom') ? '0%' : '-50%'
-            }, ${
-              tooltipPlacement === 'top' ? '-100%' : 
-              tooltipPlacement === 'bottom' ? '0%' : 
-              (tooltipPlacement === 'left' || tooltipPlacement === 'right') ? '0%' : '-50%'
-            })`,
+            // Remove transform - positioning calculation already accounts for tooltip size
             '&::before': {
               content: '""',
               position: 'absolute',
               width: 0,
               height: 0,
               ...(tooltipPlacement === 'top' && {
-                bottom: -8,
+                bottom: -10,
                 left: '50%',
                 transform: 'translateX(-50%)',
                 borderLeft: '8px solid transparent',

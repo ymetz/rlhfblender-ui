@@ -110,6 +110,66 @@ const MergedSelectionFeedback = () => {
     setStateFrameImage(null);
   }, [selection]);
 
+  // Fetch state frame when single state is selected
+  useEffect(() => {
+    if (selectionData.type === 'state' && selectionData.data && selectionData.data.length > 0) {
+      const stateData = selectionData.data[0];
+      
+      if (stateData.episode === null || stateData.step === null) {
+        setStateFrameImage(null);
+        return;
+      }
+      
+      // Find matching episode in allEpisodes
+      const matchingEpisode = allEpisodes.find(ep => ep.episode_num === stateData.episode);
+      
+      if (!matchingEpisode) {
+        console.warn('No matching episode found for state frame loading');
+        setStateFrameImage(null);
+        return;
+      }
+      
+      // Fetch single state frame using same logic as fetchClusterFrames
+      const fetchStateFrame = async () => {
+        try {
+          console.log(`Fetching frame for episode ${stateData.episode}, step ${stateData.step}`);
+          const response = await fetch('/data/get_cluster_frames', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              cluster_indices: [stateData.step], // Single step within episode
+              episode_data: [{
+                env_name: matchingEpisode.env_name,
+                benchmark_id: matchingEpisode.benchmark_id,
+                checkpoint_step: matchingEpisode.checkpoint_step,
+                episode_num: matchingEpisode.episode_num,
+              }],
+              max_states_to_show: 1
+            }),
+          });
+          
+          if (response.ok) {
+            const frameImages = await response.json();
+            console.log(`Received state frame image:`, frameImages[0] ? `${frameImages[0].substring(0, 50)}...` : 'null');
+            setStateFrameImage(frameImages[0] || null);
+          } else {
+            console.error(`Failed to fetch state frame: ${response.status} ${response.statusText}`);
+            setStateFrameImage(null);
+          }
+        } catch (error) {
+          console.error('Error fetching state frame:', error);
+          setStateFrameImage(null);
+        }
+      };
+      
+      fetchStateFrame();
+    } else {
+      setStateFrameImage(null);
+    }
+  }, [selectionData, allEpisodes]);
+
   // Fetch cluster frame images from backend
   const fetchClusterFrames = useCallback(async (clusterIndices: number[], episodeData: any[]) => {
     try {
@@ -755,36 +815,61 @@ const MergedSelectionFeedback = () => {
           }}>
             <Typography variant="h6" gutterBottom>{title}</Typography>
             
-            {/* Placeholder for state visualization */}
+            {/* State frame visualization */}
             <Box sx={{ 
               display: 'flex', 
-              justifyContent: 'center',
+              justifyContent: 'center', 
+              flex: 1,
+              alignItems: 'center',
               mb: 2,
-              flex: '0 0 auto'
+              minHeight: 'min(450px, 50vh)' // Same as single trajectory video
             }}>
               <Box sx={{ 
-                width: '100%', 
-                maxWidth: '300px',
+                width: '100%',
+                maxWidth: 'min(600px, 60vw)', // Same as single trajectory video
+                aspectRatio: '16/9',
                 backgroundColor: 'rgba(0,0,0,0.05)', 
-                p: 2, 
                 borderRadius: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center'
+                overflow: 'hidden',
+                position: 'relative',
+                border: '3px solid #4CAF50', // Green border to distinguish from videos
+                margin: '0 auto'
               }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  [State visualization placeholder]
-                </Typography>
-                <Box sx={{ 
-                  width: '100%', 
-                  height: '150px', 
-                  backgroundColor: 'rgba(0,0,0,0.1)', 
-                  borderRadius: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <ImageIcon sx={{ fontSize: 40, color: 'text.secondary' }} />
+                {stateFrameImage ? (
+                  <img
+                    src={stateFrameImage}
+                    alt={`State frame for episode ${stateData.episode}, step ${stateData.step}`}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain', // Same as video
+                    }}
+                  />
+                ) : (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    height: '100%',
+                    bgcolor: 'rgba(0,0,0,0.05)'
+                  }}>
+                    {loading ? <CircularProgress size={24} /> : <ImageIcon sx={{ fontSize: 60, color: 'text.secondary' }} />}
+                  </Box>
+                )}
+                <Box 
+                  sx={{ 
+                    position: 'absolute', 
+                    top: 4,
+                    left: 4,
+                    backgroundColor: '#4CAF50', // Green to match border
+                    color: 'white',
+                    borderRadius: 1,
+                    px: 1,
+                    py: 0.3,
+                    fontSize: '0.7rem',
+                  }}
+                >
+                  Episode {stateData.episode}, Step {stateData.step}
                 </Box>
               </Box>
             </Box>
@@ -802,7 +887,7 @@ const MergedSelectionFeedback = () => {
               }}
             >
               <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-                State coordinates: [{stateData[0].toFixed(2)}, {stateData[1].toFixed(2)}]
+                State coordinates: [{stateData.coords[0].toFixed(2)}, {stateData.coords[1].toFixed(2)}]
               </Typography>
               
               <TextField

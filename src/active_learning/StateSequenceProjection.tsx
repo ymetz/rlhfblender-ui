@@ -592,7 +592,6 @@ const StateSequenceProjection = (props) => {
                 // Fetch frame using get_cluster_frames endpoint
                 const fetchFrame = async () => {
                     try {
-                        console.log(`Fetching frame for episode ${selectedState.episode}, step ${selectedState.step}`);
                         const response = await fetch('/data/get_cluster_frames', {
                             method: 'POST',
                             headers: {
@@ -612,7 +611,6 @@ const StateSequenceProjection = (props) => {
                         
                         if (response.ok) {
                             const frameImages = await response.json();
-                            console.log(`Received frame image:`, frameImages[0] ? `${frameImages[0].substring(0, 50)}...` : 'null');
                             setSelectedStateFrameUrl(frameImages[0] || null);
                         } else {
                             console.error(`Failed to fetch frame: ${response.status} ${response.statusText}`);
@@ -626,7 +624,6 @@ const StateSequenceProjection = (props) => {
                 
                 fetchFrame();
             } else {
-                console.log('No matching episode found for frame loading');
                 setSelectedStateFrameUrl(null);
             }
         } else {
@@ -668,8 +665,6 @@ const StateSequenceProjection = (props) => {
     const loadData = useCallback(() => {
         setIsLoading(true);
         setError(null);
-
-        console.log("Loading data for embedding method:", props.embeddingMethod);
         
         // Clear the shouldLoadNewData flag when loading starts
         activeLearningDispatch({
@@ -952,6 +947,8 @@ const StateSequenceProjection = (props) => {
                 if (context) {
                     const initialTransform = d3.zoomIdentity;
                     drawImageToCanvas(context, predictionCacheKey, initialTransform, svgWidth, svgHeight);
+                    // After drawing the image, redraw trajectories on top
+                    zoomed({ transform: initialTransform });
                 }
             };
 
@@ -1460,10 +1457,14 @@ const StateSequenceProjection = (props) => {
                         const segmentIndices = topMergedSegments[index].globalIndices || [];
                         
                         // Store segment selection with more detailed information
-                        const clusterLabel = `Cluster H${index + 1}`;
+                        const clusterLabel = `Cluster ${index + 1}`;
                         const clusterInfo = { label: clusterLabel, indices: segmentIndices };
                         setSelectedCluster(clusterInfo);
                         selectedClusterRef.current = clusterInfo;
+                        
+                        // Trigger immediate re-render to show cluster state highlights
+                        const currentTransform = d3.zoomTransform(view.node());
+                        zoomed({ transform: currentTransform });
                     });
                 
                 // Add merged segment label (H1, H2, etc. for "High uncertainty")
@@ -1507,6 +1508,7 @@ const StateSequenceProjection = (props) => {
         
         // Zoom handler function
         function zoomed(event) {
+
             const transform = event.transform;
             view.attr('transform', transform);
 
@@ -1566,7 +1568,6 @@ const StateSequenceProjection = (props) => {
                     //context.globalAlpha = 0.5;
                     context.beginPath();
 
-
                     for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
 
                         // Check if point is part of highlighted trajectory
@@ -1589,6 +1590,33 @@ const StateSequenceProjection = (props) => {
                         context.fill();
                         //context.stroke();
                         context.closePath();
+                    }
+
+                    // Draw cluster state points if a cluster is selected
+                    if (selectedClusterRef.current && selectedClusterRef.current.indices) {
+                        const clusterIndices = selectedClusterRef.current.indices;
+                        
+                        for (const stateIndex of clusterIndices) {
+                            if (stateIndex < processedData.length) {
+                                const [x, y] = [xScale(processedData[stateIndex][0]), yScale(processedData[stateIndex][1])];
+                                
+                                // Skip if this point has a glyph (start/end state)
+                                const hasGlyph = label_data_map.has(stateIndex);
+                                if (hasGlyph) continue;
+                                
+                                // Use the normal uncertainty-based color for the fill
+                                const pointColor = point_colors[stateIndex] || '#888888';
+                                context.fillStyle = pointColor;
+                                //context.strokeStyle = '#FFFFFF';
+                                context.lineWidth = 1;
+                                context.globalAlpha = 0.9;
+                                context.beginPath();
+                                context.arc(x, y, r * 1.2, 0, 2 * Math.PI);
+                                context.fill();
+                                //context.stroke();
+                                context.closePath();
+                            }
+                        }
                     }
 
                     context.restore();
@@ -1638,7 +1666,7 @@ const StateSequenceProjection = (props) => {
 
                 // Draw larger highlighted circle with stroke
                 const baseRadius = Math.max(4, 3 / transform.k); // Adaptive radius based on zoom
-                const highlightRadius = baseRadius * 1.8; // Make it bigger
+                const highlightRadius = baseRadius * 1.5; // Make it bigger
                 
                 // Get the original color of the state
                 const stateColor = point_colors[selectedStateIndex] || '#ff6b6b';
@@ -1696,16 +1724,14 @@ const StateSequenceProjection = (props) => {
 
         svg.call(zoom as any);
 
-        // Draw initial state with identity transform
-        if (canvasImageCache.has(predictionCacheKey)) {
-            const initialTransform = d3.zoomIdentity;
+        // Draw initial state with identity transform - both canvas and SVG elements
+        const initialTransform = d3.zoomIdentity;
+        
+        /*if (canvasImageCache.has(predictionCacheKey)) {
             drawImageToCanvas(context, predictionCacheKey, initialTransform, svgWidth, svgHeight);
-        } else {
-            // If image is not cached yet but we have the data, it will load asynchronously
-            if (grid_prediction_image) {
-                // Image will render when loaded
-            }
-        }
+        }*/
+
+        zoomed({ transform: initialTransform });
 
         return () => {
             // Cleanup on unmount
@@ -1893,7 +1919,7 @@ const StateSequenceProjection = (props) => {
                     right="10px"
                     sx={{
                         zIndex: 15,
-                        backgroundColor: 'rgba(255, 107, 53, 0.9)', // Match cluster color
+                        backgroundColor: 'rgba(199, 54, 2, 0.4)', // Match cluster color
                         color: 'white',
                         padding: 2,
                         borderRadius: 2,
@@ -1902,13 +1928,10 @@ const StateSequenceProjection = (props) => {
                     }}
                 >
                     <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
-                        🎯 {selectedCluster.label}
+                        {selectedCluster.label}
                     </Typography>
                     <Typography variant="body2">
-                        📊 {selectedCluster.indices.length} states included
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                        High uncertainty region
+                        {selectedCluster.indices.length} states
                     </Typography>
                 </Box>
             )}
