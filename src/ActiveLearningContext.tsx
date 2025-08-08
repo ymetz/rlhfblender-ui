@@ -180,6 +180,7 @@ function activeLearningReducer(
   switch (action.type) {
     // Original cases
     case "SET_CURRENT_PHASE":
+      console.log("Setting current phase to:", action.payload);
       return { ...state, currentPhase: action.payload };
     case "SET_PROGRESS_TRAINING_STEPS":
       return { ...state, progressTrainingSteps: action.payload };

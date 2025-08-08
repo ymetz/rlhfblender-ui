@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 
-export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId }) {
+interface Coordinate {
+  x: number;
+  y: number;
+}
+
+interface UseWebRTCProps {
+  serverUrl?: string;
+  sessionId: string;
+  environmentId: string;
+  experimentId: string;
+  coordinate?: Coordinate | null;
+  episodeNum?: number; // Episode number for saved state loading
+  step?: number; // Step number for saved state loading
+}
+
+export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId, coordinate = null, episodeNum = undefined, step = undefined }: UseWebRTCProps) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const dcIntervalRef = useRef<number | null>(null);
@@ -150,6 +165,13 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       session_id: sessionId,
       environment_id: environmentId,
       experiment_id: experimentId,
+      ...(coordinate && { 
+        coordinate: [coordinate.x, coordinate.y]
+      }),
+      ...(episodeNum !== undefined && step !== undefined && { 
+        episode_num: episodeNum,
+        step: step
+      })
     };
     
     const res = await fetch(serverUrl, {

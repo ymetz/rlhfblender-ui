@@ -542,7 +542,7 @@ const StateSequenceProjection = (props) => {
     const [selectedCluster, setSelectedCluster] = useState<SelectedCluster | null>(null);
     const [hoveredEpisode, setHoveredEpisode] = useState(null);
     const [clickedEpisode, setClickedEpisode] = useState(null);
-    const [selectedStateFrameUrl, setSelectedStateFrameUrl] = useState(null);
+    const [selectedStateFrameUrl, setSelectedStateFrameUrl] = useState<string | null>(null);
     const [segmentSize, setSegmentSize] = useState(50);
     const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
     const [segmentError, setSegmentError] = useState<string | null>(null);
@@ -581,12 +581,15 @@ const StateSequenceProjection = (props) => {
     useEffect(() => {
         if (selectedState && selectedState.episode !== null && selectedState.step !== null) {
             
+            console.log('Fetching frame for selected state:', selectedState, props.checkpointStep , props.benchmarkId, appState.episodeIDsChronologically);
 
-                const matchingEpisode = appState.episodeIDsChronologically.find(episode => {
-                    return episode.benchmark_id === props.benchmarkId &&
-                        episode.checkpoint_step === props.checkpointStep &&
-                        episode.episode_num === selectedState.episode;
-                });
+            const matchingEpisode = appState.episodeIDsChronologically.find(episode => {
+                return episode.benchmark_id === props.benchmarkId &&
+                    episode.checkpoint_step === props.checkpointStep &&
+                    episode.episode_num === selectedState.episode;
+            });
+
+            console.log('Matching episode:', matchingEpisode);
 
             if (matchingEpisode) {
                 // Fetch frame using get_cluster_frames endpoint
@@ -631,6 +634,58 @@ const StateSequenceProjection = (props) => {
         }
     }, [selectedState, activeLearningState.episodeIndices, appState.episodeIDsChronologically, props.benchmarkId, props.checkpointStep]);
 
+    // Effect to load frame when a coordinate is selected (for inverse state projection)
+    useEffect(() => {
+        if (selectedCoordinate && selectedCoordinate.x !== null && selectedCoordinate.y !== null) {
+            console.log('Fetching rendered frame for coordinate:', selectedCoordinate);
+            
+            const fetchCoordinateFrame = async () => {
+                try {
+                    // Find the first episode to get environment info
+                    const firstEpisode = appState.episodeIDsChronologically.find(episode => 
+                        episode.benchmark_id === props.benchmarkId && 
+                        episode.checkpoint_step === props.checkpointStep
+                    );
+                    
+                    if (!firstEpisode) {
+                        console.error('No episode found for coordinate frame fetch');
+                        return;
+                    }
+                    
+                    const response = await fetch('/demo_generation/coordinate_to_render', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            coordinates: [selectedCoordinate.x, selectedCoordinate.y],
+                            env_id: firstEpisode.env_name,
+                            exp_id: props.benchmarkId
+                        }),
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        if (result.success && result.render_frame) {
+                            // Set the base64 image as the frame URL
+                            setSelectedStateFrameUrl(`data:image/png;base64,${result.render_frame}`);
+                        } else {
+                            console.error('Failed to get render frame from response:', result);
+                            setSelectedStateFrameUrl(null);
+                        }
+                    } else {
+                        console.error(`Failed to fetch coordinate frame: ${response.status} ${response.statusText}`);
+                        setSelectedStateFrameUrl(null);
+                    }
+                } catch (error) {
+                    console.error('Error fetching coordinate frame:', error);
+                    setSelectedStateFrameUrl(null);
+                }
+            };
+            
+            fetchCoordinateFrame();
+        }
+    }, [selectedCoordinate, appState.episodeIDsChronologically, props.benchmarkId, props.checkpointStep]);
 
 
     // Drawing function dispatches to specific visualizations

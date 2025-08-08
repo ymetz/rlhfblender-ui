@@ -63,6 +63,7 @@ const MergedSelectionFeedback = () => {
   const [videoURLs, setVideoURLs] = useState<Map<string, string>>(new Map<string, string>());
   const [clusterFrameImages, setClusterFrameImages] = useState<string[]>([]);
   const [stateFrameImage, setStateFrameImage] = useState<string | null>(null);
+  const [coordinateFrameImage, setCoordinateFrameImage] = useState<string | null>(null);
   
   // Feedback state
   const [value, setValue] = useState(5);
@@ -71,6 +72,7 @@ const MergedSelectionFeedback = () => {
   const [correctionText, setCorrectionText] = useState('');
   const [loading, setLoading] = useState(false);
   const [useWebRTC, setUseWebRTC] = useState(false);
+  const [useWebRTCCorrection, setUseWebRTCCorrection] = useState(false);
   const [currentPlaying, setCurrentPlaying] = useState<number | null>(null);
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -107,7 +109,9 @@ const MergedSelectionFeedback = () => {
     setSubmitted(false);
     setCorrectionText('');
     setUseWebRTC(false);
+    setUseWebRTCCorrection(false);
     setStateFrameImage(null);
+    setCoordinateFrameImage(null);
   }, [selection]);
 
   // Fetch state frame when single state is selected
@@ -169,6 +173,61 @@ const MergedSelectionFeedback = () => {
       setStateFrameImage(null);
     }
   }, [selectionData, allEpisodes]);
+
+  // Fetch coordinate frame when coordinate is selected
+  useEffect(() => {
+    if (selectionData.type === 'coordinate' && selectionData.data && selectionData.data.length > 0) {
+      const coordinate = selectionData.data[0];
+      
+      const fetchCoordinateFrame = async () => {
+        try {
+          // Find the first episode to get environment info
+          const firstEpisode = allEpisodes.find(episode => 
+            episode.benchmark_id === appState.selectedExperiment.id
+          );
+          
+          if (!firstEpisode) {
+            console.error('No episode found for coordinate frame fetch');
+            setCoordinateFrameImage(null);
+            return;
+          }
+          
+          const response = await fetch('/demo_generation/coordinate_to_render', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              coordinates: [coordinate.x, coordinate.y],
+              env_id: firstEpisode.env_name,
+              exp_id: appState.selectedExperiment.id
+            }),
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.render_frame) {
+              // Set the base64 image as the frame
+              setCoordinateFrameImage(`data:image/png;base64,${result.render_frame}`);
+            } else {
+              console.error('Failed to get render frame from response:', result);
+              setCoordinateFrameImage(null);
+            }
+          } else {
+            console.error(`Failed to fetch coordinate frame: ${response.status} ${response.statusText}`);
+            setCoordinateFrameImage(null);
+          }
+        } catch (error) {
+          console.error('Error fetching coordinate frame:', error);
+          setCoordinateFrameImage(null);
+        }
+      };
+      
+      fetchCoordinateFrame();
+    } else {
+      setCoordinateFrameImage(null);
+    }
+  }, [selectionData, allEpisodes, appState.selectedExperiment.id]);
 
   // Fetch cluster frame images from backend
   const fetchClusterFrames = useCallback(async (clusterIndices: number[], episodeData: any[]) => {
@@ -568,24 +627,6 @@ const MergedSelectionFeedback = () => {
     );
   };
 
-  // Render placeholder image for states
-  const renderStatePlaceholder = useCallback(() => (
-    <Box
-      sx={{
-        height: 200,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        bgcolor: 'background.paper',
-        border: '1px dashed',
-        borderColor: 'primary.main',
-        borderRadius: 1,
-      }}
-    >
-      <ImageIcon sx={{ fontSize: 60, color: 'text.secondary' }} />
-    </Box>
-  ), []);
-
   // Get title based on selection type
   const title = useMemo(() => {
     switch (selectionData.type) {
@@ -596,7 +637,7 @@ const MergedSelectionFeedback = () => {
       case 'multi_trajectory':
         return 'Select the best episode';
       case 'state':
-        return 'Provide state correction';
+        return 'Demo correction from state';
       case 'cluster':
         return 'Rate this cluster of states';
       case 'coordinate':
@@ -874,44 +915,48 @@ const MergedSelectionFeedback = () => {
               </Box>
             </Box>
             
-            <Paper
-              elevation={2}
-              sx={{
-                p: 1.5,
-                mb: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1,
-                bgcolor: 'background.paper',
-                flex: '1 1 auto'
-              }}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+            <Box sx={{ flex: '1 1 auto' }}>
+              <Typography variant="body2" sx={{ fontWeight: 'medium', mb: 2, textAlign: 'center' }}>
                 State coordinates: [{stateData.coords[0].toFixed(2)}, {stateData.coords[1].toFixed(2)}]
               </Typography>
               
-              <TextField
-                fullWidth
-                multiline
-                rows={3}
-                placeholder="Describe what the agent should do differently in this state..."
-                value={correctionText}
-                onChange={e => setCorrectionText(e.target.value)}
-                variant="outlined"
-                size="small"
-                sx={{ my: 1 }}
-              />
-              
-              <Button
-                variant="contained"
-                size="small"
-                endIcon={<Send />}
-                onClick={handleCorrect}
-                disabled={!correctionText.trim()}
-              >
-                Submit Correction
-              </Button>
-            </Paper>
+              {!useWebRTCCorrection ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                    Demonstrate the correct behavior from this state
+                  </Typography>
+                  <Button 
+                    variant="contained" 
+                    onClick={() => setUseWebRTCCorrection(true)}
+                    disabled={loading}
+                    size="small"
+                  >
+                    Start Correction Demo
+                  </Button>
+                </Box>
+              ) : (
+                <WebRTCDemoComponent
+                  sessionId={`${appState.sessionId}_correction`}
+                  experimentId={appState.selectedExperiment.id.toString()}
+                  environmentId={appState.selectedExperiment.env_id}
+                  episodeNum={stateData.episode}
+                  step={stateData.step}
+                  onSubmit={() => {
+                    const fb: Feedback = {
+                      feedback_type: FeedbackType.Corrective,
+                      targets: [createTarget(selectionData.type, selectionData.data[0])],
+                      granularity: 'state',
+                      timestamp: Date.now(),
+                      session_id: appState.sessionId,
+                      correction: `Demo correction from episode ${stateData.episode}, step ${stateData.step}`
+                    };
+                    
+                    submitFeedback(fb);
+                  }}
+                  onCancel={() => setUseWebRTCCorrection(false)}
+                />
+              )}
+            </Box>
           </Box>
         );
 
@@ -1031,7 +1076,7 @@ const MergedSelectionFeedback = () => {
               Demo from [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
             </Typography>
             
-            {/* Placeholder for coordinate visualization */}
+            {/* Coordinate rendered frame visualization */}
             <Box sx={{ 
               display: 'flex', 
               justifyContent: 'center',
@@ -1040,27 +1085,50 @@ const MergedSelectionFeedback = () => {
             }}>
               <Box sx={{ 
                 width: '100%', 
-                maxWidth: '300px',
+                maxWidth: 'min(400px, 60vw)', // Same sizing as state frame
+                aspectRatio: '16/9',
                 backgroundColor: 'rgba(0,0,0,0.05)', 
-                p: 2, 
                 borderRadius: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center'
+                overflow: 'hidden',
+                position: 'relative',
+                border: '3px solid #FF6B35', // Orange border to distinguish from other frames
+                margin: '0 auto'
               }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  [Coordinate visualization placeholder]
-                </Typography>
-                <Box sx={{ 
-                  width: '100%', 
-                  height: '150px', 
-                  backgroundColor: 'rgba(0,0,0,0.1)', 
-                  borderRadius: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <ImageIcon sx={{ fontSize: 40, color: 'text.secondary' }} />
+                {coordinateFrameImage ? (
+                  <img
+                    src={coordinateFrameImage}
+                    alt={`Predicted state frame for coordinate [${coordinate.x.toFixed(2)}, ${coordinate.y.toFixed(2)}]`}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain',
+                    }}
+                  />
+                ) : (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    height: '100%',
+                    bgcolor: 'rgba(0,0,0,0.05)'
+                  }}>
+                    {loading ? <CircularProgress size={24} /> : <ImageIcon sx={{ fontSize: 60, color: 'text.secondary' }} />}
+                  </Box>
+                )}
+                <Box 
+                  sx={{ 
+                    position: 'absolute', 
+                    top: 4,
+                    left: 4,
+                    backgroundColor: '#FF6B35', // Orange to match border
+                    color: 'white',
+                    borderRadius: 1,
+                    px: 1,
+                    py: 0.3,
+                    fontSize: '0.7rem',
+                  }}
+                >
+                  Predicted State
                 </Box>
               </Box>
             </Box>

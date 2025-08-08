@@ -49,13 +49,13 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   }, [startOnboardingIfFirstTime]);
 
   // Function to poll training status and results
-  const pollTrainingProgress = useCallback(async () => {
+  const pollTrainingProgress = useCallback(async (phase = activeLearningState.currentPhase) => {
     if (!appState.sessionId) return;
 
     try {
       const [statusResponse, resultsResponse] = await Promise.all([
-        axios.get(`/dynamic_rlhf/get_training_status?session_id=${appState.sessionId}&phase=${activeLearningState.currentPhase}`),
-        axios.get(`/dynamic_rlhf/get_training_results?session_id=${appState.sessionId}&phase=${activeLearningState.currentPhase}`)
+        axios.get(`/dynamic_rlhf/get_training_status?session_id=${appState.sessionId}&phase=${phase}`),
+        axios.get(`/dynamic_rlhf/get_training_results?session_id=${appState.sessionId}&phase=${phase}`)
       ]);
 
       const statusData = statusResponse.data;
@@ -110,17 +110,25 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           payload: updatedFeedbackCounts 
         });
 
-        // For DynamicRLHF, use the current phase as the checkpoint
-        const nextCheckpoint = activeLearningState.currentPhase;
-        
-        // Add the new checkpoint to the experiment's checkpoint list and update UI
-        const updatedExperiment = {
-          ...appState.selectedExperiment,
-          checkpoint_list: [...(appState.selectedExperiment.checkpoint_list || []), nextCheckpoint.toString()]
-        };
-        
-        appStateDispatch({ type: 'SET_SELECTED_EXPERIMENT', payload: updatedExperiment });
-        appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: nextCheckpoint });
+        // Check if "simulation" exists and is true in resultsData - chose next checkpoint from existing checkpoint list,
+        // do not add a new one
+        if (resultsData.simulation) {
+          const nextCheckpoint = appState.selectedExperiment.checkpoint_list?.[phase] || 0;
+          appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: Number(nextCheckpoint) });
+        }
+        else {
+          // For DynamicRLHF, use the current phase as the checkpoint
+          const nextCheckpoint = activeLearningState.currentPhase;
+          
+          // Add the new checkpoint to the experiment's checkpoint list and update UI
+          const updatedExperiment = {
+            ...appState.selectedExperiment,
+            checkpoint_list: [...(appState.selectedExperiment.checkpoint_list || []), nextCheckpoint.toString()]
+          };
+          
+          appStateDispatch({ type: 'SET_SELECTED_EXPERIMENT', payload: updatedExperiment });
+          appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: Number(nextCheckpoint) });
+        }
         
         // Check if we've reached the maximum number of iterations
         const maxIterations = 5; // This should ideally come from the session data
@@ -157,13 +165,15 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   }, [appState.sessionId, appState.selectedExperiment, activeLearningState.currentPhase, activeLearningState.progressTrainingSteps, activeLearningState.progressRewards, activeLearningState.progressUncertainties, activeLearningState.feedbackCounts, activeLearningDispatch, appStateDispatch, stepSampler]);
 
   // Start polling function
-  const startPolling = useCallback(() => {
+  const startPolling = useCallback((phase: number) => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
     }
     
     setIsTraining(true);
-    pollingIntervalRef.current = setInterval(pollTrainingProgress, 3000); // Poll every 3 seconds
+    pollingIntervalRef.current = setInterval(() => {
+      pollTrainingProgress(phase);
+    }, 3000); // Poll every 3 seconds
   }, [pollTrainingProgress]);
 
   // Stop polling function
@@ -228,6 +238,8 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         console.error("Error submitting session:", error);
       }
 
+      console.log("PHASE", activeLearningState.currentPhase)
+
       // Determine the correct phase to call
       // Phase 0 = initial data collection (called from dynamic-rlhf-modal)
       // Phase 1+ = training iterations with feedback
@@ -256,7 +268,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         });
 
         // Start polling for progress updates
-        startPolling();
+        startPolling(phaseToCall);
         
         // Note: Progress updates and UI state changes will be handled by the polling function
         // when training completes

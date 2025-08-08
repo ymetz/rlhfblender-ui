@@ -20,7 +20,9 @@ interface WebRTCDemoComponentProps {
   sessionId: string;
   experimentId: string;
   environmentId: string;
-  coordinate: { x: number; y: number };
+  coordinate?: { x: number; y: number };
+  episodeNum?: number;
+  step?: number;
   onSubmit: () => void;
   onCancel: () => void;
 }
@@ -30,6 +32,8 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   experimentId,
   environmentId,
   coordinate,
+  episodeNum,
+  step,
   onSubmit,
   onCancel,
 }) => {
@@ -54,6 +58,9 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     sessionId,
     environmentId,
     experimentId,
+    coordinate,
+    episodeNum,
+    step,
     serverUrl: '/demo_generation/gym_offer'
   });
 
@@ -416,9 +423,16 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
                 Environment: {environmentId}
               </Typography>
               <br />
-              <Typography variant="caption" color="text.secondary">
-                Coordinate: [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
-              </Typography>
+              {coordinate && (
+                <Typography variant="caption" color="text.secondary">
+                  Coordinate: [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
+                </Typography>
+              )}
+              {episodeNum !== undefined && step !== undefined && (
+                <Typography variant="caption" color="text.secondary">
+                  Episode {episodeNum}, Step {step}
+                </Typography>
+              )}
             </Box>
           )}
         </Box>

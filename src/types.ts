@@ -123,7 +123,7 @@ type AppState = {
   filtered_experiments: Experiment[];
   selectedProject: Project;
   selectedExperiment: Experiment;
-  selectedCheckpoint: number;
+  selectedCheckpoint: number | string; // Allow string for compatibility with dynamic RLHF
   sliderValue: number;
   rankeableEpisodeIDs: string[];
   episodeIDsChronologically: Episode[];

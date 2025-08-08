@@ -357,7 +357,7 @@ const App: React.FC = () => {
       await generateUiConfigSequence(episodes);
 
       // Fetch action labels
-      await getActionLabels(stepResponse.data.environment_id);
+      //await getActionLabels(stepResponse.data.environment_id);
     } catch (error) {
       console.error("Error in stepSampler:", error);
     }
