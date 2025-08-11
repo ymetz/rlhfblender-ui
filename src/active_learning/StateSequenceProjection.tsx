@@ -545,12 +545,12 @@ const StateSequenceProjection = (props) => {
     const multiSelectModeRef = useRef(false);
     const [segmentSize, setSegmentSize] = useState(50);
     const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
-    const [segmentError, setSegmentError] = useState<string | null>(null);
     const [trajectoryColors, setTrajectoryColors] = useState(new Map<number, string>());
     const selectedTrajectoryRef = useRef(null);
     const selectedStateRef = useRef<SelectedState | null>(null);
     const selectedCoordinateRef = useRef<SelectedCoordinate>();
     const selectedClusterRef = useRef<SelectedCluster | null>(null);
+    const zoomedFunctionRef = useRef<((event: any) => void) | null>(null);
     
 
 
@@ -581,6 +581,72 @@ const StateSequenceProjection = (props) => {
     useEffect(() => {
         multiSelectModeRef.current = multiSelectMode;
     }, [multiSelectMode]);
+
+    // Sync local state with global selection changes (e.g., from MergedSelectionFeedback)
+    useEffect(() => {
+        const selection = activeLearningState.selection || [];
+        if (selection.length === 1 && selection[0].type === 'state') {
+            const stateData = selection[0].data;
+            if (stateData) {
+                // Calculate the correct global index for this episode and step
+                const episodeIndices = activeLearningState.episodeIndices || [];
+                let globalIndex = -1;
+                
+                // Find the starting index of this episode
+                let episodeStartIndex = -1;
+                for (let i = 0; i < episodeIndices.length; i++) {
+                    if (episodeIndices[i] === stateData.episode) {
+                        episodeStartIndex = i;
+                        break;
+                    }
+                }
+                
+                // Calculate the global index for the specific step
+                if (episodeStartIndex !== -1) {
+                    globalIndex = episodeStartIndex + stateData.step;
+                }
+                
+                // Look up the actual coordinates from the projection data
+                const projectionStates = activeLearningState.projectionStates || [];
+                let actualCoords = [stateData.x || 0, stateData.y || 0]; // fallback
+                
+                if (globalIndex >= 0 && globalIndex < projectionStates.length) {
+                    actualCoords = projectionStates[globalIndex];
+                }
+                
+                const newSelectedState: SelectedState = {
+                    episode: stateData.episode,
+                    step: stateData.step,
+                    coords: actualCoords,
+                    x: actualCoords[0],
+                    y: actualCoords[1],
+                    index: globalIndex
+                };
+                
+                // Only update if it's different from current state to avoid loops
+                if (!selectedStateRef.current || 
+                    selectedStateRef.current.episode !== newSelectedState.episode ||
+                    selectedStateRef.current.step !== newSelectedState.step) {
+                    setSelectedState(newSelectedState);
+                    selectedStateRef.current = newSelectedState;
+                    setSelectedTrajectory(stateData.episode);
+                    selectedTrajectoryRef.current = stateData.episode;
+                    
+                    // Trigger a redraw to show the updated state
+                    if (zoomedFunctionRef.current && embeddingRef.current) {
+                        const svg = d3.select(embeddingRef.current).select('svg');
+                        if (svg.node()) {
+                            const view = svg.select('.view');
+                            if (view.node()) {
+                                const currentTransform = d3.zoomTransform(view.node());
+                                zoomedFunctionRef.current({ transform: currentTransform });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }, [activeLearningState.selection, activeLearningState.episodeIndices, activeLearningState.projectionStates]);
 
 
 
@@ -1128,20 +1194,16 @@ const StateSequenceProjection = (props) => {
                         y: yClicked,
                         index: closest[2]
                     };
-
-                    console.log("SELECTO", newStateSelection, newSelectedState, multiSelectModeRef.current);
                     
                     if (multiSelectModeRef.current) {
                         // Add to existing selection - don't update local state for visualization
                         const currentSelection = activeLearningState.selection || [];
-                        // Check if already selected to avoid duplicates
+                        // Check if this episode is already selected to avoid duplicates
                         const alreadySelected = currentSelection.some(item => 
-                            item.type === 'state' && item.data?.episode === episodeIdx
+                            (item.type === 'state' || item.type === 'trajectory') && item.data?.episode === episodeIdx
                         );
-                        console.log(currentSelection, alreadySelected);
                         if (!alreadySelected) {
                             const newSelectionArray = [...currentSelection, newStateSelection];
-                            console.log(newSelectionArray);
                             activeLearningDispatch({
                                 type: 'SET_SELECTION',
                                 payload: newSelectionArray
@@ -1167,6 +1229,11 @@ const StateSequenceProjection = (props) => {
                     zoomed({ transform: currentTransform });
                 }
             } else {
+                // Skip coordinate selection in multi-select mode
+                if (multiSelectModeRef.current) {
+                    return;
+                }
+                
                 // Clear all selections
                 setSelectedTrajectory(null);
                 selectedTrajectoryRef.current = null;
@@ -1413,8 +1480,24 @@ const StateSequenceProjection = (props) => {
             topMergedSegments.forEach(({ mergedSegment }, index) => {
                 if (!mergedSegment.convexHull || mergedSegment.convexHull.length < 3) return;
 
-                // Map hull points to screen coordinates
-                const mappedHull = mergedSegment.convexHull.map(p => [xScale(p[0]), yScale(p[1])]);
+                // Expand hull outward from centroid to avoid overlapping with segments
+                const expansionFactor = 1.15; // 15% larger
+                const centroid = mergedSegment.centroid;
+                
+                const expandedHull = mergedSegment.convexHull.map(point => {
+                    // Calculate vector from centroid to hull point
+                    const dx = point[0] - centroid[0];
+                    const dy = point[1] - centroid[1];
+                    
+                    // Scale the vector outward by the expansion factor
+                    return [
+                        centroid[0] + dx * expansionFactor,
+                        centroid[1] + dy * expansionFactor
+                    ];
+                });
+
+                // Map expanded hull points to screen coordinates
+                const mappedHull = expandedHull.map(p => [xScale(p[0]), yScale(p[1])]);
                 
                 const segmentElement = segmentGroup.append('g')
                     .attr('class', 'uncertainty-segment')
@@ -1432,6 +1515,11 @@ const StateSequenceProjection = (props) => {
                     .style('cursor', 'pointer')
                     .on('click', function (event) {
                         event.stopPropagation();
+                        
+                        // Skip cluster selection in multi-select mode
+                        if (multiSelectModeRef.current) {
+                            return;
+                        }
                         
                         // Clear other selections
                         setSelectedTrajectory(null);
@@ -1469,21 +1557,11 @@ const StateSequenceProjection = (props) => {
                             data: segmentIndices, 
                             label: clusterLabel 
                         };
-                        if (multiSelectModeRef.current) {
-                            // Add to existing selection
-                            const currentSelection = activeLearningState.selection || [];
-                            const newSelectionArray = [...currentSelection, newClusterSelection];
-                            activeLearningDispatch({
-                                type: 'SET_SELECTION',
-                                payload: newSelectionArray
-                            });
-                        } else {
-                            // Replace selection
-                            activeLearningDispatch({
-                                type: 'SET_SELECTION',
-                                payload: [newClusterSelection]
-                            });
-                        }
+                        // Replace selection (no multi-select for clusters)
+                        activeLearningDispatch({
+                            type: 'SET_SELECTION',
+                            payload: [newClusterSelection]
+                        });
                         
                         // Trigger immediate re-render to show cluster state highlights
                         const currentTransform = d3.zoomTransform(view.node());
@@ -1642,6 +1720,7 @@ const StateSequenceProjection = (props) => {
                         }
                     }
 
+
                     context.restore();
                 }
             }
@@ -1744,6 +1823,9 @@ const StateSequenceProjection = (props) => {
                     .attr('filter', isHighlighted ? 'drop-shadow(0 0 6px #FFD700)' : null);
             });
         }
+        
+        // Store the zoomed function reference for external calls
+        zoomedFunctionRef.current = zoomed;
 
         svg.call(zoom as any);
 
@@ -1822,6 +1904,8 @@ const StateSequenceProjection = (props) => {
                             setSelectedTrajectory(null);
                             setSelectedCluster(null);
                             setSelectedCoordinate({ x: null, y: null });
+                            // Reset multi-select mode when clearing selection
+                            setMultiSelectMode(false);
                         }}
                     >
                         <DeleteIcon />
@@ -1837,8 +1921,9 @@ const StateSequenceProjection = (props) => {
                                 '&:hover': { backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.9)' : 'rgba(185, 185, 185, 0.9)' }
                             }}
                             onClick={() => {
-                                if (selectedTrajectory)
-                                setMultiSelectMode(!multiSelectMode);
+                                if (selectedTrajectory || selectedState) {
+                                    setMultiSelectMode(!multiSelectMode);
+                                }
                             }}
                         >
                             <AddIcon />
@@ -1891,14 +1976,6 @@ const StateSequenceProjection = (props) => {
                         Episodes: {new Set(activeLearningState.episodeIndices).size} displayed
                     </Typography>
                 </Box>
-                
-                {segmentError && (
-                    <Box sx={{ backgroundColor: 'rgba(244, 67, 54, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
-                        <Typography variant="caption" fontWeight="bold">
-                            Error: {segmentError}
-                        </Typography>
-                    </Box>
-                )}
                 
             </Box>
 

@@ -637,16 +637,9 @@ export const createActiveLearningOnboardingSteps = (): OnboardingStep[] => [
   },
   {
     id: 'select-trajectory',
-    title: 'Select Trajectories',
+    title: 'Select Trajectories, Cluster or New Coordinate',
     description: 'Click on different trajectories (colored lines) to see individual states. You can also click on clusters (numbered regions) to select multiple related states.',
     position: 'left',
-    showOverlay: true,
-  },
-  {
-    id: 'add-to-selection',
-    title: 'Add to Selection',
-    description: 'After selecting a trajectory, cluster, or state, click "Add to Selection" to add it to your feedback queue.',
-    position: 'top',
     showOverlay: true,
   },
   {
