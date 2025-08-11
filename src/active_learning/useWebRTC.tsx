@@ -11,11 +11,12 @@ interface UseWebRTCProps {
   environmentId: string;
   experimentId: string;
   coordinate?: Coordinate | null;
+  checkpoint?: number;
   episodeNum?: number; // Episode number for saved state loading
   step?: number; // Step number for saved state loading
 }
 
-export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId, coordinate = null, episodeNum = undefined, step = undefined }: UseWebRTCProps) {
+export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId, coordinate = null, checkpoint = undefined, episodeNum = undefined, step = undefined }: UseWebRTCProps) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const dcIntervalRef = useRef<number | null>(null);
@@ -168,7 +169,8 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       ...(coordinate && { 
         coordinate: [coordinate.x, coordinate.y]
       }),
-      ...(episodeNum !== undefined && step !== undefined && { 
+      ...(checkpoint !== undefined && episodeNum !== undefined && step !== undefined && { 
+        checkpoint: checkpoint,
         episode_num: episodeNum,
         step: step
       })

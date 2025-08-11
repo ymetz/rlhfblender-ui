@@ -10,7 +10,6 @@ import {
   Button,
   Slider,
   Radio,
-  TextField,
   Alert,
   CircularProgress,
 } from '@mui/material';
@@ -18,8 +17,8 @@ import {
   Image as ImageIcon,
   ThumbDown, 
   ThumbUp, 
-  PlayArrow, 
-  Send
+  PlayArrow,
+  Pause,
 } from '@mui/icons-material';
 import { useAppState, useAppDispatch } from '../AppStateContext';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
@@ -62,20 +61,23 @@ const MergedSelectionFeedback = () => {
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const [videoURLs, setVideoURLs] = useState<Map<string, string>>(new Map<string, string>());
   const [clusterFrameImages, setClusterFrameImages] = useState<string[]>([]);
-  const [stateFrameImage, setStateFrameImage] = useState<string | null>(null);
   const [coordinateFrameImage, setCoordinateFrameImage] = useState<string | null>(null);
   
   // Feedback state
   const [value, setValue] = useState(5);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
-  const [correctionText, setCorrectionText] = useState('');
   const [loading, setLoading] = useState(false);
   const [useWebRTC, setUseWebRTC] = useState(false);
   const [useWebRTCCorrection, setUseWebRTCCorrection] = useState(false);
   const [currentPlaying, setCurrentPlaying] = useState<number | null>(null);
+  const [selectedStep, setSelectedStep] = useState(0);
+  const [showCorrectionInterface, setShowCorrectionInterface] = useState(false);
   
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Only force video re-render when selection changes, not when step changes
+  // This prevents the flicker issue when scrubbing through timeline
 
   // Use selection directly from state
   const selection = useMemo(() => activeLearningState.selection || [], [activeLearningState.selection]);
@@ -87,8 +89,12 @@ const MergedSelectionFeedback = () => {
     if (selection.length === 1) {
       const item = selection[0];
       if (item.type === 'cluster')
-        return { type: 'cluster', label: item.label, data: item.data };
-      return { type: item.type, data: [item.data] };
+        return { type: 'cluster', label: (item as any).label, data: item.data };
+      if (item.type === 'coordinate')
+        return { type: 'coordinate', data: [item.data] };
+      // Treat both 'trajectory' and 'state' as 'state' selections
+      // All single trajectory/state selections are actually state selections
+      return { type: 'state', data: [item.data] };
     }
     const allTrajectories = selection.every(item => item.type === 'trajectory');
     if (allTrajectories) {
@@ -107,72 +113,43 @@ const MergedSelectionFeedback = () => {
     setValue(5);
     setChosenId(null);
     setSubmitted(false);
-    setCorrectionText('');
     setUseWebRTC(false);
     setUseWebRTCCorrection(false);
-    setStateFrameImage(null);
     setCoordinateFrameImage(null);
+    setSelectedStep(0); // Reset step navigation
+    setShowCorrectionInterface(false); // Reset correction interface
   }, [selection]);
 
-  // Fetch state frame when single state is selected
+  // Extract state data for dependency tracking - now used to set initial selectedStep
+  const currentStateData = selectionData.type === 'state' && selectionData.data?.[0] ? selectionData.data[0] : null;
+  const currentStep = currentStateData?.step;
+  
+  // Calculate actual trajectory length from episode indices
+  const getEpisodeLength = useCallback((episodeIdx: number) => {
+    const episodeIndices = activeLearningState.episodeIndices || [];
+    if (episodeIndices.length === 0) return 100; // fallback
+    
+    // Count how many states belong to this episode
+    const statesInEpisode = episodeIndices.filter(idx => idx === episodeIdx).length;
+    return Math.max(1, statesInEpisode);
+  }, [activeLearningState.episodeIndices]);
+  
+  // Set initial step when state is selected or trajectory with state context
   useEffect(() => {
-    if (selectionData.type === 'state' && selectionData.data && selectionData.data.length > 0) {
-      const stateData = selectionData.data[0];
-      
-      if (stateData.episode === null || stateData.step === null) {
-        setStateFrameImage(null);
-        return;
+    if (selectionData.type === 'state' && currentStateData && currentStep !== null) {
+      setSelectedStep(currentStep);
+    } else if (selectionData.type === 'trajectory' && selection.length === 2) {
+      // Check if we have both trajectory and state selections (from StateSequenceProjection)
+      const stateSelection = selection.find(item => item.type === 'state');
+      if (stateSelection && stateSelection.data?.step !== undefined) {
+        setSelectedStep(stateSelection.data.step);
+      } else {
+        setSelectedStep(0);
       }
-      
-      // Find matching episode in allEpisodes
-      const matchingEpisode = allEpisodes.find(ep => ep.episode_num === stateData.episode);
-      
-      if (!matchingEpisode) {
-        console.warn('No matching episode found for state frame loading');
-        setStateFrameImage(null);
-        return;
-      }
-      
-      // Fetch single state frame using same logic as fetchClusterFrames
-      const fetchStateFrame = async () => {
-        try {
-          console.log(`Fetching frame for episode ${stateData.episode}, step ${stateData.step}`);
-          const response = await fetch('/data/get_cluster_frames', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              cluster_indices: [stateData.step], // Single step within episode
-              episode_data: [{
-                env_name: matchingEpisode.env_name,
-                benchmark_id: matchingEpisode.benchmark_id,
-                checkpoint_step: matchingEpisode.checkpoint_step,
-                episode_num: matchingEpisode.episode_num,
-              }],
-              max_states_to_show: 1
-            }),
-          });
-          
-          if (response.ok) {
-            const frameImages = await response.json();
-            console.log(`Received state frame image:`, frameImages[0] ? `${frameImages[0].substring(0, 50)}...` : 'null');
-            setStateFrameImage(frameImages[0] || null);
-          } else {
-            console.error(`Failed to fetch state frame: ${response.status} ${response.statusText}`);
-            setStateFrameImage(null);
-          }
-        } catch (error) {
-          console.error('Error fetching state frame:', error);
-          setStateFrameImage(null);
-        }
-      };
-      
-      fetchStateFrame();
     } else {
-      setStateFrameImage(null);
+      setSelectedStep(0);
     }
-  }, [selectionData, allEpisodes]);
+  }, [selectionData.type, currentStateData, currentStep, selection]);
 
   // Fetch coordinate frame when coordinate is selected
   useEffect(() => {
@@ -258,20 +235,44 @@ const MergedSelectionFeedback = () => {
 
   // Fetch video URLs for trajectories
   useEffect(() => {
-    if (selectionData.type === 'trajectory' || selectionData.type === 'multi_trajectory') {
+    if (selectionData.type === 'state' || selectionData.type === 'multi_trajectory') {
       const fetchVideos = async () => {
         setLoading(true);
         const newVideoURLMap = new Map<string, string>();
         
-        for (const idx of selectionData.data) {
-          if (typeof idx === 'number' && allEpisodes[idx]) {
-            const episode = allEpisodes[idx];
+        if (selectionData.type === 'state') {
+          // Handle state selection - extract episode index
+          const stateData = selectionData.data[0];
+          let episodeIdx: number;
+          
+          if (typeof stateData === 'number') {
+            episodeIdx = stateData;
+          } else {
+            episodeIdx = stateData.episode;
+          }
+          
+          if (allEpisodes[episodeIdx]) {
+            const episode = allEpisodes[episodeIdx];
             const episodeID = IDfromEpisode(episode);
             try {
               const url = await getVideoURL(episodeID);
               newVideoURLMap.set(episodeID, url);
             } catch (error) {
               console.error("Error fetching video:", error);
+            }
+          }
+        } else if (selectionData.type === 'multi_trajectory') {
+          // Handle multiple trajectory selection
+          for (const idx of selectionData.data) {
+            if (typeof idx === 'number' && allEpisodes[idx]) {
+              const episode = allEpisodes[idx];
+              const episodeID = IDfromEpisode(episode);
+              try {
+                const url = await getVideoURL(episodeID);
+                newVideoURLMap.set(episodeID, url);
+              } catch (error) {
+                console.error("Error fetching video:", error);
+              }
             }
           }
         }
@@ -425,11 +426,35 @@ const MergedSelectionFeedback = () => {
 
   // Handle rating submission
   const handleRate = () => {
-    const target = createTarget(selectionData.type, selectionData.data[0]);
+    // For evaluative feedback, always target the episode (not the specific state)
+    const stateData = selectionData.data[0];
+    let episodeIdx: number;
+    
+    if (typeof stateData === 'number') {
+      episodeIdx = stateData;
+    } else {
+      episodeIdx = stateData.episode;
+    }
+    
+    const episode = allEpisodes[episodeIdx];
+    if (!episode) {
+      console.error('Episode not found for rating:', episodeIdx);
+      return;
+    }
+    
+    const episodeID = IDfromEpisode(episode);
+    
     const fb: Feedback = {
       feedback_type: FeedbackType.Evaluative,
-      targets: [target],
-      granularity: selectionData.type === 'state' ? 'state' : 'episode',
+      targets: [
+        {
+          target_id: episodeID,
+          reference: episode,
+          origin: "online",
+          timestamp: Date.now(),
+        }
+      ],
+      granularity: 'episode',
       timestamp: Date.now(),
       session_id: appState.sessionId,
       score: value
@@ -448,20 +473,6 @@ const MergedSelectionFeedback = () => {
       granularity: 'episode',
       timestamp: Date.now(),
       session_id: appState.sessionId
-    };
-    submitFeedback(fb);
-  };
-
-  // Handle correction submission
-  const handleCorrect = () => {
-    const target = createTarget(selectionData.type, selectionData.data[0]);
-    const fb: Feedback = {
-      feedback_type: FeedbackType.Corrective,
-      targets: [target],
-      granularity: 'state',
-      timestamp: Date.now(),
-      session_id: appState.sessionId,
-      correction: correctionText
     };
     submitFeedback(fb);
   };
@@ -493,16 +504,6 @@ const MergedSelectionFeedback = () => {
     submitFeedback(fb);
   };
 
-  // Handle removing an episode from selection
-  const removeFromSelection = useCallback((index: number) => {
-    const newSelection = [...selection];
-    newSelection.splice(index, 1);
-    
-    activeLearningDispatch({
-      type: 'SET_SELECTION',
-      payload: newSelection
-    });
-  }, [selection, activeLearningDispatch]);
 
   // Get color for an episode based on its index
   const getEpisodeColor = useCallback((episodeIdx: any) => {
@@ -515,35 +516,13 @@ const MergedSelectionFeedback = () => {
     return d3.interpolateCool(episodeIdx / Math.max(1, allEpisodes.length - 1));
   }, [allEpisodes.length, activeLearningState.trajectoryColors]);
 
-  // Handle video playback
-  const handlePlayPause = useCallback((index: number) => {
-    if (currentVideoIndex === index) {
-      if (isPlaying) {
-        videoRefs.current[index]?.pause();
-        setIsPlaying(false);
-      } else {
-        videoRefs.current[index]?.play();
-        setIsPlaying(true);
-      }
-    } else {
-      if (currentVideoIndex !== null && videoRefs.current[currentVideoIndex]) {
-        videoRefs.current[currentVideoIndex]?.pause();
-      }
-      setCurrentVideoIndex(index);
-      videoRefs.current[index]?.play();
-      setIsPlaying(true);
-    }
-  }, [currentVideoIndex, isPlaying]);
 
-  // Create a reference for a video element
-  const setVideoRef = useCallback((el: HTMLVideoElement | null, index: number) => {
-    videoRefs.current[index] = el;
-  }, []);
 
   // Get video element for an episode
-  const getVideoElement = (episode: Episode, index: number, small = false, singleTrajectory = false) => {
+  const getVideoElement = (episode: Episode, index: number, small = false, singleTrajectory = false, stepSync = false, currentStepTime = 0, totalSteps?: number) => {
     const episodeId = IDfromEpisode(episode);
     const videoUrl = videoURLs.get(episodeId);
+    const episodeLength = totalSteps || getEpisodeLength(index);
     
     // For single trajectory on large screens, make video significantly larger
     const getMaxWidth = () => {
@@ -565,6 +544,8 @@ const MergedSelectionFeedback = () => {
           aspectRatio: '16/9',
           margin: '0 auto',
           maxWidth: getMaxWidth(),
+          boxShadow: currentPlaying === index ? '0 0 12px rgba(76, 175, 80, 0.5)' : 'none',
+          transition: 'box-shadow 0.3s',
         }}
       >
         {videoUrl ? (
@@ -573,11 +554,38 @@ const MergedSelectionFeedback = () => {
               src={videoUrl}
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               muted
-              autoPlay={currentPlaying === index}
-              loop={currentPlaying === index}
+              autoPlay={currentPlaying === index && !stepSync}
+              loop={currentPlaying === index && !stepSync}
               ref={el => {
-                if (el && currentPlaying === index) {
-                  el.play().catch(e => console.error("Video play error:", e));
+                if (el) {
+                  const syncVideoTime = () => {
+                    if (stepSync) {
+                      // Sync video time with selected step
+                      const videoTotalSteps = episodeLength;
+                      const duration = el.duration;
+                      if (duration && !isNaN(duration) && duration > 0) {
+                        const targetTime = (currentStepTime / videoTotalSteps) * duration;
+                        if (!isNaN(targetTime) && Math.abs(targetTime - el.currentTime) > 0.1) {
+                          el.currentTime = targetTime;
+                          el.pause(); // Pause for step scrubbing
+                        }
+                      }
+                    } else if (currentPlaying === index) {
+                      el.play().catch(e => console.error("Video play error:", e));
+                    } else {
+                      el.pause();
+                    }
+                  };
+
+                  // Wait for video metadata to load before syncing
+                  if (el.readyState >= 1) {
+                    syncVideoTime();
+                  } else {
+                    el.addEventListener('loadedmetadata', syncVideoTime, { once: true });
+                  }
+                  
+                  // Store reference for play/pause control
+                  videoRefs.current[index] = el;
                 }
               }}
             />
@@ -587,14 +595,34 @@ const MergedSelectionFeedback = () => {
                 position: 'absolute',
                 bottom: 4,
                 right: 4,
-                backgroundColor: 'rgba(0,0,0,0.5)',
+                backgroundColor: currentPlaying === index ? 'rgba(76, 175, 80, 0.8)' : 'rgba(0,0,0,0.5)',
                 color: 'white',
-                '&:hover': { backgroundColor: 'rgba(0,0,0,0.7)' },
+                '&:hover': { 
+                  backgroundColor: currentPlaying === index ? 'rgba(76, 175, 80, 0.9)' : 'rgba(0,0,0,0.7)'
+                },
                 padding: '4px',
+                transition: 'background-color 0.3s',
               }}
-              onClick={() => setCurrentPlaying(currentPlaying === index ? null : index)}
+              onClick={() => {
+                const videoEl = videoRefs.current[index];
+                if (videoEl) {
+                  if (currentPlaying === index) {
+                    videoEl.pause();
+                    setCurrentPlaying(null);
+                  } else {
+                    // Pause all other videos
+                    videoRefs.current.forEach((video, i) => {
+                      if (video && i !== index) {
+                        video.pause();
+                      }
+                    });
+                    videoEl.play().catch(e => console.error("Video play error:", e));
+                    setCurrentPlaying(index);
+                  }
+                }
+              }}
             >
-              <PlayArrow fontSize="small" />
+              {currentPlaying === index ? <Pause fontSize="small" /> : <PlayArrow fontSize="small" />}
             </IconButton>
           </>
         ) : (
@@ -632,16 +660,14 @@ const MergedSelectionFeedback = () => {
     switch (selectionData.type) {
       case 'none':
         return 'No Selection';
-      case 'trajectory':
-        return 'Rate this trajectory';
-      case 'multi_trajectory':
-        return 'Select the best episode';
       case 'state':
-        return 'Demo correction from state';
+        return 'Rate Episode';
+      case 'multi_trajectory':
+        return 'Select the Best Episode';
       case 'cluster':
-        return 'Rate this cluster of states';
+        return 'Rate this Cluster of States';
       case 'coordinate':
-        return 'Demo from coordinate';
+        return 'Demo from New Coordinate';
       default:
         return 'Selection';
     }
@@ -689,69 +715,6 @@ const MergedSelectionFeedback = () => {
           </Box>
         );
 
-      case 'trajectory':
-        const episode = allEpisodes[selectionData.data[0]];
-        
-        return (
-          <Box sx={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            height: '100%',
-            overflow: 'hidden' 
-          }}>
-            <Typography variant="h6" gutterBottom>{title}</Typography>
-            
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              flex: 1,
-              alignItems: 'center',
-              mb: 2,
-              minHeight: 'min(450px, 50vh)' // Larger minimum height for single trajectory
-            }}>
-              {episode && (
-                <Box sx={{ width: '100%' }}>
-                  {getVideoElement(episode, selectionData.data[0], false, true)}
-                </Box>
-              )}
-            </Box>
-            
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center',
-              mt: 'auto',
-              mb: 1
-            }}>
-              <ThumbDown 
-                sx={{ cursor: 'pointer', mr: 1 }} 
-                fontSize="small"
-                onClick={() => setValue(v => Math.max(0, v-1))} 
-              />
-              <Slider
-                value={value}
-                min={0}
-                max={10}
-                step={1}
-                marks
-                size="small"
-                valueLabelDisplay="auto"
-                onChange={(_, v) => setValue(v as number)}
-                sx={{ mx: 1 }}
-              />
-              <ThumbUp 
-                sx={{ cursor: 'pointer', ml: 1 }} 
-                fontSize="small"
-                onClick={() => setValue(v => Math.min(10, v+1))} 
-              />
-              <Typography variant="body2" sx={{ ml: 1, minWidth: '30px', textAlign: 'center' }}>{value}/10</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-              <Button variant="contained" size="small" onClick={handleRate}>
-                Submit Rating
-              </Button>
-            </Box>
-          </Box>
-        );
 
       case 'multi_trajectory':
         return (
@@ -845,118 +808,228 @@ const MergedSelectionFeedback = () => {
         );
 
       case 'state':
+        // All single selections are now state selections (trajectory + step)
         const stateData = selectionData.data[0];
+        let episode: Episode;
+        let episodeIdx: number;
+        let episodeLength: number;
+        
+        // Handle both trajectory selections (just episode index) and state selections (with episode + step)
+        if (typeof stateData === 'number') {
+          // This is a trajectory selection from StateSequenceProjection
+          episodeIdx = stateData;
+          episode = allEpisodes[episodeIdx];
+          episodeLength = getEpisodeLength(episodeIdx);
+        } else {
+          // This is a state selection with episode and step data
+          episodeIdx = stateData.episode;
+          episode = allEpisodes[episodeIdx];
+          episodeLength = getEpisodeLength(episodeIdx);
+        }
+        
+        if (!episode) {
+          return (
+            <Typography color="error">
+              Episode {episodeIdx} not found
+            </Typography>
+          );
+        }
         
         return (
           <Box sx={{ 
             display: 'flex', 
             flexDirection: 'column', 
             height: '100%',
-            overflow: 'auto' 
+            overflow: 'hidden' 
           }}>
             <Typography variant="h6" gutterBottom>{title}</Typography>
             
-            {/* State frame visualization */}
             <Box sx={{ 
               display: 'flex', 
               justifyContent: 'center', 
               flex: 1,
               alignItems: 'center',
               mb: 2,
-              minHeight: 'min(450px, 50vh)' // Same as single trajectory video
+              minHeight: 'min(350px, 40vh)'
             }}>
-              <Box sx={{ 
-                width: '100%',
-                maxWidth: 'min(600px, 60vw)', // Same as single trajectory video
-                aspectRatio: '16/9',
-                backgroundColor: 'rgba(0,0,0,0.05)', 
-                borderRadius: 1,
-                overflow: 'hidden',
-                position: 'relative',
-                border: '3px solid #4CAF50', // Green border to distinguish from videos
-                margin: '0 auto'
-              }}>
-                {stateFrameImage ? (
-                  <img
-                    src={stateFrameImage}
-                    alt={`State frame for episode ${stateData.episode}, step ${stateData.step}`}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'contain', // Same as video
-                    }}
-                  />
-                ) : (
-                  <Box sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    height: '100%',
-                    bgcolor: 'rgba(0,0,0,0.05)'
-                  }}>
-                    {loading ? <CircularProgress size={24} /> : <ImageIcon sx={{ fontSize: 60, color: 'text.secondary' }} />}
-                  </Box>
-                )}
-                <Box 
-                  sx={{ 
-                    position: 'absolute', 
-                    top: 4,
-                    left: 4,
-                    backgroundColor: '#4CAF50', // Green to match border
-                    color: 'white',
-                    borderRadius: 1,
-                    px: 1,
-                    py: 0.3,
-                    fontSize: '0.7rem',
-                  }}
-                >
-                  Episode {stateData.episode}, Step {stateData.step}
-                </Box>
+              <Box sx={{ width: '100%' }}>
+                {getVideoElement(episode, episodeIdx, false, true, true, selectedStep, episodeLength)}
               </Box>
             </Box>
             
-            <Box sx={{ flex: '1 1 auto' }}>
-              <Typography variant="body2" sx={{ fontWeight: 'medium', mb: 2, textAlign: 'center' }}>
-                State coordinates: [{stateData.coords[0].toFixed(2)}, {stateData.coords[1].toFixed(2)}]
-              </Typography>
-              
-              {!useWebRTCCorrection ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
-                    Demonstrate the correct behavior from this state
+            {/* Timeline Navigation */}
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                mb: 1 
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="subtitle2">
+                    Step Navigation
                   </Typography>
-                  <Button 
-                    variant="contained" 
-                    onClick={() => setUseWebRTCCorrection(true)}
-                    disabled={loading}
-                    size="small"
-                  >
-                    Start Correction Demo
-                  </Button>
+                  {currentPlaying === episodeIdx && (
+                    <Box sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      backgroundColor: '#4CAF50',
+                      color: 'white',
+                      px: 1,
+                      py: 0.25,
+                      borderRadius: 1,
+                      fontSize: '0.75rem',
+                      fontFamily: 'inherit',
+                      gap: 0.5
+                    }}>
+                      <PlayArrow sx={{ fontSize: '0.875rem' }} />
+                      Playing
+                    </Box>
+                  )}
+                </Box>
+                <Button 
+                  variant="outlined" 
+                  size="small"
+                  onClick={() => setShowCorrectionInterface(!showCorrectionInterface)}
+                >
+                  {showCorrectionInterface ? 'Show Rating' : 'Correct at Step'}
+                </Button>
+              </Box>
+              
+              {/* Step navigation controls */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <Button 
+                  size="small" 
+                  variant="outlined"
+                  onClick={() => setSelectedStep(Math.max(0, selectedStep - 1))}
+                  disabled={selectedStep <= 0}
+                >
+                  ← Prev
+                </Button>
+                <Typography variant="body2" sx={{ mx: 1 }}>
+                  Step: {selectedStep} / {episodeLength - 1}
+                </Typography>
+                <Button 
+                  size="small" 
+                  variant="outlined"
+                  onClick={() => setSelectedStep(Math.min(episodeLength - 1, selectedStep + 1))}
+                  disabled={selectedStep >= episodeLength - 1}
+                >
+                  Next →
+                </Button>
+              </Box>
+
+              {/* Step slider */}
+              <Box sx={{ px: 1 }}>
+                <Slider
+                  value={selectedStep}
+                  min={0}
+                  max={episodeLength - 1}
+                  step={1}
+                  size="small"
+                  valueLabelDisplay="auto"
+                  onChange={(_, v) => setSelectedStep(v as number)}
+                  sx={{ width: '100%' }}
+                />
+              </Box>
+            </Box>
+            
+            {/* Rating Interface or Correction Interface */}
+            {showCorrectionInterface ? (
+              !useWebRTCCorrection ? (
+                <Box sx={{ mb: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 2 }}>
+                    Correct behavior at Step {selectedStep}
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                    <Button 
+                      variant="contained" 
+                      size="large"
+                      onClick={() => setUseWebRTCCorrection(true)}
+                      disabled={loading}
+                    >
+                      Start Correction Demo
+                    </Button>
+                  </Box>
                 </Box>
               ) : (
                 <WebRTCDemoComponent
                   sessionId={`${appState.sessionId}_correction`}
                   experimentId={appState.selectedExperiment.id.toString()}
                   environmentId={appState.selectedExperiment.env_id}
-                  episodeNum={stateData.episode}
-                  step={stateData.step}
+                  checkpoint={Number(appState.selectedCheckpoint)}
+                  episodeNum={episode.episode_num}
+                  step={selectedStep}
                   onSubmit={() => {
                     const fb: Feedback = {
                       feedback_type: FeedbackType.Corrective,
-                      targets: [createTarget(selectionData.type, selectionData.data[0])],
+                      targets: [{
+                        target_id: `state_${episode.episode_num}_${selectedStep}`,
+                        reference: null,
+                        origin: "online",
+                        timestamp: Date.now(),
+                        step: selectedStep
+                      }],
                       granularity: 'state',
                       timestamp: Date.now(),
                       session_id: appState.sessionId,
-                      correction: `Demo correction from episode ${stateData.episode}, step ${stateData.step}`
+                      correction: `Demo correction from episode ${episode.episode_num}, step ${selectedStep}`
                     };
                     
                     submitFeedback(fb);
                   }}
-                  onCancel={() => setUseWebRTCCorrection(false)}
+                  onCancel={() => {
+                    setUseWebRTCCorrection(false);
+                    setShowCorrectionInterface(false);
+                  }}
                 />
-              )}
-            </Box>
+              )
+            ) : (
+              <>
+                <Box sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  mt: 'auto',
+                  mb: 1
+                }}>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    maxWidth: '400px',
+                    width: '100%'
+                  }}>
+                    <ThumbDown 
+                      sx={{ cursor: 'pointer', mr: 1 }} 
+                      fontSize="small"
+                      onClick={() => setValue(v => Math.max(0, v-1))} 
+                    />
+                    <Slider
+                      value={value}
+                      min={0}
+                      max={10}
+                      step={1}
+                      marks
+                      size="small"
+                      valueLabelDisplay="auto"
+                      onChange={(_, v) => setValue(v as number)}
+                      sx={{ mx: 1, flex: 1 }}
+                    />
+                    <ThumbUp 
+                      sx={{ cursor: 'pointer', ml: 1 }} 
+                      fontSize="small"
+                      onClick={() => setValue(v => Math.min(10, v+1))} 
+                    />
+                    <Typography variant="body2" sx={{ ml: 1, minWidth: '30px', textAlign: 'center' }}>{value}/10</Typography>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                  <Button variant="contained" size="small" onClick={handleRate}>
+                    Submit Rating
+                  </Button>
+                </Box>
+              </>
+            )}
           </Box>
         );
 
@@ -1030,26 +1103,33 @@ const MergedSelectionFeedback = () => {
               )}
             </Grid>
             
-            <Box sx={{ display: 'flex', alignItems: 'center', my: 2 }}>
-              <ThumbDown 
-                sx={{ cursor: 'pointer', mr: 2 }} 
-                onClick={() => setValue(v => Math.max(0, v-1))} 
-              />
-              <Slider
-                value={value}
-                min={0}
-                max={10}
-                step={1}
-                marks
-                valueLabelDisplay="auto"
-                onChange={(_, v) => setValue(v as number)}
-                sx={{ mx: 2 }}
-              />
-              <ThumbUp 
-                sx={{ cursor: 'pointer', ml: 2 }} 
-                onClick={() => setValue(v => Math.min(10, v+1))} 
-              />
-              <Typography sx={{ ml: 2 }}>{value}/10</Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                maxWidth: '400px',
+                width: '100%'
+              }}>
+                <ThumbDown 
+                  sx={{ cursor: 'pointer', mr: 2 }} 
+                  onClick={() => setValue(v => Math.max(0, v-1))} 
+                />
+                <Slider
+                  value={value}
+                  min={0}
+                  max={10}
+                  step={1}
+                  marks
+                  valueLabelDisplay="auto"
+                  onChange={(_, v) => setValue(v as number)}
+                  sx={{ mx: 2, flex: 1 }}
+                />
+                <ThumbUp 
+                  sx={{ cursor: 'pointer', ml: 2 }} 
+                  onClick={() => setValue(v => Math.min(10, v+1))} 
+                />
+                <Typography sx={{ ml: 2 }}>{value}/10</Typography>
+              </Box>
             </Box>
             <Typography variant="caption" display="block" sx={{ mb: 2, textAlign: 'center' }}>
               Rating applies to all {clusterIndices.length} states in the cluster
@@ -1073,7 +1153,7 @@ const MergedSelectionFeedback = () => {
             overflow: 'auto' 
           }}>
             <Typography variant="h6" gutterBottom fontSize="0.95rem">
-              Demo from [{coordinate.x.toFixed(2)}, {coordinate.y.toFixed(2)}]
+              Generate Demo from New State
             </Typography>
             
             {/* Coordinate rendered frame visualization */}

@@ -14,7 +14,6 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 //import RebaseEditIcon from '@mui/icons-material/RebaseEdit';
-import CreateIcon from '@mui/icons-material/Create';
 import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import axios from 'axios';
@@ -542,7 +541,8 @@ const StateSequenceProjection = (props) => {
     const [selectedCluster, setSelectedCluster] = useState<SelectedCluster | null>(null);
     const [hoveredEpisode, setHoveredEpisode] = useState(null);
     const [clickedEpisode, setClickedEpisode] = useState(null);
-    const [selectedStateFrameUrl, setSelectedStateFrameUrl] = useState<string | null>(null);
+    const [multiSelectMode, setMultiSelectMode] = useState(false);
+    const multiSelectModeRef = useRef(false);
     const [segmentSize, setSegmentSize] = useState(50);
     const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
     const [segmentError, setSegmentError] = useState<string | null>(null);
@@ -577,115 +577,12 @@ const StateSequenceProjection = (props) => {
         selectedClusterRef.current = selectedCluster;
     }, [selectedCluster]);
 
-    // Effect to load frame when a state is selected
+    // Keep multiSelectModeRef in sync with multiSelectMode state
     useEffect(() => {
-        if (selectedState && selectedState.episode !== null && selectedState.step !== null) {
-            
-            console.log('Fetching frame for selected state:', selectedState, props.checkpointStep , props.benchmarkId, appState.episodeIDsChronologically);
+        multiSelectModeRef.current = multiSelectMode;
+    }, [multiSelectMode]);
 
-            const matchingEpisode = appState.episodeIDsChronologically.find(episode => {
-                return episode.benchmark_id === props.benchmarkId &&
-                    episode.checkpoint_step === props.checkpointStep &&
-                    episode.episode_num === selectedState.episode;
-            });
 
-            console.log('Matching episode:', matchingEpisode);
-
-            if (matchingEpisode) {
-                // Fetch frame using get_cluster_frames endpoint
-                const fetchFrame = async () => {
-                    try {
-                        const response = await fetch('/data/get_cluster_frames', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                cluster_indices: [selectedState.step], // Single step within episode
-                                episode_data: [{
-                                    env_name: matchingEpisode.env_name,
-                                    benchmark_id: matchingEpisode.benchmark_id,
-                                    checkpoint_step: matchingEpisode.checkpoint_step,
-                                    episode_num: matchingEpisode.episode_num,
-                                }],
-                                max_states_to_show: 1
-                            }),
-                        });
-                        
-                        if (response.ok) {
-                            const frameImages = await response.json();
-                            setSelectedStateFrameUrl(frameImages[0] || null);
-                        } else {
-                            console.error(`Failed to fetch frame: ${response.status} ${response.statusText}`);
-                            setSelectedStateFrameUrl(null);
-                        }
-                    } catch (error) {
-                        console.error('Error fetching state frame:', error);
-                        setSelectedStateFrameUrl(null);
-                    }
-                };
-                
-                fetchFrame();
-            } else {
-                setSelectedStateFrameUrl(null);
-            }
-        } else {
-            setSelectedStateFrameUrl(null);
-        }
-    }, [selectedState, activeLearningState.episodeIndices, appState.episodeIDsChronologically, props.benchmarkId, props.checkpointStep]);
-
-    // Effect to load frame when a coordinate is selected (for inverse state projection)
-    useEffect(() => {
-        if (selectedCoordinate && selectedCoordinate.x !== null && selectedCoordinate.y !== null) {
-            console.log('Fetching rendered frame for coordinate:', selectedCoordinate);
-            
-            const fetchCoordinateFrame = async () => {
-                try {
-                    // Find the first episode to get environment info
-                    const firstEpisode = appState.episodeIDsChronologically.find(episode => 
-                        episode.benchmark_id === props.benchmarkId && 
-                        episode.checkpoint_step === props.checkpointStep
-                    );
-                    
-                    if (!firstEpisode) {
-                        console.error('No episode found for coordinate frame fetch');
-                        return;
-                    }
-                    
-                    const response = await fetch('/demo_generation/coordinate_to_render', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            coordinates: [selectedCoordinate.x, selectedCoordinate.y],
-                            env_id: firstEpisode.env_name,
-                            exp_id: props.benchmarkId
-                        }),
-                    });
-                    
-                    if (response.ok) {
-                        const result = await response.json();
-                        if (result.success && result.render_frame) {
-                            // Set the base64 image as the frame URL
-                            setSelectedStateFrameUrl(`data:image/png;base64,${result.render_frame}`);
-                        } else {
-                            console.error('Failed to get render frame from response:', result);
-                            setSelectedStateFrameUrl(null);
-                        }
-                    } else {
-                        console.error(`Failed to fetch coordinate frame: ${response.status} ${response.statusText}`);
-                        setSelectedStateFrameUrl(null);
-                    }
-                } catch (error) {
-                    console.error('Error fetching coordinate frame:', error);
-                    setSelectedStateFrameUrl(null);
-                }
-            };
-            
-            fetchCoordinateFrame();
-        }
-    }, [selectedCoordinate, appState.episodeIDsChronologically, props.benchmarkId, props.checkpointStep]);
 
 
     // Drawing function dispatches to specific visualizations
@@ -1170,8 +1067,8 @@ const StateSequenceProjection = (props) => {
             const xClicked = xScale.invert(mouse[0]);
             const yClicked = yScale.invert(mouse[1]);
 
-            // Find the closest point in the dataset to the clicked point
-            const closest = quadTree.find(xClicked, yClicked, 0.01);
+            // Find the closest point in the dataset to the clicked point (increased search radius)
+            const closest = quadTree.find(xClicked, yClicked, 0.02);
 
             if (closest) {
                 // Find the correct episode index
@@ -1202,31 +1099,68 @@ const StateSequenceProjection = (props) => {
                     episodeIdx = episodeIndices[closest[2]];
                 }
                 // Get index within the selected episode (i.e. from start of episode)
+                let episde_step = 0;
                 if (episodeIdx !== null) {
                     const episodeStart = episodeIndices.indexOf(episodeIdx);
                     if (episodeStart !== -1) {
-                        closest[2] -= episodeStart; // Adjust index to be relative to the episode start
+                        episde_step = closest[2] - episodeStart; // Adjust index to be relative to the episode start
                     }
                 }
 
-                // First save selected point
-                const newSelectedState: SelectedState = {
-                    episode: episodeIdx,
-                    step: closest[2],
-                    coords: [closest[0], closest[1]],
-                    x: xClicked,
-                    y: yClicked,
-                    index: closest[2]
-                };
-                setSelectedState(newSelectedState);
-                selectedStateRef.current = newSelectedState;
-
                 if (episodeIdx !== null && episodeIdx !== undefined) {
-                    setSelectedTrajectory(episodeIdx);
-                    selectedTrajectoryRef.current = episodeIdx;
+                    // Create state selection (trajectory + step)
+                    const newStateSelection: SelectionItem = { 
+                        type: "state", 
+                        data: {
+                            episode: episodeIdx,
+                            step: episde_step,
+                            coords: [closest[0], closest[1]],
+                            x: xClicked,
+                            y: yClicked,
+                            index: closest[2]
+                        }
+                    };
+                    const newSelectedState: SelectedState = {
+                        episode: episodeIdx,
+                        step: episde_step,
+                        coords: [closest[0], closest[1]],
+                        x: xClicked,
+                        y: yClicked,
+                        index: closest[2]
+                    };
+
+                    console.log("SELECTO", newStateSelection, newSelectedState, multiSelectModeRef.current);
                     
-                    // Set clicked episode for thumbnail display
-                    setClickedEpisode(episodeIdx);
+                    if (multiSelectModeRef.current) {
+                        // Add to existing selection - don't update local state for visualization
+                        const currentSelection = activeLearningState.selection || [];
+                        // Check if already selected to avoid duplicates
+                        const alreadySelected = currentSelection.some(item => 
+                            item.type === 'state' && item.data?.episode === episodeIdx
+                        );
+                        console.log(currentSelection, alreadySelected);
+                        if (!alreadySelected) {
+                            const newSelectionArray = [...currentSelection, newStateSelection];
+                            console.log(newSelectionArray);
+                            activeLearningDispatch({
+                                type: 'SET_SELECTION',
+                                payload: newSelectionArray
+                            });
+                        }
+                    } else {
+                        // In single select mode, update both local state and global selection
+                        setSelectedState(newSelectedState);
+                        selectedStateRef.current = newSelectedState;
+                        setSelectedTrajectory(episodeIdx);
+                        selectedTrajectoryRef.current = episodeIdx;
+                        setClickedEpisode(episodeIdx);
+                        
+                        // For single select, use state selection
+                        activeLearningDispatch({
+                            type: 'SET_SELECTION',
+                            payload: [newStateSelection]
+                        });
+                    }
 
                     // Force a redraw to show the highlighted trajectory and state
                     const currentTransform = d3.zoomTransform(view.node());
@@ -1254,6 +1188,18 @@ const StateSequenceProjection = (props) => {
                 // Save the coordinate and draw a cross marker
                 setSelectedCoordinate({ x: xClicked, y: yClicked });
                 selectedCoordinateRef.current = { x: xClicked, y: yClicked };
+
+                // Directly propagate coordinate selection to context
+                const newCoordinateSelection: SelectionItem = { 
+                    type: "coordinate", 
+                    data: { x: xClicked, y: yClicked }
+                };
+
+                // Replace selection
+                activeLearningDispatch({
+                    type: 'SET_SELECTION',
+                    payload: [newCoordinateSelection]
+                });
 
                 // Draw a cross marker at the position
                 const crossSize = 8;
@@ -1516,6 +1462,28 @@ const StateSequenceProjection = (props) => {
                         const clusterInfo = { label: clusterLabel, indices: segmentIndices };
                         setSelectedCluster(clusterInfo);
                         selectedClusterRef.current = clusterInfo;
+                        
+                        // Directly propagate cluster selection to context
+                        const newClusterSelection: SelectionItem = { 
+                            type: "cluster", 
+                            data: segmentIndices, 
+                            label: clusterLabel 
+                        };
+                        if (multiSelectModeRef.current) {
+                            // Add to existing selection
+                            const currentSelection = activeLearningState.selection || [];
+                            const newSelectionArray = [...currentSelection, newClusterSelection];
+                            activeLearningDispatch({
+                                type: 'SET_SELECTION',
+                                payload: newSelectionArray
+                            });
+                        } else {
+                            // Replace selection
+                            activeLearningDispatch({
+                                type: 'SET_SELECTION',
+                                payload: [newClusterSelection]
+                            });
+                        }
                         
                         // Trigger immediate re-render to show cluster state highlights
                         const currentTransform = d3.zoomTransform(view.node());
@@ -1824,37 +1792,6 @@ const StateSequenceProjection = (props) => {
                 <EmbeddingContainer ref={embeddingRef} />
             </OnboardingHighlight>
 
-            {/* Selected State Frame overlay */}
-            {selectedStateFrameUrl && selectedState && selectedState.episode !== null && selectedState.step !== null && (
-                <ThumbnailOverlay
-                    sx={{
-                        borderColor: '#ff6b6b',
-                        opacity: 1,
-                    }}
-                >
-                    <CardMedia
-                        component="img"
-                        height="100%"
-                        image={selectedStateFrameUrl}
-                        alt="Selected state frame"
-                        sx={{ objectFit: 'cover' }}
-                    />
-                    <Box
-                        position="absolute"
-                        top={8}
-                        left={8}
-                        bgcolor="rgba(0, 0, 0, 0.7)"
-                        color="white"
-                        px={1}
-                        py={0.5}
-                        borderRadius={1}
-                        fontSize="12px"
-                        fontWeight="bold"
-                    >
-                        Ep. {selectedState.episode}, Step {selectedState.step}
-                    </Box>
-                </ThumbnailOverlay>
-            )}
 
             <Box
                 position="absolute"
@@ -1880,90 +1817,34 @@ const StateSequenceProjection = (props) => {
                                 type: 'SET_SELECTION',
                                 payload: []
                             });
-                            // Clear selected state frame
+                            // Clear local selection state
                             setSelectedState(null);
-                            setSelectedStateFrameUrl(null);
+                            setSelectedTrajectory(null);
+                            setSelectedCluster(null);
+                            setSelectedCoordinate({ x: null, y: null });
                         }}
                     >
                         <DeleteIcon />
                     </IconButton>
                 </Tooltip>
 
-                <OnboardingHighlight stepId="add-to-selection" pulse={true}>
-                    <Tooltip title="Add to Selection">
+                <OnboardingHighlight stepId="multi-select-mode" pulse={true}>
+                    <Tooltip title={multiSelectMode ? "Multi-Select Mode: ON" : "Multi-Select Mode: OFF"}>
                         <IconButton
-                            color="default"
+                            color={multiSelectMode ? "primary" : "default"}
                             sx={{
-                                backgroundColor: 'rgba(185, 185, 185, 0.7)',
-                                '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
+                                backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.7)' : 'rgba(185, 185, 185, 0.7)',
+                                '&:hover': { backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.9)' : 'rgba(185, 185, 185, 0.9)' }
                             }}
                             onClick={() => {
-                                const selectedTrajectory = selectedTrajectoryRef.current;
-
-                                const selectedCluster = selectedClusterRef.current;
-
-                                const selectedCoordinate = selectedCoordinateRef.current;
-
-                                // add to combined selected if selected
-                                const combinedSelection: SelectionItem[] = [];
-                                if (selectedTrajectory !== null && selectedTrajectory !== undefined) {
-                                    combinedSelection.push({ type: "trajectory", data: selectedTrajectory });
-                                }
-                                else if (selectedCluster) {
-                                    // Pass the cluster indices, not just the label
-                                    combinedSelection.push({ type: "cluster", data: selectedCluster.indices, label: selectedCluster.label });
-                                }
-                                else if (selectedCoordinate) {
-                                    combinedSelection.push({ type: "coordinate", data: selectedCoordinate });
-                                }
-                                if (combinedSelection.length === 0) {
-                                    return;
-                                }
-
-                                const selected = activeLearningState.selection;
-                                const newSelection = [...selected, ...combinedSelection];
-                                activeLearningDispatch({
-                                    type: 'SET_SELECTION',
-                                    payload: newSelection
-                                });
+                                if (selectedTrajectory)
+                                setMultiSelectMode(!multiSelectMode);
                             }}
                         >
                             <AddIcon />
                         </IconButton>
                     </Tooltip>
                 </OnboardingHighlight>
-
-                <Tooltip title="Mark to Correct/Generate">
-                    <IconButton
-                        color="default"
-                        sx={{
-                            backgroundColor: 'rgba(185, 185, 185, 0.7)',
-                            '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
-                        }}
-                        onClick={() => {
-                            const selectedState = selectedStateRef.current;
-
-                            // add to combined selected if selected
-                            const combinedSelection: SelectionItem[] = [];
-                            if (selectedState) {
-                                combinedSelection.push({ type: "state", data: selectedState });
-                            }
-
-                            if (combinedSelection.length === 0) {
-                                return;
-                            }
-
-                            const selected = activeLearningState.selection;
-                            const newSelection = [...selected, ...combinedSelection];
-                            activeLearningDispatch({
-                                type: 'SET_SELECTION',
-                                payload: newSelection
-                            });
-                        }}
-                    >
-                        <CreateIcon />
-                    </IconButton>
-                </Tooltip>
             </Box>
 
             {/* Selected cluster info display */}

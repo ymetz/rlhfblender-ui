@@ -1,6 +1,6 @@
 {
   "name": "RLHF-Blender",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "private": true,
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

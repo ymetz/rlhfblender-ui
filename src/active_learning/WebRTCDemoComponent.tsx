@@ -21,6 +21,7 @@ interface WebRTCDemoComponentProps {
   experimentId: string;
   environmentId: string;
   coordinate?: { x: number; y: number };
+  checkpoint?: number;
   episodeNum?: number;
   step?: number;
   onSubmit: () => void;
@@ -32,6 +33,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   experimentId,
   environmentId,
   coordinate,
+  checkpoint,
   episodeNum,
   step,
   onSubmit,
@@ -59,6 +61,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     environmentId,
     experimentId,
     coordinate,
+    checkpoint,
     episodeNum,
     step,
     serverUrl: '/demo_generation/gym_offer'
