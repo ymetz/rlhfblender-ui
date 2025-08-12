@@ -16,12 +16,18 @@ interface UseWebRTCProps {
   step?: number; // Step number for saved state loading
 }
 
+interface WebRTCConfig {
+  iceServers: RTCIceServer[];
+  credentialExpiry: number;
+}
+
 export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId, coordinate = null, checkpoint = undefined, episodeNum = undefined, step = undefined }: UseWebRTCProps) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const dcIntervalRef = useRef<number | null>(null);
 
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [webrtcConfig, setWebrtcConfig] = useState<WebRTCConfig | null>(null);
   const [logs, setLogs] = useState({
     dataChannel: '',
     iceConnection: '',
@@ -38,13 +44,33 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     }));
   };
 
-  const createPeerConnection = () => {
+  const fetchWebRTCConfig = async (): Promise<WebRTCConfig> => {
+    try {
+      const response = await fetch('/demo_generation/webrtc_config');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch WebRTC config: ${response.statusText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching WebRTC config:', error);
+      // Fallback to basic STUN server if API fails
+      return {
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        credentialExpiry: 0
+      };
+    }
+  };
+
+  const createPeerConnection = async () => {
+    // Fetch fresh WebRTC configuration if not cached or expired
+    let config = webrtcConfig;
+    if (!config) {
+      config = await fetchWebRTCConfig();
+      setWebrtcConfig(config);
+    }
+
     const iceConfig = {
-      iceServers: [
-        {
-          urls: 'stun:stun.l.google.com:19302',
-        },
-      ],
+      iceServers: config.iceServers
     };
 
     pcRef.current = new RTCPeerConnection(iceConfig); 
@@ -87,7 +113,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   };
 
   const start = async ({ useDataChannel }) => {
-    const pc = createPeerConnection();
+    const pc = await createPeerConnection();
 
     pc.addTransceiver('video', { direction: 'recvonly' });
 
