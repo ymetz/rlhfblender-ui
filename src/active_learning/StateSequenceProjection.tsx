@@ -543,6 +543,7 @@ const StateSequenceProjection = (props) => {
     const [clickedEpisode, setClickedEpisode] = useState(null);
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const multiSelectModeRef = useRef(false);
+    const currentSelectionRef = useRef([]);
     const [segmentSize, setSegmentSize] = useState(50);
     const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
     const [trajectoryColors, setTrajectoryColors] = useState(new Map<number, string>());
@@ -581,6 +582,11 @@ const StateSequenceProjection = (props) => {
     useEffect(() => {
         multiSelectModeRef.current = multiSelectMode;
     }, [multiSelectMode]);
+
+    // Keep currentSelectionRef in sync with activeLearningState.selection
+    useEffect(() => {
+        currentSelectionRef.current = activeLearningState.selection || [];
+    }, [activeLearningState.selection]);
 
     // Sync local state with global selection changes (e.g., from MergedSelectionFeedback)
     useEffect(() => {
@@ -1194,10 +1200,18 @@ const StateSequenceProjection = (props) => {
                         y: yClicked,
                         index: closest[2]
                     };
+
+                    // In single select mode, update both local state and global selection
+                    setSelectedState(newSelectedState);
+                    selectedStateRef.current = newSelectedState;
+                    setSelectedTrajectory(episodeIdx);
+                    selectedTrajectoryRef.current = episodeIdx;
+                    setClickedEpisode(episodeIdx);
                     
                     if (multiSelectModeRef.current) {
-                        // Add to existing selection - don't update local state for visualization
-                        const currentSelection = activeLearningState.selection || [];
+
+                        // Add to existing selection - use ref to get current state
+                        const currentSelection = currentSelectionRef.current;
                         // Check if this episode is already selected to avoid duplicates
                         const alreadySelected = currentSelection.some(item => 
                             (item.type === 'state' || item.type === 'trajectory') && item.data?.episode === episodeIdx
@@ -1210,12 +1224,6 @@ const StateSequenceProjection = (props) => {
                             });
                         }
                     } else {
-                        // In single select mode, update both local state and global selection
-                        setSelectedState(newSelectedState);
-                        selectedStateRef.current = newSelectedState;
-                        setSelectedTrajectory(episodeIdx);
-                        selectedTrajectoryRef.current = episodeIdx;
-                        setClickedEpisode(episodeIdx);
                         
                         // For single select, use state selection
                         activeLearningDispatch({

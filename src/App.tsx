@@ -442,7 +442,6 @@ const App: React.FC = () => {
     }
   }, [state.setupComplete, dispatch, resetSampler]);
 
-  console.log(state.app_mode);
   return (
     <ThemeProvider
       theme={createTheme(getDesignTokens(state.theme as "light" | "dark"))}

@@ -100,7 +100,6 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
 
   // Handle UI config selection
   const selectUIConfig = (event: SelectChangeEvent) => {
-    console.log(setupConfigState.allUIConfigs);
     const selectedUIConfig =
       setupConfigState.allUIConfigs.find(
         (config) => config.id === event.target.value,
@@ -138,7 +137,6 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
 
   // Handle DynamicRLHF training started
   const handleDynamicRLHFTrainingStarted = async (sessionData: any) => {
-    console.log('DynamicRLHF training started:', sessionData);
     
     try {
       // Refresh experiments list to include the newly created experiment
@@ -186,9 +184,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
         
         // Set the DynamicRLHF session ID in the app state
         dispatch({ type: "SET_SESSION_ID", payload: sessionData.session_id });
-        
-        console.log(`Successfully selected new DynamicRLHF experiment: ${newExperiment.exp_name}`);
-        console.log(`Set session ID: ${sessionData.session_id}`);
+
       } else {
         console.error('Could not find newly created experiment:', sessionData.experiment_name);
       }

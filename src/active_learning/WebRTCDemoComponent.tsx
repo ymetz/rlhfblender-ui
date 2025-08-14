@@ -90,7 +90,6 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   // Set up video stream when remoteStream changes
   useEffect(() => {
     if (remoteStream && videoRef.current) {
-      console.log('Setting video stream');
       videoRef.current.srcObject = remoteStream;
     }
   }, [remoteStream]);
@@ -335,15 +334,6 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
                 autoPlay
                 playsInline
                 muted
-                onLoadedMetadata={() => {
-                  console.log('Video metadata loaded');
-                  if (videoRef.current) {
-                    console.log('Video dimensions:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight);
-                  }
-                }}
-                onLoadStart={() => console.log('Video load started')}
-                onCanPlay={() => console.log('Video can play')}
-                onPlaying={() => console.log('Video is playing')}
                 onError={(e) => console.error('Video error:', e)}
                 style={{
                   width: '100%',

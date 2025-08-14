@@ -16,8 +16,6 @@ export default function ContinuousActionInput(
     Array(props.space.shape[0]).fill(0),
   );
 
-  console.log(props.space);
-
   // Initialize min and max values for each action dimension
   const actionBounds =
     Array.isArray(props.space.low) && Array.isArray(props.space.high)

@@ -26,23 +26,19 @@ export const useConfigBasedSampling = () => {
   ]);
 
   const sampleEpisodes = useCallback(async (stepNumber: number) => {
-    console.log("SAMPLE EPISODES with step", stepNumber, "processing:", isProcessing.current);
-    
+  
     // If already processing, wait a bit and check again
     if (isProcessing.current) {
       await new Promise(resolve => setTimeout(resolve, 100));
       if (isProcessing.current) {
-        console.log("Still processing, skipping");
         return;
       }
     }
 
     isProcessing.current = true;
-    console.log("Starting processing for step", stepNumber);
 
     try {
       if (!isReadyToProgress()) {
-        console.log("Not ready to progress");
         return;
       }
 
@@ -58,7 +54,6 @@ export const useConfigBasedSampling = () => {
       );
 
       if (!currentBatchEpisodes?.length) {
-        console.log("No episodes for batch");
         return;
       }
 
@@ -78,12 +73,10 @@ export const useConfigBasedSampling = () => {
         payload: currentBatchEpisodes.map((e) => IDfromEpisode(e)),
       });
       
-      console.log("Successfully sampled episodes for step", stepNumber);
     } catch (error) {
       console.error("Error in sampleEpisodes:", error);
       throw error;
     } finally {
-      console.log("Resetting processing flag");
       isProcessing.current = false;
     }
   }, [
@@ -96,13 +89,11 @@ export const useConfigBasedSampling = () => {
   ]);
 
   const advanceToNextStep = useCallback(async () => {
-    console.log("Advancing to next step, processing:", isProcessing.current);
-    
+
     // Similar processing check as in sampleEpisodes
     if (isProcessing.current) {
       await new Promise(resolve => setTimeout(resolve, 100));
       if (isProcessing.current) {
-        console.log("Still processing in advanceToNextStep");
         return false;
       }
     }

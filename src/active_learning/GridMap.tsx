@@ -195,8 +195,6 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>(
         </svg>
       );
     }
-
-    console.log("GridUncertaintyMap rendered");
     
     // Tooltip handler
     const handleTooltip = (event: React.TouchEvent<SVGRectElement> | React.MouseEvent<SVGRectElement>) => {

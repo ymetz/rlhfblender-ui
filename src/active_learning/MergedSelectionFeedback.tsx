@@ -40,12 +40,13 @@ import { OnboardingHighlight, useOnboarding } from './OnboardingSystem';
 // ————————————————————————————————————————————————————————————
 const shellSx = {
   height: '100%',
+  maxHeight: '100vh',
   display: 'flex',
   flexDirection: 'column' as const,
-  p: 2,
-  overflow: 'hidden',
+  p: 1.5,
+  overflow: 'auto',
   position: 'relative' as const,
-  gap: 2,
+  gap: 1.5,
 };
 
 const sectionCardSx = {
@@ -260,7 +261,6 @@ const MergedSelectionFeedback = () => {
 
   // Fetch video URLs for trajectories
   useEffect(() => {
-    console.log(selectionData);
     if (selectionData.type === 'state' || selectionData.type === 'multi_trajectory') {
       const fetchVideos = async () => {
         setLoading(true);
@@ -579,11 +579,10 @@ const MergedSelectionFeedback = () => {
         );
 
       case 'multi_trajectory':
-        console.log("MT SELECTION DATA", selectionData, allEpisodes);
         return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom>{title}</Typography>
-            <Box sx={{ flex: 1, overflowY: 'auto', pb: 1, minHeight: 300 }}>
+            <Box sx={{ mb: 2 }}>
               <Grid container spacing={2}>
                 {(selectionData as any).data.map((stateData: any, index: number) => {
                   // Handle both old number format and new object format
@@ -612,7 +611,7 @@ const MergedSelectionFeedback = () => {
                 })}
               </Grid>
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 'auto', mb: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
               <Button variant="contained" onClick={handleComparison} disabled={!chosenId} size="small">Submit Selection</Button>
             </Box>
           </Box>
@@ -626,16 +625,22 @@ const MergedSelectionFeedback = () => {
         if (!episode) return <Typography color="error">Episode {episodeIdx} not found</Typography>;
 
         return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            <Typography variant="h6">{title}</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>{title}</Typography>
 
             {/* Video */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 'min(320px, 42vh)' }}>
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              minHeight: showCorrectionInterface && useWebRTCCorrection ? 'min(200px, 25vh)' : 'min(280px, 35vh)',
+              mb: 2
+            }}>
               <Box sx={{ width: '100%' }}>{getVideoElement(episode, episodeIdx, false, true, true, selectedStep, episodeLength)}</Box>
             </Box>
 
             {/* Timeline controls */}
-            <Box sx={sectionCardSx}>
+            <Box sx={{ ...sectionCardSx, flexShrink: 0 }}>
               <Box sx={toolbarSx}>
                 <Stack direction="row" spacing={1} alignItems="center">
                   {currentPlaying === episodeIdx && (
@@ -720,34 +725,41 @@ const MergedSelectionFeedback = () => {
             {/* Rating vs Correction */}
             {showCorrectionInterface ? (
               !useWebRTCCorrection ? (
-                <Box sx={{ ...sectionCardSx, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <Box sx={{ ...sectionCardSx, display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Correct behavior at Step {selectedStep}</Typography>
                   <Button variant="contained" size="medium" onClick={() => setUseWebRTCCorrection(true)} disabled={loading}>Start Correction Demo</Button>
                 </Box>
               ) : (
-                <WebRTCDemoComponent
-                  sessionId={`${appState.sessionId}_correction`}
-                  experimentId={appState.selectedExperiment.id.toString()}
-                  environmentId={appState.selectedExperiment.env_id}
-                  checkpoint={Number(appState.selectedCheckpoint)}
-                  episodeNum={episode.episode_num}
-                  step={selectedStep}
-                  onSubmit={() => {
-                    const fb: Feedback = {
-                      feedback_type: FeedbackType.Corrective,
-                      targets: [{ target_id: `state_${episode.episode_num}_${selectedStep}`, reference: null, origin: 'online', timestamp: Date.now(), step: selectedStep }],
-                      granularity: 'state',
-                      timestamp: Date.now(),
-                      session_id: appState.sessionId,
-                      correction: `Demo correction from episode ${episode.episode_num}, step ${selectedStep}`,
-                    } as any;
-                    submitFeedback(fb);
-                  }}
-                  onCancel={() => { setUseWebRTCCorrection(false); setShowCorrectionInterface(false); }}
-                />
+                <Box sx={{ 
+                  ...sectionCardSx,
+                  minHeight: 300,
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}>
+                  <WebRTCDemoComponent
+                    sessionId={`${appState.sessionId}_correction`}
+                    experimentId={appState.selectedExperiment.id.toString()}
+                    environmentId={appState.selectedExperiment.env_id}
+                    checkpoint={Number(appState.selectedCheckpoint)}
+                    episodeNum={episode.episode_num}
+                    step={selectedStep}
+                    onSubmit={() => {
+                      const fb: Feedback = {
+                        feedback_type: FeedbackType.Corrective,
+                        targets: [{ target_id: `state_${episode.episode_num}_${selectedStep}`, reference: null, origin: 'online', timestamp: Date.now(), step: selectedStep }],
+                        granularity: 'state',
+                        timestamp: Date.now(),
+                        session_id: appState.sessionId,
+                        correction: `Demo correction from episode ${episode.episode_num}, step ${selectedStep}`,
+                      } as any;
+                      submitFeedback(fb);
+                    }}
+                    onCancel={() => { setUseWebRTCCorrection(false); setShowCorrectionInterface(false); }}
+                  />
+                </Box>
               )
             ) : (
-              <Box sx={stickyActionBarSx}>
+              <Box sx={{ ...sectionCardSx, mt: 2 }}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, maxWidth: 560, mx: 'auto', width: '100%' }}>
                     <ThumbDown sx={{ cursor: 'pointer' }} fontSize="small" onClick={() => setValue((v) => Math.max(0, v - 1))} />
@@ -769,12 +781,13 @@ const MergedSelectionFeedback = () => {
         const maxStatesToShow = 12;
         const limitedIndices = clusterIndices.slice(0, maxStatesToShow);
         return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom>
               Cluster {clusterLabel} Selected ({clusterIndices.length} states)
             </Typography>
-            <Grid container spacing={2} sx={{ mb: 1 }}>
-              {limitedIndices.map((i: number, index: number) => (
+            <Box sx={{ mb: 2 }}>
+              <Grid container spacing={2} sx={{ mb: 1 }}>
+                {limitedIndices.map((i: number, index: number) => (
                 <Grid item xs={6} sm={4} md={3} key={`cluster-state-${i}`}>
                   <Card sx={{ height: '100%' }}>
                     <CardContent>
@@ -790,15 +803,16 @@ const MergedSelectionFeedback = () => {
                       <Typography variant="caption" align="center" display="block">State #{i}</Typography>
                     </CardContent>
                   </Card>
-                </Grid>
-              ))}
-              {clusterIndices.length > maxStatesToShow && (
-                <Grid item xs={12}>
-                  <Typography variant="body2" color="text.secondary">+ {clusterIndices.length - maxStatesToShow} more states not shown</Typography>
-                </Grid>
-              )}
-            </Grid>
-            <Box sx={stickyActionBarSx}>
+                  </Grid>
+                ))}
+                {clusterIndices.length > maxStatesToShow && (
+                  <Grid item xs={12}>
+                    <Typography variant="body2" color="text.secondary">+ {clusterIndices.length - maxStatesToShow} more states not shown</Typography>
+                  </Grid>
+                )}
+              </Grid>
+            </Box>
+            <Box sx={{ ...sectionCardSx, mt: 2 }}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, maxWidth: 560, mx: 'auto', width: '100%' }}>
                   <ThumbDown sx={{ cursor: 'pointer' }} onClick={() => setValue((v) => Math.max(0, v - 1))} />
@@ -819,10 +833,20 @@ const MergedSelectionFeedback = () => {
       case 'coordinate': {
         const coordinate = (selectionData as any).data[0];
         return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'auto' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom fontSize="0.95rem">Generate Demo from New State</Typography>
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2, flex: '0 0 auto' }}>
-              <Box sx={{ width: '100%', maxWidth: 'min(420px, 60vw)', aspectRatio: '16/9', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 2, overflow: 'hidden', position: 'relative', border: '3px solid #FF6B35', mx: 'auto' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+              <Box sx={{ 
+                width: '100%', 
+                maxWidth: useWebRTC ? 'min(320px, 50vw)' : 'min(420px, 60vw)', 
+                aspectRatio: '16/9', 
+                backgroundColor: 'rgba(0,0,0,0.05)', 
+                borderRadius: 2, 
+                overflow: 'hidden', 
+                position: 'relative', 
+                border: '3px solid #FF6B35', 
+                mx: 'auto' 
+              }}>
                 {coordinateFrameImage ? (
                   <img src={coordinateFrameImage} alt={`Predicted state frame for coordinate [${coordinate.x.toFixed(2)}, ${coordinate.y.toFixed(2)}]`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                 ) : (
@@ -833,9 +857,13 @@ const MergedSelectionFeedback = () => {
                 <Box sx={{ position: 'absolute', top: 6, left: 6, backgroundColor: '#FF6B35', color: 'white', borderRadius: 1, px: 1, py: 0.3, fontSize: '0.7rem' }}>Predicted State</Box>
               </Box>
             </Box>
-            <Box sx={{ flex: '1 1 auto' }}>
+            <Box sx={{ 
+              minHeight: useWebRTC ? 300 : 60
+            }}>
               {!useWebRTC ? (
-                <Button variant="contained" onClick={() => setUseWebRTC(true)} disabled={loading} size="small" sx={{ mt: 1 }}>Start Demo</Button>
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                  <Button variant="contained" onClick={() => setUseWebRTC(true)} disabled={loading} size="small">Start Demo</Button>
+                </Box>
               ) : (
                 <WebRTCDemoComponent
                   sessionId={appState.sessionId}

@@ -94,11 +94,6 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     pc.ontrack = (event) => {
       const [stream] = event.streams;
       if (stream) {
-        console.log(">>> Stream details:", {
-          id: stream.id,
-          active: stream.active,
-          tracks: stream.getTracks().map(t => ({ kind: t.kind, id: t.id }))
-        });
         setRemoteStream(stream);
       }
     };
@@ -122,7 +117,6 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       dcRef.current = dc;
 
       dc.onopen = () => {
-        console.log('Data channel opened');
         appendLog('dataChannel', '- open');
         
         // Send a test ping to confirm channel is working
@@ -134,7 +128,6 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       };
 
       dc.onclose = () => {
-        console.log('>>> Data channel closed');
         appendLog('dataChannel', '- close');
         if (dcIntervalRef.current) clearInterval(dcIntervalRef.current);
       };

@@ -136,9 +136,6 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           // Trigger experiment end modal
           appStateDispatch({ type: 'SET_END_MODAL_OPEN' });
         } else {
-          // Only generate new data if we're continuing to the next phase
-          // and there will be another training iteration
-          console.log('Generating new data for next phase...');
           await stepSampler();
         }
         
@@ -224,7 +221,6 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           // Clear scheduled feedback
           appStateDispatch({ type: "CLEAR_SCHEDULED_FEEDBACK" });
           
-          console.log("All scheduled feedback submitted successfully");
         } catch (error) {
           console.error("Error submitting scheduled feedback:", error);
         }
@@ -237,8 +233,6 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
       } catch (error) {
         console.error("Error submitting session:", error);
       }
-
-      console.log("PHASE", activeLearningState.currentPhase)
 
       // Determine the correct phase to call
       // Phase 0 = initial data collection (called from dynamic-rlhf-modal)
