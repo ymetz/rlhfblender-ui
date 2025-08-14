@@ -16,10 +16,6 @@ interface UseWebRTCProps {
   step?: number; // Step number for saved state loading
 }
 
-interface WebRTCConfig {
-  iceServers: RTCIceServer[];
-  credentialExpiry: number;
-}
 
 export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId, coordinate = null, checkpoint = undefined, episodeNum = undefined, step = undefined }: UseWebRTCProps) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -27,7 +23,6 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   const dcIntervalRef = useRef<number | null>(null);
 
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [webrtcConfig, setWebrtcConfig] = useState<WebRTCConfig | null>(null);
   const [logs, setLogs] = useState({
     dataChannel: '',
     iceConnection: '',
@@ -37,7 +32,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     answerSDP: '',
   });
 
-  const appendLog = (type, message) => {
+  const appendLog = (type: string, message: string) => {
     setLogs((prev) => ({
       ...prev,
       [type]: (prev[type] || '') + message + '\n',
@@ -46,16 +41,10 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
 
 
   const createPeerConnection = async (iceServers?: RTCIceServer[]) => {
-    // Use provided iceServers or fallback to cached config or basic STUN
-    let iceConfig: RTCConfiguration;
-    if (iceServers) {
-      iceConfig = { iceServers };
-    } else if (webrtcConfig) {
-      iceConfig = { iceServers: webrtcConfig.iceServers };
-    } else {
-      // Fallback to basic STUN server
-      iceConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-    }
+    // Use provided iceServers or fallback to basic STUN
+    const iceConfig: RTCConfiguration = {
+      iceServers: iceServers || [{ urls: 'stun:stun.l.google.com:19302' }]
+    };
 
     pcRef.current = new RTCPeerConnection(iceConfig); 
     const pc = pcRef.current;
@@ -187,14 +176,6 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
 
     const answer = await res.json();
     setLogs((prev) => ({ ...prev, answerSDP: answer.sdp }));
-    
-    // Cache ICE servers from gym_offer response for future connections
-    if (answer.iceServers) {
-      setWebrtcConfig({
-        iceServers: answer.iceServers,
-        credentialExpiry: answer.credentialExpiry || 1800
-      });
-    }
     
     await pc.setRemoteDescription(answer);
   };
