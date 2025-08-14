@@ -44,34 +44,18 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     }));
   };
 
-  const fetchWebRTCConfig = async (): Promise<WebRTCConfig> => {
-    try {
-      const response = await fetch('/demo_generation/webrtc_config');
-      if (!response.ok) {
-        throw new Error(`Failed to fetch WebRTC config: ${response.statusText}`);
-      }
-      return await response.json();
-    } catch (error) {
-      console.error('Error fetching WebRTC config:', error);
-      // Fallback to basic STUN server if API fails
-      return {
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-        credentialExpiry: 0
-      };
-    }
-  };
 
-  const createPeerConnection = async () => {
-    // Fetch fresh WebRTC configuration if not cached or expired
-    let config = webrtcConfig;
-    if (!config) {
-      config = await fetchWebRTCConfig();
-      setWebrtcConfig(config);
+  const createPeerConnection = async (iceServers?: RTCIceServer[]) => {
+    // Use provided iceServers or fallback to cached config or basic STUN
+    let iceConfig: RTCConfiguration;
+    if (iceServers) {
+      iceConfig = { iceServers };
+    } else if (webrtcConfig) {
+      iceConfig = { iceServers: webrtcConfig.iceServers };
+    } else {
+      // Fallback to basic STUN server
+      iceConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
     }
-
-    const iceConfig = {
-      iceServers: config.iceServers
-    };
 
     pcRef.current = new RTCPeerConnection(iceConfig); 
     const pc = pcRef.current;
@@ -203,6 +187,14 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
 
     const answer = await res.json();
     setLogs((prev) => ({ ...prev, answerSDP: answer.sdp }));
+    
+    // Cache ICE servers from gym_offer response for future connections
+    if (answer.iceServers) {
+      setWebrtcConfig({
+        iceServers: answer.iceServers,
+        credentialExpiry: answer.credentialExpiry || 1800
+      });
+    }
     
     await pc.setRemoteDescription(answer);
   };
