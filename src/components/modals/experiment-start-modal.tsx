@@ -123,7 +123,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
         <Box sx={{ borderBottom: 1, borderColor: "divider", px: 3, pt: 2 }}>
           <Typography variant="h5" component="h2" sx={{ mb: 2 }}>
-            RLHF-Blender: Instructions
+            Study Instructions
           </Typography>
           <Tabs value={activeTab} onChange={handleTabChange}>
             <Tab label="Introduction" />
@@ -136,13 +136,12 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
           {/* Introduction Tab */}
           {activeTab === 0 && (
             <Box>
-              <Typography variant="h6" gutterBottom>
-                Welcome to RLHF-Blender!
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                🎯 Getting Started: Please read the following instructions carefully.
               </Typography>
-
               <Typography paragraph>
-                RLHF-Blender is an interactive tool for providing feedback on reinforcement learning agent behavior. 
-                The following instructions will guide you through the interface and how to provide feedback.
+                This interactive tool allows users to provide feedback for reinforcement learning agent behavior.
+                The following instructions will give you a high-level overview of the study's goal and precedure.
               </Typography>
 
               <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -203,16 +202,6 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
                   Feedback panel with one contextual feedback interaction, here a comparison.
                 </Typography>
               </Box>
-
-              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-                🎯 Getting Started
-              </Typography>
-              <Typography component="div" paragraph>
-                1. <strong>Load Data:</strong> Click "Load Data" to populate the projection with episodes<br/>
-                2. <strong>Explore:</strong> Click on trajectories or coordinates to select them<br/>
-                3. <strong>Provide Feedback:</strong> Use the right panel to rate, compare, or correct selected items<br/>
-                4. <strong>Submit:</strong> Your feedback helps improve the AI agent's behavior
-              </Typography>
 
               {startModalContent}
             </Box>

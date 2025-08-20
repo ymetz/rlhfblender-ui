@@ -23,6 +23,10 @@ export interface ActiveLearningState {
   projectionStateValues: number[];
   predicted_rewards: number[];
   predicted_uncertainties: number[];
+  
+  // Global min/max for consistent timeline scaling
+  globalRewardRange: [number, number] | null;
+  globalUncertaintyRange: [number, number] | null;
 
   // grid points and predictions
   //grid_coordinates: number[][];
@@ -81,6 +85,8 @@ type ActiveLearningAction =
   | { type: "SET_PROJECTION_STATE_VALUES"; payload: number[] }
   | { type: "SET_PREDICTED_REWARDS"; payload: number[] }
   | { type: "SET_PREDICTED_UNCERTAINTIES"; payload: number[] }
+  | { type: "SET_GLOBAL_REWARD_RANGE"; payload: [number, number] | null }
+  | { type: "SET_GLOBAL_UNCERTAINTY_RANGE"; payload: [number, number] | null }
   // grid points and predictions
   | { type: "SET_GRID_PREDICTION_IMAGE"; payload: string | null }
   | { type: "SET_GRID_UNCERTAINTY_IMAGE"; payload: string | null }
@@ -126,6 +132,8 @@ const initialState: ActiveLearningState = {
   projectionStateValues: [],
   predicted_rewards: [],
   predicted_uncertainties: [],
+  globalRewardRange: null,
+  globalUncertaintyRange: null,
 
   // grid points and predictions
   grid_prediction_image: null, // Initialize with null or appropriate default
@@ -201,6 +209,10 @@ function activeLearningReducer(
       return { ...state, predicted_rewards: action.payload };
     case "SET_PREDICTED_UNCERTAINTIES":
       return { ...state, predicted_uncertainties: action.payload };
+    case "SET_GLOBAL_REWARD_RANGE":
+      return { ...state, globalRewardRange: action.payload };
+    case "SET_GLOBAL_UNCERTAINTY_RANGE":
+      return { ...state, globalUncertaintyRange: action.payload };
     // grid points and predictions
     case "SET_GRID_PREDICTION_IMAGE":
       return { ...state, grid_prediction_image: action.payload };

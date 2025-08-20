@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback, startTransition } from 'react';
 import {
   Box,
   Typography,
@@ -13,7 +13,6 @@ import {
   Alert,
   CircularProgress,
   Stack,
-  Divider,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import {
@@ -139,12 +138,12 @@ const MergedSelectionFeedback = () => {
   const { triggerStepComplete } = useOnboarding();
 
   // State for videos and interaction
-  const [currentVideoIndex, setCurrentVideoIndex] = useState<number | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const [videoURLs, setVideoURLs] = useState<Map<string, string>>(new Map<string, string>());
   const [clusterFrameImages, setClusterFrameImages] = useState<string[]>([]);
   const [coordinateFrameImage, setCoordinateFrameImage] = useState<string | null>(null);
+  const [selectionInstance, setSelectionInstance] = useState(0); // Unique identifier for each selection
+  const lastUpdateStepRef = useRef(-1); // For tracking projection sync updates
 
   // Feedback state
   const [value, setValue] = useState(5);
@@ -159,13 +158,25 @@ const MergedSelectionFeedback = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const STEP_UPDATE_STRIDE = 20; // or 20
+
+  // keep the last emitted bucket per video index to avoid repeated dispatches
+  const lastSentBucketRef = useRef<Map<number, number>>(new Map());
+
+  // remember the current handle so we can remove it on re-attach/unmount
+  const timeUpdateHandlersRef = useRef<Map<number, (e: Event) => void>>(new Map());
+
+  // avoid stale selectedStep in the timeupdate closure
+  const selectedStepRef = useRef<number>(0);
+  useEffect(() => { selectedStepRef.current = selectedStep; }, [selectedStep]);
+
   // Use selection directly from state
   const selection = useMemo(() => activeLearningState.selection || [], [activeLearningState.selection]);
   const allEpisodes = useMemo(() => {
     const episodes = appState.episodeIDsChronologically || [];
     const selectedCheckpoint = appState.selectedCheckpoint;
     // Filter episodes to only include those from the current checkpoint
-    return episodes.filter((episode: Episode) => 
+    return episodes.filter((episode: Episode) =>
       selectedCheckpoint && episode.checkpoint_step === Number(selectedCheckpoint)
     );
   }, [appState.episodeIDsChronologically, appState.selectedCheckpoint]);
@@ -196,6 +207,7 @@ const MergedSelectionFeedback = () => {
     setCoordinateFrameImage(null);
     setSelectedStep(0);
     setShowCorrectionInterface(false);
+    lastUpdateStepRef.current = -1; // Reset sync tracking
   }, [selection]);
 
   const currentStateData: any = selectionData.type === 'state' && selectionData.data?.[0] ? selectionData.data[0] : null;
@@ -296,6 +308,7 @@ const MergedSelectionFeedback = () => {
   // Fetch cluster frame images when cluster is selected
   useEffect(() => {
     if (selectionData.type === 'cluster' && selectionData.data && selectionData.data.length > 0) {
+      setSelectionInstance(prev => prev + 1); // Increment selection instance for unique keys
       const episodeIndices = (activeLearningState as any).episodeIndices;
       if (!episodeIndices || episodeIndices.length === 0) { setClusterFrameImages([]); return; }
       if (!allEpisodes || allEpisodes.length === 0) { setClusterFrameImages([]); return; }
@@ -458,28 +471,95 @@ const MergedSelectionFeedback = () => {
               autoPlay={currentPlaying === index && !stepSync}
               loop={currentPlaying === index && !stepSync}
               ref={(el) => {
-                if (el) {
-                  const syncVideoTime = () => {
-                    if (stepSync) {
-                      const videoTotalSteps = episodeLength;
-                      const duration = el.duration;
-                      if (duration && !isNaN(duration) && duration > 0) {
-                        const targetTime = (currentStepTime / videoTotalSteps) * duration;
-                        if (!isNaN(targetTime) && Math.abs(targetTime - el.currentTime) > 0.1) {
-                          el.currentTime = targetTime;
-                          el.pause();
-                        }
-                      }
-                    } else if (currentPlaying === index) {
-                      el.play().catch(() => { });
-                    } else {
-                      el.pause();
-                    }
-                  };
-                  if (el.readyState >= 1) syncVideoTime();
-                  else el.addEventListener('loadedmetadata', syncVideoTime, { once: true } as any);
-                  videoRefs.current[index] = el;
+                // 1) Clean up any old listener on the previous element if we’re switching refs
+                const prevEl = videoRefs.current[index];
+                const prevHandler = timeUpdateHandlersRef.current.get(index);
+                if (prevEl && prevHandler && (prevEl !== el)) {
+                  prevEl.removeEventListener('timeupdate', prevHandler);
+                  timeUpdateHandlersRef.current.delete(index);
                 }
+
+                if (!el) {
+                  // Unmount case: remove if existing
+                  if (prevEl && prevHandler) {
+                    prevEl.removeEventListener('timeupdate', prevHandler);
+                    timeUpdateHandlersRef.current.delete(index);
+                  }
+                  videoRefs.current[index] = null;
+                  return;
+                }
+
+                const syncVideoTime = () => {
+                  if (stepSync) {
+                    const duration = el.duration;
+                    if (duration && !isNaN(duration) && duration > 0) {
+                      const targetTime = (currentStepTime / episodeLength) * duration;
+                      if (!isNaN(targetTime) && Math.abs(targetTime - el.currentTime) > 0.1) {
+                        el.currentTime = targetTime;
+                        el.pause();
+                      }
+                    }
+                  } else if (currentPlaying === index) {
+                    el.play().catch(() => { });
+                  } else {
+                    el.pause();
+                  }
+                };
+
+                // 2) Throttled timeupdate that only fires once per bucket of steps
+                const handleTimeUpdate = () => {
+                  // only when playing this video, and only in the single-trajectory view
+                  if (!(currentPlaying === index && singleTrajectory)) return;
+
+                  const duration = el.duration;
+                  if (!duration || !isFinite(duration) || duration <= 0) return;
+
+                  const newStep = Math.floor((el.currentTime / duration) * episodeLength);
+                  // "bucket" every N steps: consistent, frame-rate independent
+                  const bucket = Math.floor(newStep / STEP_UPDATE_STRIDE);
+
+                  const last = lastSentBucketRef.current.get(index);
+                  if (last === bucket) return; // already sent an update for this bucket
+
+                  lastSentBucketRef.current.set(index, bucket);
+
+                  // Update the local UI step first (React won’t re-render if unchanged)
+                  if (newStep !== selectedStepRef.current) {
+                    setSelectedStep(newStep);
+                  }
+
+                  // Only dispatch when this component is in 'state' mode; keep payload identical to slider
+                  if ((selectionData as any).type === 'state') {
+                    const baseIdx = selectedStepRef.current; // latest value
+                    const updatedSelection = [{
+                      type: 'state',
+                      data: {
+                        episode: index,
+                        step: newStep,
+                        coords: currentStateData?.coords || [0, 0],
+                        x: currentStateData?.x || 0,
+                        y: currentStateData?.y || 0,
+                        index: (currentStateData?.index || 0) + (newStep - baseIdx),
+                      },
+                    }];
+
+                    // make this non-urgent so the video stays smooth
+                    startTransition(() => {
+                      activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection as any });
+                    });
+                  }
+                };
+
+                // 3) Attach a single listener, remember it, and ensure cleanup next time
+                el.addEventListener('timeupdate', handleTimeUpdate);
+                timeUpdateHandlersRef.current.set(index, handleTimeUpdate);
+
+                // 4) Initial sync on mount/when metadata is available
+                if (el.readyState >= 1) syncVideoTime();
+                else el.addEventListener('loadedmetadata', syncVideoTime, { once: true } as any);
+
+                // keep the current el
+                videoRefs.current[index] = el;
               }}
             />
             <IconButton
@@ -629,10 +709,10 @@ const MergedSelectionFeedback = () => {
             <Typography variant="h6" sx={{ mb: 2 }}>{title}</Typography>
 
             {/* Video */}
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              alignItems: 'center', 
+            <Box sx={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
               minHeight: showCorrectionInterface && useWebRTCCorrection ? 'min(200px, 25vh)' : 'min(280px, 35vh)',
               mb: 2
             }}>
@@ -650,7 +730,7 @@ const MergedSelectionFeedback = () => {
                   )}
                 </Stack>
                 <Button variant="outlined" size="small" onClick={() => setShowCorrectionInterface(!showCorrectionInterface)}>
-                  <ModeEdit/>
+                  <ModeEdit />
                   {showCorrectionInterface ? 'Show Rating' : 'Correct at Step'}
                 </Button>
               </Box>
@@ -730,7 +810,7 @@ const MergedSelectionFeedback = () => {
                   <Button variant="contained" size="medium" onClick={() => setUseWebRTCCorrection(true)} disabled={loading}>Start Correction Demo</Button>
                 </Box>
               ) : (
-                <Box sx={{ 
+                <Box sx={{
                   ...sectionCardSx,
                   minHeight: 300,
                   display: 'flex',
@@ -788,21 +868,21 @@ const MergedSelectionFeedback = () => {
             <Box sx={{ mb: 2 }}>
               <Grid container spacing={2} sx={{ mb: 1 }}>
                 {limitedIndices.map((i: number, index: number) => (
-                <Grid item xs={6} sm={4} md={3} key={`cluster-state-${i}`}>
-                  <Card sx={{ height: '100%' }}>
-                    <CardContent>
-                      {clusterFrameImages[index] ? (
-                        <Box sx={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.paper', borderRadius: 1, overflow: 'hidden' }}>
-                          <img src={clusterFrameImages[index]} alt={`Cluster state ${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        </Box>
-                      ) : (
-                        <Box sx={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.paper', border: '1px dashed', borderColor: 'primary.main', borderRadius: 1 }}>
-                          <ImageIcon sx={{ fontSize: 30, color: 'text.secondary' }} />
-                        </Box>
-                      )}
-                      <Typography variant="caption" align="center" display="block">State #{i}</Typography>
-                    </CardContent>
-                  </Card>
+                  <Grid item xs={6} sm={4} md={3} key={`cluster-state-${selectionInstance}-${i}-${index}`}>
+                    <Card sx={{ height: '100%' }}>
+                      <CardContent>
+                        {clusterFrameImages[index] ? (
+                          <Box sx={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.paper', borderRadius: 1, overflow: 'hidden' }}>
+                            <img src={clusterFrameImages[index]} alt={`Cluster state ${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </Box>
+                        ) : (
+                          <Box sx={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.paper', border: '1px dashed', borderColor: 'primary.main', borderRadius: 1 }}>
+                            <ImageIcon sx={{ fontSize: 30, color: 'text.secondary' }} />
+                          </Box>
+                        )}
+                        <Typography variant="caption" align="center" display="block">State #{i}</Typography>
+                      </CardContent>
+                    </Card>
                   </Grid>
                 ))}
                 {clusterIndices.length > maxStatesToShow && (
@@ -836,16 +916,16 @@ const MergedSelectionFeedback = () => {
           <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom fontSize="0.95rem">Generate Demo from New State</Typography>
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-              <Box sx={{ 
-                width: '100%', 
-                maxWidth: useWebRTC ? 'min(320px, 50vw)' : 'min(420px, 60vw)', 
-                aspectRatio: '16/9', 
-                backgroundColor: 'rgba(0,0,0,0.05)', 
-                borderRadius: 2, 
-                overflow: 'hidden', 
-                position: 'relative', 
-                border: '3px solid #FF6B35', 
-                mx: 'auto' 
+              <Box sx={{
+                width: '100%',
+                maxWidth: useWebRTC ? 'min(320px, 50vw)' : 'min(420px, 60vw)',
+                aspectRatio: '16/9',
+                backgroundColor: 'rgba(0,0,0,0.05)',
+                borderRadius: 2,
+                overflow: 'hidden',
+                position: 'relative',
+                border: '3px solid #FF6B35',
+                mx: 'auto'
               }}>
                 {coordinateFrameImage ? (
                   <img src={coordinateFrameImage} alt={`Predicted state frame for coordinate [${coordinate.x.toFixed(2)}, ${coordinate.y.toFixed(2)}]`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -857,7 +937,7 @@ const MergedSelectionFeedback = () => {
                 <Box sx={{ position: 'absolute', top: 6, left: 6, backgroundColor: '#FF6B35', color: 'white', borderRadius: 1, px: 1, py: 0.3, fontSize: '0.7rem' }}>Predicted State</Box>
               </Box>
             </Box>
-            <Box sx={{ 
+            <Box sx={{
               minHeight: useWebRTC ? 300 : 60
             }}>
               {!useWebRTC ? (

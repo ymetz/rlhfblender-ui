@@ -7,8 +7,6 @@ import {
     Alert,
     Tooltip,
     IconButton,
-    Card,
-    CardMedia,
     Paper
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -23,13 +21,23 @@ import * as vsup from 'vsup';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import { useAppState } from '../AppStateContext';
 import { useGetter } from '../getter-context';
+import {
+    SelectedState,
+    SelectedCoordinate,
+    SelectedCluster,
+    SelectionItem
+} from './types/stateSequenceProjectionTypes';
+import {
+    extractSegments,
+    mergeSegments
+} from './utils/stateSequenceProjectionHelpers';
 import { computeTrajectoryColors, getFallbackColor } from './utils/trajectoryColors';
 import { OnboardingHighlight } from './OnboardingSystem';
+import TimelineComponent from './TimelineComponent';
 
 const canvasImageCache = new Map();
 
 // Enhanced trajectory visualization functions to reduce overplotting
-
 function drawTrajectory(context, points, color, lineWidth = 2) {
     if (points.length < 2) return;
     
@@ -42,298 +50,6 @@ function drawTrajectory(context, points, color, lineWidth = 2) {
         context.lineTo(points[i][0], points[i][1]);
     }
     context.stroke();
-}
-
-
-// Segment extraction and processing for RLHF
-interface TrajectorySegment {
-    id: string;
-    episodeIdx: number;
-    startIdx: number;
-    endIdx: number;
-    points: number[][];
-    centroid: [number, number];
-    similarity?: number;
-}
-
-interface MergedSegment {
-    id: string;
-    segments: TrajectorySegment[];
-    centroid: [number, number];
-    boundingBox: { minX: number, maxX: number, minY: number, maxY: number };
-    representative: TrajectorySegment;
-    convexHull?: [number, number][];
-    directionalBox?: {
-        startPoint: [number, number];
-        endPoint: [number, number];
-        width: number;
-        angle: number;
-    };
-}
-
-interface SelectedState {
-    episode: number | null;
-    step: number | null;
-    coords: [number, number];
-    x: number;
-    y: number;
-    index: number;
-}
-
-interface SelectedCoordinate {
-    x: number | null;
-    y: number | null;
-}
-
-interface SelectedCluster {
-    label: string;
-    indices: number[];
-}
-
-interface SelectionItem {
-    type: "trajectory" | "cluster" | "coordinate" | "state";
-    data: any;
-    label?: string;
-}
-
-
-// Extract K-step segments from trajectories
-function extractSegments(episodeToPaths: Map<number, number[][]>, segmentSize: number = 50): TrajectorySegment[] {
-    const segments: TrajectorySegment[] = [];
-
-    
-    episodeToPaths.forEach((pathPoints, episodeIdx) => {
-        if (pathPoints.length < segmentSize) return;
-        
-        // Extract overlapping segments (stride = segmentSize/2 for overlap)
-        const stride = Math.max(1, Math.floor(segmentSize / 2));
-        
-        for (let startIdx = 0; startIdx <= pathPoints.length - segmentSize; startIdx += stride) {
-            const endIdx = startIdx + segmentSize - 1;
-            const segmentPoints = pathPoints.slice(startIdx, startIdx + segmentSize);
-            
-            // Calculate centroid
-            const centroidX = segmentPoints.reduce((sum, p) => sum + p[0], 0) / segmentPoints.length;
-            const centroidY = segmentPoints.reduce((sum, p) => sum + p[1], 0) / segmentPoints.length;
-            
-            segments.push({
-                id: `${episodeIdx}_${startIdx}_${endIdx}`,
-                episodeIdx,
-                startIdx,
-                endIdx,
-                points: segmentPoints,
-                centroid: [centroidX, centroidY]
-            });
-        }
-    });
-    
-    return segments;
-}
-
-// Calculate similarity between two segments
-function calculateSegmentSimilarity(seg1: TrajectorySegment, seg2: TrajectorySegment): number {
-    // Use centroid distance and start/end point similarity
-    const centroidDist = Math.sqrt(
-        Math.pow(seg1.centroid[0] - seg2.centroid[0], 2) +
-        Math.pow(seg1.centroid[1] - seg2.centroid[1], 2)
-    );
-    
-    // Start point similarity
-    const startDist = Math.sqrt(
-        Math.pow(seg1.points[0][0] - seg2.points[0][0], 2) +
-        Math.pow(seg1.points[0][1] - seg2.points[0][1], 2)
-    );
-    
-    // End point similarity
-    const endDist = Math.sqrt(
-        Math.pow(seg1.points[seg1.points.length-1][0] - seg2.points[seg2.points.length-1][0], 2) +
-        Math.pow(seg1.points[seg1.points.length-1][1] - seg2.points[seg2.points.length-1][1], 2)
-    );
-    
-    // Combined similarity score (lower is more similar)
-    return (centroidDist + startDist + endDist) / 3;
-}
-
-// Merge similar segments using clustering
-function mergeSegments(segments: TrajectorySegment[], similarityThreshold: number = 0.05): MergedSegment[] {
-    const mergedSegments: MergedSegment[] = [];
-    const used = new Set<string>();
-    
-    segments.forEach(segment => {
-        if (used.has(segment.id)) return;
-        
-        const cluster: TrajectorySegment[] = [segment];
-        used.add(segment.id);
-        
-        // Find similar segments
-        segments.forEach(otherSegment => {
-            if (used.has(otherSegment.id) || segment.id === otherSegment.id) return;
-            
-            const similarity = calculateSegmentSimilarity(segment, otherSegment);
-            if (similarity <= similarityThreshold) {
-                cluster.push(otherSegment);
-                used.add(otherSegment.id);
-            }
-        });
-        
-        // Calculate merged segment properties
-        const allPoints = cluster.flatMap(s => s.points);
-        const centroidX = allPoints.reduce((sum, p) => sum + p[0], 0) / allPoints.length;
-        const centroidY = allPoints.reduce((sum, p) => sum + p[1], 0) / allPoints.length;
-        
-        const minX = Math.min(...allPoints.map(p => p[0]));
-        const maxX = Math.max(...allPoints.map(p => p[0]));
-        const minY = Math.min(...allPoints.map(p => p[1]));
-        const maxY = Math.max(...allPoints.map(p => p[1]));
-        
-        // Calculate convex hull for the merged segment
-        const convexHull = calculateSimpleConcaveHull(allPoints);
-        
-        // Calculate directional box based on representative segment
-        const repStartPoint = segment.points[0];
-        const repEndPoint = segment.points[segment.points.length - 1];
-        const segmentLength = Math.sqrt(
-            Math.pow(repEndPoint[0] - repStartPoint[0], 2) + 
-            Math.pow(repEndPoint[1] - repStartPoint[1], 2)
-        );
-        const angle = Math.atan2(repEndPoint[1] - repStartPoint[1], repEndPoint[0] - repStartPoint[0]);
-        
-        // Width scales with number of segments (more segments = wider box)
-        const baseWidth = 0.1; // Base width in data units
-        const scaledWidth = baseWidth * Math.log(cluster.length + 1);
-        
-        mergedSegments.push({
-            id: `merged_${segment.id}`,
-            segments: cluster,
-            centroid: [centroidX, centroidY],
-            boundingBox: { minX, maxX, minY, maxY },
-            representative: segment,
-            convexHull,
-            directionalBox: {
-                startPoint: [repStartPoint[0], repStartPoint[1]],
-                endPoint: [repEndPoint[0], repEndPoint[1]],
-                width: scaledWidth,
-                angle
-            }
-        });
-    });
-    
-    return mergedSegments;
-}
-
-// Calculate convex hull using Graham scan algorithm
-function calculateConvexHull(points: number[][]): [number, number][] {
-    if (points.length < 3) return points.map(p => [p[0], p[1]] as [number, number]);
-    
-    // Find the bottom-most point (and leftmost in case of tie)
-    let bottom = 0;
-    for (let i = 1; i < points.length; i++) {
-        if (points[i][1] < points[bottom][1] || 
-            (points[i][1] === points[bottom][1] && points[i][0] < points[bottom][0])) {
-            bottom = i;
-        }
-    }
-    
-    // Swap bottom point to index 0
-    [points[0], points[bottom]] = [points[bottom], points[0]];
-    const pivot = points[0];
-    
-    // Sort points by polar angle with respect to pivot
-    const sortedPoints = points.slice(1).sort((a, b) => {
-        const angleA = Math.atan2(a[1] - pivot[1], a[0] - pivot[0]);
-        const angleB = Math.atan2(b[1] - pivot[1], b[0] - pivot[0]);
-        if (angleA === angleB) {
-            // If angles are equal, sort by distance
-            const distA = Math.pow(a[0] - pivot[0], 2) + Math.pow(a[1] - pivot[1], 2);
-            const distB = Math.pow(b[0] - pivot[0], 2) + Math.pow(b[1] - pivot[1], 2);
-            return distA - distB;
-        }
-        return angleA - angleB;
-    });
-    
-    // Graham scan
-    const hull: [number, number][] = [[pivot[0], pivot[1]]];
-    
-    for (const point of sortedPoints) {
-        // Remove points that make clockwise turn
-        while (hull.length > 1) {
-            const [p1, p2] = [hull[hull.length - 2], hull[hull.length - 1]];
-            const cross = (p2[0] - p1[0]) * (point[1] - p1[1]) - (p2[1] - p1[1]) * (point[0] - p1[0]);
-            if (cross <= 0) {
-                hull.pop();
-            } else {
-                break;
-            }
-        }
-        hull.push([point[0], point[1]]);
-    }
-    
-    return hull;
-}
-
-// Alternative: Simple concave hull using edge length threshold
-function calculateSimpleConcaveHull(points: number[][], maxEdgeLength?: number): [number, number][] {
-    if (points.length < 3) return points.map(p => [p[0], p[1]] as [number, number]);
-    
-    // Calculate average distance between points to determine threshold
-    if (!maxEdgeLength) {
-        let totalDistance = 0;
-        let count = 0;
-        for (let i = 0; i < Math.min(points.length, 20); i++) {
-            for (let j = i + 1; j < Math.min(points.length, 20); j++) {
-                totalDistance += Math.sqrt(
-                    Math.pow(points[i][0] - points[j][0], 2) + 
-                    Math.pow(points[i][1] - points[j][1], 2)
-                );
-                count++;
-            }
-        }
-        maxEdgeLength = (totalDistance / count) * 2; // 2x average distance
-    }
-    
-    // Start with convex hull
-    const convexHull = calculateConvexHull(points);
-    
-    // Check if any edges are too long and need to be "cut"
-    const result: [number, number][] = [];
-    
-    for (let i = 0; i < convexHull.length; i++) {
-        const current = convexHull[i];
-        const next = convexHull[(i + 1) % convexHull.length];
-        
-        result.push(current);
-        
-        const edgeLength = Math.sqrt(
-            Math.pow(next[0] - current[0], 2) + 
-            Math.pow(next[1] - current[1], 2)
-        );
-        
-        // If edge is too long, try to find intermediate points
-        if (edgeLength > maxEdgeLength) {
-            const intermediatePoints = points.filter(p => {
-                const distToCurrent = Math.sqrt(Math.pow(p[0] - current[0], 2) + Math.pow(p[1] - current[1], 2));
-                const distToNext = Math.sqrt(Math.pow(p[0] - next[0], 2) + Math.pow(p[1] - next[1], 2));
-                
-                // Point should be closer to the edge than the edge length threshold
-                return distToCurrent < maxEdgeLength && distToNext < maxEdgeLength && 
-                       distToCurrent > 0.01 && distToNext > 0.01; // Avoid duplicates
-            });
-            
-            // Sort by distance from current point
-            intermediatePoints.sort((a, b) => {
-                const distA = Math.sqrt(Math.pow(a[0] - current[0], 2) + Math.pow(a[1] - current[1], 2));
-                const distB = Math.sqrt(Math.pow(b[0] - current[0], 2) + Math.pow(b[1] - current[1], 2));
-                return distA - distB;
-            });
-            
-            // Add a few intermediate points
-            for (let j = 0; j < Math.min(2, intermediatePoints.length); j++) {
-                result.push([intermediatePoints[j][0], intermediatePoints[j][1]]);
-            }
-        }
-    }
-    
-    return result;
 }
 
 // Styled components
@@ -352,22 +68,6 @@ const EmbeddingContainer = styled(Box)(({ theme }) => ({
     height: '100%',
     minHeight: '400px', // Fallback minimum height
     minWidth: '400px',  // Fallback minimum width
-}));
-
-// Thumbnail overlay styled component
-const ThumbnailOverlay = styled(Card)(({ theme }) => ({
-    position: 'absolute',
-    top: theme.spacing(2),
-    right: theme.spacing(2),
-    width: '200px',
-    height: '200px',
-    zIndex: 30,
-    border: '3px solid',
-    transition: 'opacity 0.3s',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    '&:hover': {
-        opacity: 1,
-    },
 }));
 
 
@@ -547,11 +247,13 @@ const StateSequenceProjection = (props) => {
     const [segmentSize, setSegmentSize] = useState(50);
     const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
     const [trajectoryColors, setTrajectoryColors] = useState(new Map<number, string>());
+    const [showTimeline, setShowTimeline] = useState(false);
     const selectedTrajectoryRef = useRef(null);
     const selectedStateRef = useRef<SelectedState | null>(null);
     const selectedCoordinateRef = useRef<SelectedCoordinate>();
     const selectedClusterRef = useRef<SelectedCluster | null>(null);
     const zoomedFunctionRef = useRef<((event: any) => void) | null>(null);
+    const currentTransformRef = useRef<d3.ZoomTransform | null>(null);
     
 
 
@@ -587,6 +289,30 @@ const StateSequenceProjection = (props) => {
     useEffect(() => {
         currentSelectionRef.current = activeLearningState.selection || [];
     }, [activeLearningState.selection]);
+
+    // Clear timeline when key props change (new checkpoint, benchmark, etc.)
+    useEffect(() => {
+        setShowTimeline(false);
+        setSelectedState(null);
+        setSelectedTrajectory(null);
+        setSelectedCluster(null);
+        setSelectedCoordinate({ x: null, y: null });
+        
+        // Clear global selection when props change
+        activeLearningDispatch({
+            type: 'SET_SELECTION',
+            payload: []
+        });
+    }, [props.benchmarkId, props.checkpointStep, props.embeddingMethod, props.reproject, props.appendTimestamp, activeLearningDispatch]);
+
+    // Show timeline when a state is selected
+    useEffect(() => {
+        if (selectedState && selectedState.episode !== null && selectedState.step !== null) {
+            setShowTimeline(true);
+        } else {
+            setShowTimeline(false);
+        }
+    }, [selectedState]);
 
     // Sync local state with global selection changes (e.g., from MergedSelectionFeedback)
     useEffect(() => {
@@ -687,6 +413,18 @@ const StateSequenceProjection = (props) => {
 
     // Load data from API
     const loadData = useCallback(() => {
+        // Capture current transform before clearing the visualization
+        if (embeddingRef.current) {
+            const svg = d3.select(embeddingRef.current).select('svg');
+            if (svg.node()) {
+                const view = svg.select('.view');
+                if (view.node()) {
+                    const currentTransform = d3.zoomTransform(view.node() as Element);
+                    currentTransformRef.current = currentTransform;
+                }
+            }
+        }
+        
         setIsLoading(true);
         setError(null);
         
@@ -696,6 +434,18 @@ const StateSequenceProjection = (props) => {
             payload: false
         });
         
+        // Clear timeline and selection state when loading new data
+        setShowTimeline(false);
+        setSelectedState(null);
+        setSelectedTrajectory(null);
+        setSelectedCluster(null);
+        setSelectedCoordinate({ x: null, y: null });
+        
+        // Also clear the global selection
+        activeLearningDispatch({
+            type: 'SET_SELECTION',
+            payload: []
+        });
         
         // Clear image cache
         canvasImageCache.clear();
@@ -776,6 +526,26 @@ const StateSequenceProjection = (props) => {
                 activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: data.episode_indices || [] });
                 activeLearningDispatch({ type: 'SET_PREDICTED_REWARDS', payload: grid_data.original_predictions || [] });
                 activeLearningDispatch({ type: 'SET_PREDICTED_UNCERTAINTIES', payload: grid_data.original_uncertainties || [] });
+
+                // Calculate and set global ranges for consistent timeline scaling
+                const rewards = grid_data.original_predictions || [];
+                const uncertainties = grid_data.original_uncertainties || [];
+                
+                if (rewards.length > 0) {
+                    const rewardRange: [number, number] = [
+                        Math.min(...rewards),
+                        Math.max(...rewards)
+                    ];
+                    activeLearningDispatch({ type: 'SET_GLOBAL_REWARD_RANGE', payload: rewardRange });
+                }
+                
+                if (uncertainties.length > 0) {
+                    const uncertaintyRange: [number, number] = [
+                        Math.min(...uncertainties),
+                        Math.max(...uncertainties)
+                    ];
+                    activeLearningDispatch({ type: 'SET_GLOBAL_UNCERTAINTY_RANGE', payload: uncertaintyRange });
+                }
 
                 // Update global state - grid data
                 // activeLearningDispatch({ type: 'SET_GRID_COORDINATES', payload: grid_coordinates });
@@ -888,6 +658,9 @@ const StateSequenceProjection = (props) => {
         // Select the previous view and get current transform
         const prevView = container.select('.view');
         const prevTransform = prevView.node() !== null ? prevView.attr('transform') : null;
+        
+        // Use the saved transform from currentTransformRef if available
+        const savedTransform = currentTransformRef.current;
 
         // Remove all children of the container
         container.selectAll('*').remove();
@@ -966,13 +739,11 @@ const StateSequenceProjection = (props) => {
                     image: img,
                     bounds: gridData.bounds
                 });
-
-                // Force initial draw if this is the first load
-                if (context) {
-                    const initialTransform = d3.zoomIdentity;
-                    drawImageToCanvas(context, predictionCacheKey, initialTransform, svgWidth, svgHeight);
-                    // After drawing the image, redraw trajectories on top
-                    zoomed({ transform: initialTransform });
+                
+                // Trigger a redraw now that the image is available, using current transform
+                if (context && view.node()) {
+                    const currentTransform = d3.zoomTransform(view.node() as Element);
+                    zoomed({ transform: currentTransform });
                 }
             };
 
@@ -1081,10 +852,25 @@ const StateSequenceProjection = (props) => {
         // Create view group
         const view = svg.append('g').attr('class', 'view');
 
-        // Apply previous transform to the view if exists
-        if (prevTransform) {
-            view.attr('transform', prevTransform);
+        // Apply saved transform to the view if available, otherwise fall back to previous transform
+        let transformToApply = null;
+        if (savedTransform && !savedTransform.k.toString().includes('NaN') && savedTransform.k > 0) {
+            transformToApply = savedTransform;
+        } else if (prevTransform) {
+            // Parse the transform string if available
+            const match = prevTransform.match(/translate\(([^,]+),([^)]+)\)\s*scale\(([^)]+)\)/);
+            if (match) {
+                const x = parseFloat(match[1]);
+                const y = parseFloat(match[2]); 
+                const k = parseFloat(match[3]);
+                if (!isNaN(x) && !isNaN(y) && !isNaN(k) && k > 0) {
+                    transformToApply = d3.zoomIdentity.translate(x, y).scale(k);
+                }
+            }
         }
+        
+        // Store the transform to apply for use in async image loading
+        const finalTransform = transformToApply || d3.zoomIdentity;
 
         // Add invisible rect to capture events
         const view_rect = view
@@ -1494,9 +1280,19 @@ const StateSequenceProjection = (props) => {
                 
                 const expandedHull = mergedSegment.convexHull.map(point => {
                     // Calculate vector from centroid to hull point
-                    const dx = point[0] - centroid[0];
-                    const dy = point[1] - centroid[1];
-                    
+                    let dx = point[0] - centroid[0];
+                    let dy = point[1] - centroid[1];
+
+                    console.log("DXDY", dx, dy);
+                    // make sure that dx/dy is suffiently wide
+                    if (Math.abs(dx) < 0.01) {
+
+                        dx = Math.sign(dx) * 0.01;
+                    }
+                    if (Math.abs(dy) < 0.01) {
+                        dy = Math.sign(dy) * 0.01;
+                    }
+
                     // Scale the vector outward by the expansion factor
                     return [
                         centroid[0] + dx * expansionFactor,
@@ -1511,15 +1307,14 @@ const StateSequenceProjection = (props) => {
                     .attr('class', 'uncertainty-segment')
                     .attr('id', `uncertainty-segment-${mergedSegment.id}`);
                 
-                // Add hull path with yellow outline, no fill
+                // Add invisible clickable area first
                 segmentElement
                     .append('path')
-                    .attr('class', 'uncertainty-segment-hull')
+                    .attr('class', 'uncertainty-segment-clickarea')
                     .attr('d', 'M' + mappedHull.join('L') + 'Z')
                     .attr('fill', 'none')
-                    .attr('stroke', '#FF6B35') // Bright orange for high visibility
-                    .attr('stroke-width', 3)
-                    .attr('opacity', 1.0)
+                    .attr('stroke', 'transparent')
+                    .attr('stroke-width', 4) // Wide invisible stroke for easier clicking
                     .style('cursor', 'pointer')
                     .on('click', function (event) {
                         event.stopPropagation();
@@ -1542,13 +1337,14 @@ const StateSequenceProjection = (props) => {
                         
                         // Reset all segment strokes
                         segmentGroup.selectAll('.uncertainty-segment-hull')
-                            .attr('stroke', '#FF6B35')
+                            .attr('stroke', '#333333')
+                            .attr('opacity', 0.7)
                             .attr('stroke-width', 3);
                         
-                        // Highlight this segment
-                        d3.select(this)
-                            .attr('stroke', '#FFFFFF')
-                            .attr('stroke-width', 4);
+                        // Highlight this segment's visible hull
+                        d3.select(this.parentNode).select('.uncertainty-segment-hull')
+                            .attr('stroke-width', 5)
+                            .attr('opacity', 1.0);
                         
                         // Get all indices belonging to this merged segment (precomputed)
                         const segmentIndices = topMergedSegments[index].globalIndices || [];
@@ -1576,6 +1372,18 @@ const StateSequenceProjection = (props) => {
                         zoomed({ transform: currentTransform });
                     });
                 
+                // Add visible dashed hull path on top
+                segmentElement
+                    .append('path')
+                    .attr('class', 'uncertainty-segment-hull')
+                    .attr('d', 'M' + mappedHull.join('L') + 'Z')
+                    .attr('fill', 'none')
+                    .attr('stroke', '#333333') // Dark grey
+                    .attr('stroke-width', 3)
+                    .attr('stroke-dasharray', '5,5') // Dashed line
+                    .attr('opacity', 0.7)
+                    .style('pointer-events', 'none'); // Don't interfere with clicking
+                
                 // Add merged segment label (H1, H2, etc. for "High uncertainty")
                 const center = mergedSegment.centroid;
                 segmentElement
@@ -1590,7 +1398,7 @@ const StateSequenceProjection = (props) => {
                     .attr('fill', '#000000')
                     .attr('stroke-width', 2)
                     .attr('pointer-events', 'none')
-                    .text(`${index + 1}`);
+                    //.text(`${index + 1}`);
             });
         }
 
@@ -1620,6 +1428,9 @@ const StateSequenceProjection = (props) => {
 
             const transform = event.transform;
             view.attr('transform', transform);
+            
+            // Store the current transform for future data reloads
+            currentTransformRef.current = transform;
 
             const currentHighlightedTrajectory = selectedTrajectoryRef.current;
 
@@ -1837,14 +1648,13 @@ const StateSequenceProjection = (props) => {
 
         svg.call(zoom as any);
 
-        // Draw initial state with identity transform - both canvas and SVG elements
-        const initialTransform = d3.zoomIdentity;
-        
-        /*if (canvasImageCache.has(predictionCacheKey)) {
-            drawImageToCanvas(context, predictionCacheKey, initialTransform, svgWidth, svgHeight);
-        }*/
+        // Apply the transform to the zoom behavior itself so it's properly initialized
+        if (transformToApply) {
+            svg.call(zoom.transform as any, transformToApply);
+        }
 
-        zoomed({ transform: initialTransform });
+        // Draw initial state - this will handle both cases (image loaded or not)
+        zoomed({ transform: finalTransform });
 
         return () => {
             // Cleanup on unmount
@@ -1852,209 +1662,294 @@ const StateSequenceProjection = (props) => {
     }, [props, activeLearningState.grid_prediction_image, activeLearningDispatch, maxUncertaintySegments]);
 
     return (
-        <EmbeddingWrapper>
-            {/* Error alert */}
-            {error && (
-                <Box
-                    position="absolute"
-                    top="50%"
-                    left="50%"
-                    sx={{ transform: 'translate(-50%, -50%)', zIndex: 20 }}
-                >
-                    <Alert severity="error">{error}</Alert>
-                </Box>
-            )}
-
-            {/* Loading indicator */}
-            {isLoading && (
-                <Box
-                    position="absolute"
-                    top="50%"
-                    left="50%"
-                    sx={{ transform: 'translate(-50%, -50%)', zIndex: 20 }}
-                >
-                    <CircularProgress />
-                </Box>
-            )}
-
-            {/* Main visualization area */}
-            <OnboardingHighlight stepId="select-trajectory" pulse={true} preserveLayout={true}>
-                <EmbeddingContainer ref={embeddingRef} />
-            </OnboardingHighlight>
-
-
-            <Box
-                position="absolute"
-                bottom="20px"
-                left="50%"
-                sx={{
-                    transform: 'translateX(-50%)',
-                    zIndex: 10,
-                    display: 'flex',
-                    gap: 2,
-                    visibility: isLoading ? 'hidden' : 'visible'
-                }}
-            >
-                <Tooltip title="Clear Selection">
-                    <IconButton
-                        color="default"
-                        sx={{
-                            backgroundColor: 'rgba(185, 185, 185, 0.7)',
-                            '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
-                        }}
-                        onClick={() => {
-                            activeLearningDispatch({
-                                type: 'SET_SELECTION',
-                                payload: []
-                            });
-                            // Clear local selection state
-                            setSelectedState(null);
-                            setSelectedTrajectory(null);
-                            setSelectedCluster(null);
-                            setSelectedCoordinate({ x: null, y: null });
-                            // Reset multi-select mode when clearing selection
-                            setMultiSelectMode(false);
-                        }}
+        <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+            <EmbeddingWrapper>
+                {/* Error alert */}
+                {error && (
+                    <Box
+                        position="absolute"
+                        top="50%"
+                        left="50%"
+                        sx={{ transform: 'translate(-50%, -50%)', zIndex: 20 }}
                     >
-                        <DeleteIcon />
-                    </IconButton>
-                </Tooltip>
+                        <Alert severity="error">{error}</Alert>
+                    </Box>
+                )}
 
-                <OnboardingHighlight stepId="multi-select-mode" pulse={true}>
-                    <Tooltip title={multiSelectMode ? "Multi-Select Mode: ON" : "Multi-Select Mode: OFF"}>
+                {/* Loading indicator */}
+                {isLoading && (
+                    <Box
+                        position="absolute"
+                        top="50%"
+                        left="50%"
+                        sx={{ transform: 'translate(-50%, -50%)', zIndex: 20 }}
+                    >
+                        <CircularProgress />
+                    </Box>
+                )}
+
+                {/* Main visualization area */}
+                <OnboardingHighlight stepId="select-trajectory" pulse={true} preserveLayout={true}>
+                    <EmbeddingContainer ref={embeddingRef} />
+                </OnboardingHighlight>
+
+
+
+                <Box
+                    position="absolute"
+                    bottom="20px"
+                    left="50%"
+                    sx={{
+                        transform: 'translateX(-50%)',
+                        zIndex: 10,
+                        display: 'flex',
+                        gap: 2,
+                        visibility: isLoading ? 'hidden' : 'visible'
+                    }}
+                >
+                    <Tooltip title="Clear Selection">
                         <IconButton
-                            color={multiSelectMode ? "primary" : "default"}
+                            color="default"
                             sx={{
-                                backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.7)' : 'rgba(185, 185, 185, 0.7)',
-                                '&:hover': { backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.9)' : 'rgba(185, 185, 185, 0.9)' }
+                                backgroundColor: 'rgba(185, 185, 185, 0.7)',
+                                '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
                             }}
                             onClick={() => {
-                                if (selectedTrajectory || selectedState) {
-                                    setMultiSelectMode(!multiSelectMode);
-                                }
+                                activeLearningDispatch({
+                                    type: 'SET_SELECTION',
+                                    payload: []
+                                });
+                                // Clear local selection state
+                                setSelectedState(null);
+                                setSelectedTrajectory(null);
+                                setSelectedCluster(null);
+                                setSelectedCoordinate({ x: null, y: null });
+                                // Reset multi-select mode when clearing selection
+                                setMultiSelectMode(false);
                             }}
                         >
-                            <AddIcon />
+                            <DeleteIcon />
                         </IconButton>
                     </Tooltip>
-                </OnboardingHighlight>
-            </Box>
 
-            {/* Selected cluster info display */}
-            {selectedCluster && (
+                    <OnboardingHighlight stepId="multi-select-mode" pulse={true}>
+                        <Tooltip title={multiSelectMode ? "Multi-Select Mode: ON" : "Multi-Select Mode: OFF"}>
+                            <IconButton
+                                color={multiSelectMode ? "primary" : "default"}
+                                sx={{
+                                    backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.7)' : 'rgba(185, 185, 185, 0.7)',
+                                    '&:hover': { backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.9)' : 'rgba(185, 185, 185, 0.9)' }
+                                }}
+                                onClick={() => {
+                                    if (selectedTrajectory || selectedState) {
+                                        setMultiSelectMode(!multiSelectMode);
+                                    }
+                                }}
+                            >
+                                <AddIcon />
+                            </IconButton>
+                        </Tooltip>
+                    </OnboardingHighlight>
+                </Box>
+
+                {/* Selected cluster info display */}
+                {selectedCluster && (
+                    <Box
+                        position="absolute"
+                        top="10px"
+                        right="10px"
+                        sx={{
+                            zIndex: 15,
+                            backgroundColor: 'rgba(51, 51, 51, 0.8)', // Match cluster color
+                            color: 'white',
+                            padding: 2,
+                            borderRadius: 2,
+                            border: '2px solid #333333',
+                            boxShadow: '0 4px 8px rgba(0,0,0,0.3)'
+                        }}
+                    >
+                        <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
+                            {selectedCluster.label}
+                        </Typography>
+                        <Typography variant="body2">
+                            {selectedCluster.indices.length} states
+                        </Typography>
+                    </Box>
+                )}
+
+                {/* Load Data button and segment controls */}
                 <Box
                     position="absolute"
                     top="10px"
-                    right="10px"
-                    sx={{
-                        zIndex: 15,
-                        backgroundColor: 'rgba(199, 54, 2, 0.4)', // Match cluster color
-                        color: 'white',
-                        padding: 2,
-                        borderRadius: 2,
-                        border: '2px solid #FF6B35',
-                        boxShadow: '0 4px 8px rgba(0,0,0,0.3)'
-                    }}
+                    left="50px"
+                    sx={{ zIndex: 10, display: 'flex', gap: 2, alignItems: 'center' }}
                 >
-                    <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>
-                        {selectedCluster.label}
-                    </Typography>
-                    <Typography variant="body2">
-                        {selectedCluster.indices.length} states
-                    </Typography>
+                    <OnboardingHighlight stepId="load-data" pulse={true}>
+                        <Button variant="contained" color="primary" onClick={loadData} disabled={isLoading}>
+                            {isLoading ? 'Loading...' : 'Load Data'}
+                        </Button>
+                    </OnboardingHighlight>
+                    
+                    {/* Episodes overview */}
+                    <Box sx={{ backgroundColor: 'rgba(158, 158, 158, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
+                        <Typography variant="caption" fontWeight="bold">
+                            Episodes: {new Set(activeLearningState.episodeIndices).size} displayed
+                        </Typography>
+                    </Box>
+                    
                 </Box>
-            )}
 
-            {/* Load Data button and segment controls */}
-            <Box
-                position="absolute"
-                top="10px"
-                left="50px"
-                sx={{ zIndex: 10, display: 'flex', gap: 2, alignItems: 'center' }}
-            >
-                <OnboardingHighlight stepId="load-data" pulse={true}>
-                    <Button variant="contained" color="primary" onClick={loadData} disabled={isLoading}>
-                        {isLoading ? 'Loading...' : 'Load Data'}
-                    </Button>
-                </OnboardingHighlight>
-                
-                {/* Episodes overview */}
-                <Box sx={{ backgroundColor: 'rgba(158, 158, 158, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
-                    <Typography variant="caption" fontWeight="bold">
-                        Episodes: {new Set(activeLearningState.episodeIndices).size} displayed
-                    </Typography>
-                </Box>
-                
-            </Box>
+                {/* Legend for object color */}
+                {minMaxScale && (
+                    <ObjectLegend>
+                        <ColorLegend
+                            minMax={minMaxScale}
+                            width={240}
+                            title="Predicted Reward/Uncertainty"
+                        />
+                    </ObjectLegend>
+                )}
 
-            {/* Legend for object color */}
-            {minMaxScale && (
-                <ObjectLegend>
-                    <ColorLegend
-                        minMax={minMaxScale}
-                        width={240}
-                        title="Predicted Reward/Uncertainty"
-                    />
-                </ObjectLegend>
-            )}
+                {/* Glyph legend */}
+                <GlyphLegend>
+                    <GlyphLegendComponent />
+                </GlyphLegend>
 
-            {/* Glyph legend */}
-            <GlyphLegend>
-                <GlyphLegendComponent />
-            </GlyphLegend>
-
-            {/* Load Data Hint Overlay */}
-            {activeLearningState.shouldLoadNewData && (
+                {/* Load Data Hint Overlay */}
+                {activeLearningState.shouldLoadNewData && (
+                    <Box
+                        sx={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 1000,
+                            backdropFilter: 'blur(2px)',
+                        }}
+                    >
+                        <Paper
+                            elevation={8}
+                            sx={{
+                                p: 3,
+                                maxWidth: 400,
+                                textAlign: 'center',
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                borderRadius: 2,
+                            }}
+                        >
+                            <Typography variant="h6" sx={{ mb: 2, color: 'primary.main', fontWeight: 'bold' }}>
+                                Training Stage Complete
+                            </Typography>
+                            <Typography variant="body1" sx={{ mb: 3, color: 'text.primary' }}>
+                                Based on your feedback, the model has been updated. Continue with new data from the updated model.
+                            </Typography>
+                            <Button
+                                variant="contained"
+                                color="primary"
+                                onClick={loadData}
+                                disabled={isLoading}
+                                size="large"
+                                sx={{
+                                    px: 4,
+                                    py: 1.5,
+                                    fontSize: '1.1rem',
+                                    fontWeight: 'bold',
+                                }}
+                            >
+                                {isLoading ? 'Loading...' : 'Continue To Next Phase'}
+                            </Button>
+                        </Paper>
+                    </Box>
+                )}
+            </EmbeddingWrapper>
+            
+            {/* Timeline Component - Positioned relative to the StateSequenceProjection container */}
+            {showTimeline && selectedState && selectedState.episode !== null && selectedState.step !== null && (
                 <Box
                     sx={{
                         position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: 'rgba(0, 0, 0, 0.4)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
+                        bottom: 15,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
                         zIndex: 1000,
-                        backdropFilter: 'blur(2px)',
+                        pointerEvents: 'auto', // Ensure the timeline can receive events
                     }}
                 >
-                    <Paper
-                        elevation={8}
-                        sx={{
-                            p: 3,
-                            maxWidth: 400,
-                            textAlign: 'center',
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            borderRadius: 2,
+                    <TimelineComponent
+                        selectedEpisode={selectedState.episode}
+                        selectedStep={selectedState.step}
+                        onClose={() => setShowTimeline(false)}
+                        onStepSelect={(step) => {
+                            // Update the selected state with the new step
+                            if (selectedState.episode !== null) {
+                                // Calculate the global index for this episode and step
+                                const episodeStartIndex = activeLearningState.episodeIndices.findIndex(idx => idx === selectedState.episode);
+                                if (episodeStartIndex !== -1) {
+                                    const globalIndex = episodeStartIndex + step;
+                                    const projectionStates = activeLearningState.projectionStates || [];
+                                    
+                                    if (globalIndex < projectionStates.length) {
+                                        const coords = projectionStates[globalIndex];
+                                        // Ensure coords has at least 2 elements
+                                        const safeCoords: [number, number] = coords.length >= 2 ? [coords[0], coords[1]] : [0, 0];
+                                        
+                                        const newSelectedState: SelectedState = {
+                                            episode: selectedState.episode,
+                                            step: step,
+                                            coords: safeCoords,
+                                            x: safeCoords[0],
+                                            y: safeCoords[1],
+                                            index: globalIndex
+                                        };
+                                        
+                                        setSelectedState(newSelectedState);
+                                        selectedStateRef.current = newSelectedState;
+                                        
+                                        // Update global selection
+                                        const newStateSelection: SelectionItem = { 
+                                            type: "state", 
+                                            data: {
+                                                episode: selectedState.episode,
+                                                step: step,
+                                                coords: safeCoords,
+                                                x: safeCoords[0],
+                                                y: safeCoords[1],
+                                                index: globalIndex
+                                            }
+                                        };
+                                        
+                                        activeLearningDispatch({
+                                            type: 'SET_SELECTION',
+                                            payload: [newStateSelection]
+                                        });
+                                        
+                                        // Trigger a redraw to show the updated state
+                                        if (zoomedFunctionRef.current && embeddingRef.current) {
+                                            const svg = d3.select(embeddingRef.current).select('svg');
+                                            if (svg.node()) {
+                                                const view = svg.select('.view');
+                                                if (view.node()) {
+                                                    const viewNode = view.node() as Element;
+                                                    const currentTransform = d3.zoomTransform(viewNode);
+                                                    zoomedFunctionRef.current({ transform: currentTransform });
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }}
-                    >
-                        <Typography variant="h6" sx={{ mb: 2, color: 'primary.main', fontWeight: 'bold' }}>
-                            Training Stage Complete
-                        </Typography>
-                        <Typography variant="body1" sx={{ mb: 3, color: 'text.primary' }}>
-                            Based on your feedback, the model has been updated. Continue with new data from the updated model.
-                        </Typography>
-                        <Button
-                            variant="contained"
-                            color="primary"
-                            onClick={loadData}
-                            disabled={isLoading}
-                            size="large"
-                            sx={{
-                                px: 4,
-                                py: 1.5,
-                                fontSize: '1.1rem',
-                                fontWeight: 'bold',
-                            }}
-                        >
-                            {isLoading ? 'Loading...' : 'Continue To Next Phase'}
-                        </Button>
-                    </Paper>
+                        width={600}
+                        height={100}
+                    />
                 </Box>
             )}
-        </EmbeddingWrapper>
+        </Box>
     );
 
 };
