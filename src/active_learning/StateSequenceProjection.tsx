@@ -36,6 +36,8 @@ import { OnboardingHighlight } from './OnboardingSystem';
 import TimelineComponent from './TimelineComponent';
 
 const canvasImageCache = new Map();
+const DEBUG_ALIGNMENT = true;
+const loggedImageKeys = new Set<string>();
 
 // Enhanced trajectory visualization functions to reduce overplotting
 function drawTrajectory(context, points, color, lineWidth = 2) {
@@ -503,7 +505,8 @@ const StateSequenceProjection = (props) => {
                 // Update state with projection data
                 activeLearningDispatch({ type: 'SET_EMBEDDING_DATA', payload: data.embedding });
 
-                // Set projectionStates to be used by GridUncertaintyMap
+                // Set projectionStates to be used across the UI (timeline, selections)
+                // Use the API projection (expected to be joint/global if available)
                 activeLearningDispatch({ type: 'SET_PROJECTION_STATES', payload: data.projection });
 
                 // Update grid image data
@@ -598,10 +601,36 @@ const StateSequenceProjection = (props) => {
                     }
                 }
 
+                // Debug: print projection/image metadata
+                if (DEBUG_ALIGNMENT) {
+                    console.log('[Projection] lengths', {
+                        projection_len: data.projection?.length,
+                        original_coords_len: grid_data.original_coordinates?.length,
+                    });
+                    console.log('[Projection] bounds from backend', grid_data.projection_bounds);
+                }
+
                 // Draw the chart with all data including segments
+                // Use API projection coordinates (should be joint/global if available)
+                const coordsForOverlay = data.projection;
+
+                if (DEBUG_ALIGNMENT) {
+                    console.log('[Overlay] using', coordsForOverlay === grid_data.original_coordinates ? 'original_coordinates' : 'projection');
+                    const xs = coordsForOverlay?.map(d => d[0]) || [];
+                    const ys = coordsForOverlay?.map(d => d[1]) || [];
+                    const minX = xs.length ? Math.min(...xs) : null;
+                    const maxX = xs.length ? Math.max(...xs) : null;
+                    const minY = ys.length ? Math.min(...ys) : null;
+                    const maxY = ys.length ? Math.max(...ys) : null;
+                    console.log('[Overlay] extents', { minX, maxX, minY, maxY });
+                    console.log('[Overlay] sample points', {
+                        first: coordsForOverlay?.[0],
+                        last: coordsForOverlay?.[coordsForOverlay.length - 1]
+                    });
+                }
                 drawChart(
                     viewMode,
-                    data.projection,
+                    coordsForOverlay,
                     data.labels,
                     data.actions,
                     data.dones,
@@ -692,18 +721,36 @@ const StateSequenceProjection = (props) => {
             .attr('transform', `translate(${margin.left},${margin.top})`);
 
         // Set up scales
-        const xExtent = d3.extent(processedData.map((d) => d[0]));
-        const yExtent = d3.extent(processedData.map((d) => d[1]));
+        // Prefer globally consistent bounds from gridData if available to ensure
+        // a stable coordinate system and aspect ratio across checkpoints.
+        const hasGlobalBounds = gridData && gridData.bounds &&
+            typeof gridData.bounds.x_min === 'number' && typeof gridData.bounds.x_max === 'number' &&
+            typeof gridData.bounds.y_min === 'number' && typeof gridData.bounds.y_max === 'number';
 
-        // Add padding to the domains to show surrounding area
-        const xPadding = (xExtent[1] - xExtent[0]) * 0.1; // 10% padding
-        const yPadding = (yExtent[1] - yExtent[0]) * 0.1; // 10% padding
+        let xDomain: [number, number];
+        let yDomain: [number, number];
 
-        const xDomain = [xExtent[0] - xPadding, xExtent[1] + xPadding];
-        const yDomain = [yExtent[0] - yPadding, yExtent[1] + yPadding];
+        if (hasGlobalBounds) {
+            // Use the projection bounds coming from the backend image metadata
+            xDomain = [gridData.bounds.x_min, gridData.bounds.x_max];
+            yDomain = [gridData.bounds.y_min, gridData.bounds.y_max];
+        } else {
+            // Fallback to data-driven extents with modest padding
+            const xExtent = d3.extent(processedData.map((d) => d[0]));
+            const yExtent = d3.extent(processedData.map((d) => d[1]));
+            const xPadding = (xExtent[1] - xExtent[0]) * 0.1; // 10% padding
+            const yPadding = (yExtent[1] - yExtent[0]) * 0.1; // 10% padding
+            xDomain = [xExtent[0] - xPadding, xExtent[1] + xPadding];
+            yDomain = [yExtent[0] - yPadding, yExtent[1] + yPadding];
+        }
 
         const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
         const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
+
+        if (DEBUG_ALIGNMENT) {
+            console.log('[Scales] svg size', { svgWidth, svgHeight });
+            console.log('[Scales] domains', { xDomain, yDomain });
+        }
 
         // Set up color mapping
         Color2D.ranges = { x: xDomain, y: yDomain };
@@ -739,6 +786,14 @@ const StateSequenceProjection = (props) => {
                     image: img,
                     bounds: gridData.bounds
                 });
+                if (DEBUG_ALIGNMENT) {
+                    console.log('[Image] prediction loaded', {
+                        key: predictionCacheKey,
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
+                        bounds: gridData.bounds
+                    });
+                }
                 
                 // Trigger a redraw now that the image is available, using current transform
                 if (context && view.node()) {
@@ -762,6 +817,14 @@ const StateSequenceProjection = (props) => {
                     image: img,
                     bounds: gridData.bounds
                 });
+                if (DEBUG_ALIGNMENT) {
+                    console.log('[Image] uncertainty loaded', {
+                        key: uncertaintyCacheKey,
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
+                        bounds: gridData.bounds
+                    });
+                }
             };
 
             img.onerror = (e) => {
@@ -773,17 +836,14 @@ const StateSequenceProjection = (props) => {
 
         // Helper function to calculate image bounds matching the projection space
         function calculateImageBounds(xScale, yScale, bounds) {
-            // If we have grid data with bounds, use them
+            // If we have grid data with bounds, use them exactly (no additional padding)
+            // Backend already applies consistent 15% margin in global bounds computation
             if (bounds) {
-                // Add some padding to the bounds to show surrounding area
-                const xPadding = (bounds.x_max - bounds.x_min) * 0.1; // 10% padding
-                const yPadding = (bounds.y_max - bounds.y_min) * 0.1; // 10% padding
-
                 return {
-                    x: xScale(bounds.x_min - xPadding),
-                    y: yScale(bounds.y_max + yPadding), // Note: y axis is flipped
-                    width: xScale(bounds.x_max + xPadding) - xScale(bounds.x_min - xPadding),
-                    height: yScale(bounds.y_min - yPadding) - yScale(bounds.y_max + yPadding)
+                    x: xScale(bounds.x_min),
+                    y: yScale(bounds.y_max), // Note: y axis is flipped in SVG coordinate system
+                    width: xScale(bounds.x_max) - xScale(bounds.x_min),
+                    height: yScale(bounds.y_min) - yScale(bounds.y_max)
                 };
             }
 
@@ -815,6 +875,17 @@ const StateSequenceProjection = (props) => {
             // Calculate image bounds in projection space
             const imageBounds = calculateImageBounds(xScale, yScale, imgData.bounds);
 
+            if (DEBUG_ALIGNMENT && !loggedImageKeys.has(imageKey)) {
+                console.log('[CanvasDraw] key', imageKey, {
+                    transform: { x: transform.x, y: transform.y, k: transform.k },
+                    imageBounds,
+                    xDomain,
+                    yDomain,
+                    canvas: { width, height }
+                });
+                loggedImageKeys.add(imageKey);
+            }
+
             // Draw the image with proper scaling
             ctx.globalAlpha = 0.5; // Slightly transparent so we can see points on top
             ctx.drawImage(
@@ -825,6 +896,8 @@ const StateSequenceProjection = (props) => {
 
             ctx.restore();
         }
+
+        let loggedFirstZoom = false;
 
         const zoom = d3
             .zoom()
@@ -1283,7 +1356,6 @@ const StateSequenceProjection = (props) => {
                     let dx = point[0] - centroid[0];
                     let dy = point[1] - centroid[1];
 
-                    console.log("DXDY", dx, dy);
                     // make sure that dx/dy is suffiently wide
                     if (Math.abs(dx) < 0.01) {
 
@@ -1448,6 +1520,26 @@ const StateSequenceProjection = (props) => {
                 payload: computedTrajectoryColors
             });
             
+            // Debug on first zoom: map a sample point vs image bounds
+            if (DEBUG_ALIGNMENT && !loggedFirstZoom) {
+                try {
+                    const sample = processedData?.[0];
+                    const px = sample ? xScale(sample[0]) : null;
+                    const py = sample ? yScale(sample[1]) : null;
+                    const imgData = canvasImageCache.get(predictionCacheKey);
+                    const ib = imgData ? calculateImageBounds(xScale, yScale, imgData.bounds) : null;
+                    console.log('[Zoom] first', {
+                        transform: { x: transform.x, y: transform.y, k: transform.k },
+                        sample_coord: sample,
+                        sample_screen: sample && px !== null && py !== null ? { x: px, y: py } : null,
+                        imageBounds: ib
+                    });
+                } catch (e) {
+                    console.log('[Zoom] debug error', e);
+                }
+                loggedFirstZoom = true;
+            }
+
             // First, draw the grid image to the canvas with proper transformation
             if (context) {
                 // Draw the appropriate image based on visualization mode
@@ -1487,6 +1579,10 @@ const StateSequenceProjection = (props) => {
                     // Batch draw points for better performance
                     //context.globalAlpha = 0.5;
                     context.beginPath();
+
+                    // debug min/max values for processed data coordinates
+                    console.log('Processed data X range:', d3.min(processedData, d => d[0]), d3.max(processedData, d => d[0]));
+                    console.log('Processed data Y range:', d3.min(processedData, d => d[1]), d3.max(processedData, d => d[1]));
 
                     for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
 

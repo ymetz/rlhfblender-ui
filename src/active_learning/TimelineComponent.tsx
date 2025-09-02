@@ -1,22 +1,16 @@
 import React, { useMemo, useCallback } from "react";
 import { Box, Typography, IconButton } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import { Line, Bar, LinePath } from "@visx/shape";
+import { Line, Bar, LinePath, AreaClosed } from "@visx/shape";
 import { AxisLeft, AxisBottom } from "@visx/axis";
 import { curveMonotoneX } from "@visx/curve";
 import { GridRows, GridColumns } from "@visx/grid";
 import { scaleLinear } from "@visx/scale";
 import { Group } from "@visx/group";
-import { Glyph as GlyphCircle } from "@visx/glyph";
-import {
-  withTooltip,
-  Tooltip as VisxTooltip,
-  TooltipWithBounds,
-  defaultStyles,
-} from "@visx/tooltip";
+import { withTooltip, TooltipWithBounds, defaultStyles } from "@visx/tooltip";
 import { WithTooltipProvidedProps } from "@visx/tooltip/lib/enhancers/withTooltip";
 import { localPoint } from "@visx/event";
-import { useTheme } from "@mui/material/styles";
+import { useTheme, alpha } from "@mui/material/styles";
 import { useActiveLearningState } from "../ActiveLearningContext";
 import { getEpisodeColor } from "./utils/trajectoryColors";
 
@@ -30,11 +24,26 @@ type TimelineComponentProps = {
   margin?: { top: number; right: number; bottom: number; left: number };
 };
 
-type TooltipProps = {
-  value: number;
-  index: number;
-  uncertainty?: number;
-};
+type TooltipProps = { value: number; index: number; uncertainty?: number };
+
+// choose ~2–3 clean ticks regardless of height
+function pickTicks(scale: any, desired = 3): number[] {
+  const t = scale.ticks(6);
+  if (t.length <= desired) return t;
+  const out = [t[0]];
+  const step = (t.length - 1) / (desired - 1);
+  for (let i = 1; i < desired - 1; i++) out.push(t[Math.round(i * step)]);
+  out.push(t[t.length - 1]);
+  // ensure uniqueness, ascending
+  return Array.from(new Set(out)).sort((a, b) => a - b);
+}
+
+function estimateLabelWidth(values: number[], digits = 2) {
+  const labels = values.map((v) => Number(v).toFixed(digits));
+  const charW = 6.5; // ~px at 11px font
+  const pad = 12;
+  return Math.ceil(Math.max(...labels.map((s) => s.length)) * charW + pad);
+}
 
 const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
   ({
@@ -43,8 +52,8 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
     onClose,
     onStepSelect,
     width = 600,
-    height = 100,
-    margin = { top: 15, right: 10, bottom: 30, left: 45 },
+    height = 200,
+    margin = { top: 16, right: 10, bottom: 30, left: 48 },
     showTooltip,
     hideTooltip,
     tooltipData,
@@ -52,193 +61,173 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
     tooltipLeft = 0,
   }: TimelineComponentProps & WithTooltipProvidedProps<TooltipProps>) => {
     const theme = useTheme();
-    const activeLearningState = useActiveLearningState();
-    
-    // Extract episode data from the global state
-    const { 
-      episodeIndices, 
-      predicted_rewards, 
-      predicted_uncertainties, 
+    const {
+      episodeIndices,
+      predicted_rewards,
+      predicted_uncertainties,
       trajectoryColors,
       globalRewardRange,
-      globalUncertaintyRange 
-    } = activeLearningState;
-    
-    // Get the color for this episode
+      globalUncertaintyRange,
+    } = useActiveLearningState();
+
     const episodeColor = getEpisodeColor(selectedEpisode, trajectoryColors, true);
 
-    // Calculate episode-specific data
+    // episode data
     const episodeData = useMemo(() => {
       if (!episodeIndices || episodeIndices.length === 0) {
         return { rewards: [], uncertainties: [], startIndex: 0, endIndex: 0 };
       }
-
-      // Find all indices that belong to the selected episode
-      const episodeStartIndex = episodeIndices.findIndex(idx => idx === selectedEpisode);
-      if (episodeStartIndex === -1) {
+      const start = episodeIndices.findIndex((idx) => idx === selectedEpisode);
+      if (start === -1) {
         return { rewards: [], uncertainties: [], startIndex: 0, endIndex: 0 };
       }
-
-      // Find where this episode ends (where the next different episode starts)
-      let episodeEndIndex = episodeStartIndex;
-      for (let i = episodeStartIndex + 1; i < episodeIndices.length; i++) {
-        if (episodeIndices[i] !== selectedEpisode) {
-          break;
-        }
-        episodeEndIndex = i;
+      let end = start;
+      for (let i = start + 1; i < episodeIndices.length; i++) {
+        if (episodeIndices[i] !== selectedEpisode) break;
+        end = i;
       }
-
-      // Extract rewards and uncertainties for this episode
-      const episodeRewards = predicted_rewards.slice(episodeStartIndex, episodeEndIndex + 1);
-      const episodeUncertainties = predicted_uncertainties.slice(episodeStartIndex, episodeEndIndex + 1);
-
       return {
-        rewards: episodeRewards,
-        uncertainties: episodeUncertainties,
-        startIndex: episodeStartIndex,
-        endIndex: episodeEndIndex
+        rewards: predicted_rewards.slice(start, end + 1),
+        uncertainties: predicted_uncertainties.slice(start, end + 1),
+        startIndex: start,
+        endIndex: end,
       };
     }, [selectedEpisode, episodeIndices, predicted_rewards, predicted_uncertainties]);
 
     const { rewards, uncertainties } = episodeData;
-
     if (width < 10 || rewards.length === 0) return null;
 
-    const innerWidth = width - margin.left - margin.right;
+    // layout
     const innerHeight = height - margin.top - margin.bottom;
+    const panelGap = 10;
+    const topPanelHeight = Math.floor((innerHeight - panelGap) / 2);
+    const bottomPanelHeight = innerHeight - topPanelHeight - panelGap;
+    const topPanelTop = margin.top;
+    const bottomPanelTop = margin.top + topPanelHeight + panelGap;
 
-    const stepScale = useMemo(
+    // colors
+    const rewardColor = theme.palette.success.main;
+    const rewardFill = alpha(rewardColor, 0.18);
+    const uncertColor = theme.palette.warning.main;
+    const uncertFill = alpha(uncertColor, 0.18);
+
+    // domains
+    const rewardDomain: [number, number] = useMemo(() => {
+      if (globalRewardRange) return globalRewardRange;
+      return [Math.min(...rewards), Math.max(...rewards)];
+    }, [globalRewardRange, rewards]);
+
+    const uncertaintyDomain: [number, number] = useMemo(() => {
+      if (globalUncertaintyRange) return globalUncertaintyRange;
+      return [0, Math.max(...uncertainties)];
+    }, [globalUncertaintyRange, uncertainties]);
+
+    // y scales (already offset by panel tops)
+    const rewardScale = useMemo(
       () =>
-        scaleLinear({
-          range: [margin.left, innerWidth + margin.left],
-          domain: [0, Math.max(0, rewards.length - 1)],
-        }),
-      [innerWidth, margin.left, rewards.length],
-    );
-
-    const valueScale = useMemo(
-      () => {
-        // Use global reward range if available, otherwise fall back to episode data
-        let domain: [number, number];
-        if (globalRewardRange) {
-          domain = globalRewardRange;
-        } else if (rewards.length > 0) {
-          domain = [Math.min(...rewards), Math.max(...rewards)];
-        } else {
-          domain = [0, 1];
-        }
-        
-        return scaleLinear({
-          range: [innerHeight + margin.top, margin.top],
-          domain: domain,
+        scaleLinear<number>({
+          range: [topPanelTop + topPanelHeight, topPanelTop],
+          domain: rewardDomain,
           nice: true,
-        });
-      },
-      [innerHeight, margin.top, globalRewardRange, rewards],
+        }),
+      [topPanelTop, topPanelHeight, rewardDomain]
     );
 
     const uncertaintyScale = useMemo(
-      () => {
-        // Use global uncertainty range if available, otherwise fall back to episode data
-        let domain: [number, number];
-        if (globalUncertaintyRange) {
-          domain = globalUncertaintyRange;
-        } else if (uncertainties.length > 0) {
-          domain = [0, Math.max(...uncertainties)];
-        } else {
-          domain = [0, 1];
-        }
-        
-        return scaleLinear({
-          range: [innerHeight + margin.top, margin.top],
-          domain: domain,
+      () =>
+        scaleLinear<number>({
+          range: [bottomPanelTop + bottomPanelHeight, bottomPanelTop],
+          domain: uncertaintyDomain,
           nice: true,
-        });
-      },
-      [innerHeight, margin.top, globalUncertaintyRange, uncertainties],
+        }),
+      [bottomPanelTop, bottomPanelHeight, uncertaintyDomain]
     );
 
+    // pick compact ticks
+    const rewardTicks = useMemo(() => pickTicks(rewardScale, 3), [rewardScale]);
+    const uncertTicks = useMemo(() => pickTicks(uncertaintyScale, 3), [uncertaintyScale]);
+
+    // auto left margin so labels don't cramp
+    const neededLeft = Math.max(
+      estimateLabelWidth(rewardTicks),
+      estimateLabelWidth(uncertTicks)
+    );
+    const m = { ...margin, left: Math.max(margin.left, neededLeft) };
+    const innerWidth = width - m.left - m.right;
+
+    // x scale (shared)
+    const stepScale = useMemo(
+      () =>
+        scaleLinear<number>({
+          range: [m.left, innerWidth + m.left],
+          domain: [0, Math.max(0, rewards.length - 1)],
+        }),
+      [m.left, innerWidth, rewards.length]
+    );
+
+    // area baselines
+    const rewardBaselineY =
+      rewardDomain[0] <= 0 && rewardDomain[1] >= 0
+        ? rewardScale(0)
+        : rewardScale(rewardDomain[0]);
+    const uncertaintyBaselineY = uncertaintyScale(uncertaintyDomain[0]);
+
+    // interactions
     const handleTooltip = useCallback(
       (
-        event:
-          | React.TouchEvent<SVGRectElement>
-          | React.MouseEvent<SVGRectElement>,
+        event: React.TouchEvent<SVGRectElement> | React.MouseEvent<SVGRectElement>
       ) => {
         const { x } = localPoint(event) || { x: -1 };
         if (x === -1) return;
-        
         const x0 = stepScale.invert(x);
-        const snappedIndex = Math.round(x0);
-        const clampedIndex = Math.max(0, Math.min(snappedIndex, rewards.length - 1));
-
-        const reward = rewards[clampedIndex];
-        const uncertainty = uncertainties[clampedIndex];
-        
+        const idx = Math.max(0, Math.min(Math.round(x0), rewards.length - 1));
         showTooltip({
-          tooltipData: { 
-            value: reward, 
-            index: clampedIndex,
-            uncertainty: uncertainty
-          },
-          tooltipLeft: stepScale(clampedIndex),
-          tooltipTop: valueScale(reward),
+          tooltipData: { value: rewards[idx], index: idx, uncertainty: uncertainties[idx] },
+          tooltipLeft: stepScale(idx),
+          tooltipTop: rewardScale(rewards[idx]),
         });
-        
-        // Call the step selection callback if provided
-        if (onStepSelect) {
-          onStepSelect(clampedIndex);
-        }
+        onStepSelect?.(idx);
       },
-      [stepScale, rewards, uncertainties, showTooltip, valueScale, onStepSelect],
+      [stepScale, rewards, uncertainties, showTooltip, rewardScale, onStepSelect]
     );
 
     const handleClick = useCallback(
       (event: React.MouseEvent<SVGRectElement>) => {
         const { x } = localPoint(event) || { x: -1 };
         if (x === -1) return;
-        
-        const x0 = stepScale.invert(x);
-        const snappedIndex = Math.round(x0);
-        const clampedIndex = Math.max(0, Math.min(snappedIndex, rewards.length - 1));
-        
-        if (onStepSelect) {
-          onStepSelect(clampedIndex);
-        }
+        const idx = Math.max(0, Math.min(Math.round(stepScale.invert(x)), rewards.length - 1));
+        onStepSelect?.(idx);
       },
-      [stepScale, rewards.length, onStepSelect],
+      [stepScale, rewards.length, onStepSelect]
     );
 
     return (
       <Box
         sx={{
-          position: 'absolute',
+          position: "absolute",
           bottom: 60,
-          left: '50%',
-          transform: 'translateX(-50%)',
+          left: "50%",
+          transform: "translateX(-50%)",
           zIndex: 1000,
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          border: '2px solid',
+          backgroundColor: "rgba(255,255,255,0.95)",
+          border: "2px solid",
           borderColor: episodeColor,
           borderRadius: 2,
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
-          backdropFilter: 'blur(8px)',
+          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+          backdropFilter: "blur(8px)",
         }}
       >
-        {/* Timeline Chart */}
-        <Box sx={{ p: 0.5, position: 'relative' }}>
-          {/* Compact close button - positioned to overlap slightly */}
-          <IconButton 
-            onClick={onClose} 
+        <Box sx={{ p: 0.5, position: "relative" }}>
+          <IconButton
+            onClick={onClose}
             size="small"
             sx={{
-              position: 'absolute',
+              position: "absolute",
               top: -8,
               right: -8,
               zIndex: 1001,
-              backgroundColor: 'rgba(255, 255, 255, 0.9)',
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 1)',
-              },
+              backgroundColor: "rgba(255,255,255,0.9)",
+              "&:hover": { backgroundColor: "rgba(255,255,255,1)" },
               width: 20,
               height: 20,
               border: `1px solid ${episodeColor}`,
@@ -246,149 +235,141 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
           >
             <CloseIcon sx={{ fontSize: 12 }} />
           </IconButton>
-          <svg 
-            width={width} 
-            height={height}
-            style={{ 
-              borderRadius: '8px',
-              overflow: 'hidden'
-            }}
-          >
-            <rect
-              x={0}
-              y={0}
-              width={width}
-              height={height}
-              fill={theme.palette.background.paper}
-            />
+
+          <svg width={width} height={height} style={{ borderRadius: 8, overflow: "hidden" }}>
+            <rect x={0} y={0} width={width} height={height} fill={theme.palette.background.paper} />
+
             <Group left={0} top={0}>
-              <GridRows
-                left={margin.left}
-                scale={valueScale}
-                width={innerWidth}
-                strokeDasharray="1,3"
-                stroke={theme.palette.divider}
-                strokeOpacity={0.3}
-                pointerEvents="none"
-              />
+              {/* shared vertical grid */}
               <GridColumns
-                top={margin.top}
+                top={m.top}
                 scale={stepScale}
                 height={innerHeight}
                 strokeDasharray="1,3"
                 stroke={theme.palette.divider}
-                strokeOpacity={0.3}
+                strokeOpacity={0.35}
                 pointerEvents="none"
               />
-              
-              {/* Uncertainty line */}
-              {uncertainties.length > 0 && (
-                <LinePath
-                  data={uncertainties}
-                  x={(_, i) => stepScale(i) ?? 0}
-                  y={(d) => uncertaintyScale(d) ?? 0}
-                  strokeWidth={2}
-                  stroke={theme.palette.secondary.main}
-                  curve={curveMonotoneX}
-                  //strokeDasharray="3,3"
-                />
-              )}
-              
-              {/* Reward line */}
+
+              {/* === TOP: Reward === */}
+              <GridRows
+                left={m.left}
+                scale={rewardScale}
+                width={innerWidth}
+                numTicks={rewardTicks.length}
+                strokeDasharray="1,3"
+                stroke={theme.palette.divider}
+                strokeOpacity={0.35}
+                pointerEvents="none"
+              />
+              <AreaClosed
+                data={rewards}
+                x={(_, i) => stepScale(i)}
+                y={(d) => rewardScale(d)}
+                y0={() => rewardBaselineY}
+                curve={curveMonotoneX}
+                fill={rewardFill}
+                stroke="none"
+              />
               <LinePath
                 data={rewards}
-                x={(_, i) => stepScale(i) ?? 0}
-                y={(d) => valueScale(d) ?? 0}
+                x={(_, i) => stepScale(i)}
+                y={(d) => rewardScale(d)}
                 strokeWidth={2}
-                stroke={theme.palette.primary.main}
+                stroke={rewardColor}
                 curve={curveMonotoneX}
               />
-
-              {/* Data points
-              {rewards.map((reward, index) => {
-                const x = stepScale(index);
-                const y = valueScale(reward);
-                const isSelected = selectedStep === index;
-
-                return (
-                  <GlyphCircle
-                    key={`step-${index}`}
-                    left={x}
-                    top={y}
-                    size={isSelected ? 25 : 15}
-                    stroke={isSelected ? theme.palette.warning.main : theme.palette.primary.main}
-                    strokeWidth={isSelected ? 3 : 2}
-                    fill={isSelected ? theme.palette.warning.main : theme.palette.primary.main}
-                    fillOpacity={isSelected ? 0.8 : 0.6}
-                  />
-                );
-              })}*/}
-
-              {/* Selected step indicator line */}
-              {selectedStep !== null && selectedStep >= 0 && selectedStep < rewards.length && (
+              {/* optional zero line */}
+              {rewardDomain[0] <= 0 && rewardDomain[1] >= 0 && (
                 <Line
-                  from={{
-                    x: stepScale(selectedStep),
-                    y: margin.top,
-                  }}
-                  to={{
-                    x: stepScale(selectedStep),
-                    y: innerHeight + margin.top,
-                  }}
-                  stroke={theme.palette.warning.main}
-                  strokeWidth={3}
-                  strokeDasharray="5,5"
-                  pointerEvents="none"
+                  from={{ x: m.left, y: rewardScale(0) }}
+                  to={{ x: innerWidth + m.left, y: rewardScale(0) }}
+                  stroke={theme.palette.text.secondary}
+                  strokeWidth={1}
+                  strokeDasharray="4,4"
                 />
               )}
-
               <AxisLeft
-                scale={valueScale}
-                left={margin.left}
-                //label="Value"
-                numTicks={Math.min(5, valueScale.ticks().length)}
-                tickFormat={(value) => `${Number(value).toFixed(2)}`}
+                scale={rewardScale}
+                left={m.left}
+                tickValues={rewardTicks}
+                tickFormat={(v) => `${Number(v).toFixed(2)}`}
+                tickLabelProps={{ fill: theme.palette.text.primary, fontSize: 11 }}
+                tickLineProps={{ stroke: theme.palette.text.secondary }}
                 stroke={theme.palette.text.secondary}
-                tickLabelProps={{
-                  fill: theme.palette.text.primary,
-                  fontSize: 10,
-                }}
-                tickLineProps={{
-                  stroke: theme.palette.text.secondary,
-                }}
-                labelProps={{
-                  fill: theme.palette.text.primary,
-                  fontSize: 12,
-                }}
               />
+
+              {/* === BOTTOM: Uncertainty === */}
+              <GridRows
+                left={m.left}
+                scale={uncertaintyScale}
+                width={innerWidth}
+                numTicks={uncertTicks.length}
+                strokeDasharray="1,3"
+                stroke={theme.palette.divider}
+                strokeOpacity={0.35}
+                pointerEvents="none"
+              />
+              <AreaClosed
+                data={uncertainties}
+                x={(_, i) => stepScale(i)}
+                y={(d) => uncertaintyScale(d)}
+                y0={() => uncertaintyBaselineY}
+                curve={curveMonotoneX}
+                fill={uncertFill}
+                stroke="none"
+              />
+              <LinePath
+                data={uncertainties}
+                x={(_, i) => stepScale(i)}
+                y={(d) => uncertaintyScale(d)}
+                strokeWidth={2}
+                stroke={uncertColor}
+                curve={curveMonotoneX}
+              />
+              <AxisLeft
+                scale={uncertaintyScale}
+                left={m.left}
+                tickValues={uncertTicks}
+                tickFormat={(v) => `${Number(v).toFixed(2)}`}
+                tickLabelProps={{ fill: theme.palette.text.primary, fontSize: 11 }}
+                tickLineProps={{ stroke: theme.palette.text.secondary }}
+                stroke={theme.palette.text.secondary}
+              />
+
+              {/* shared x-axis */}
               <AxisBottom
                 scale={stepScale}
-                top={innerHeight + margin.top}
-                //label="Step"
+                top={innerHeight + m.top}
                 numTicks={Math.min(10, rewards.length)}
-                tickFormat={(value) => `${Math.round(Number(value))}`}
+                tickFormat={(v) => `${Math.round(Number(v))}`}
                 stroke={theme.palette.text.secondary}
-                tickLabelProps={{
-                  fill: theme.palette.text.primary,
-                  fontSize: 10,
-                }}
-                tickLineProps={{
-                  stroke: theme.palette.text.secondary,
-                }}
-                labelProps={{
-                  fill: theme.palette.text.primary,
-                  fontSize: 12,
-                }}
+                tickLabelProps={{ fill: theme.palette.text.primary, fontSize: 10 }}
+                tickLineProps={{ stroke: theme.palette.text.secondary }}
               />
+
+              {/* crosshair */}
+              {selectedStep !== null &&
+                selectedStep >= 0 &&
+                selectedStep < rewards.length && (
+                  <Line
+                    from={{ x: stepScale(selectedStep), y: m.top }}
+                    to={{ x: stepScale(selectedStep), y: innerHeight + m.top }}
+                    stroke={theme.palette.info.dark}
+                    strokeWidth={3}
+                    strokeDasharray="5,5"
+                    pointerEvents="none"
+                  />
+                )}
             </Group>
 
+            {/* interaction layer */}
             <Bar
-              x={margin.left}
-              y={margin.top}
+              x={m.left}
+              y={m.top}
               width={innerWidth}
               height={innerHeight}
               fill="transparent"
-              rx={0}
               onTouchStart={handleTooltip}
               onTouchMove={handleTooltip}
               onMouseMove={handleTooltip}
@@ -399,69 +380,44 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
 
           {/* Tooltip */}
           {tooltipData && (
-            <div>
-              <TooltipWithBounds
-                key={Math.random()}
-                top={tooltipTop - 12}
-                left={tooltipLeft + 12}
-                style={{
-                  ...defaultStyles,
-                  backgroundColor: theme.palette.background.paper,
-                  color: theme.palette.text.primary,
-                  border: `1px solid ${theme.palette.divider}`,
-                }}
-              >
-                <div>
-                  <strong>Step {tooltipData.index}</strong>
+            <TooltipWithBounds
+              key={Math.random()}
+              top={tooltipTop - 12}
+              left={tooltipLeft + 12}
+              style={{
+                ...defaultStyles,
+                backgroundColor: theme.palette.background.paper,
+                color: theme.palette.text.primary,
+                border: `1px solid ${theme.palette.divider}`,
+              }}
+            >
+              <div><strong>Step {tooltipData.index}</strong></div>
+              <div style={{ color: theme.palette.success.main }}>
+                Reward: {tooltipData.value.toFixed(3)}
+              </div>
+              {tooltipData.uncertainty !== undefined && (
+                <div style={{ color: theme.palette.warning.main }}>
+                  Uncertainty: {tooltipData.uncertainty.toFixed(3)}
                 </div>
-                <div>Reward: {tooltipData.value.toFixed(3)}</div>
-                {tooltipData.uncertainty !== undefined && (
-                  <div>Uncertainty: {tooltipData.uncertainty.toFixed(3)}</div>
-                )}
-              </TooltipWithBounds>
-            </div>
+              )}
+            </TooltipWithBounds>
           )}
 
-          {/* Legend */}
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              display: 'flex',
-              gap: 2,
-              fontSize: '12px',
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Box
-                sx={{
-                  width: 12,
-                  height: 12,
-                  backgroundColor: theme.palette.primary.main,
-                  opacity: 0.8,
-                }}
-              />
+          {/* Keep legend if you like; panel chips already label the plots */}
+          <Box sx={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 2, fontSize: "12px" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Box sx={{ width: 12, height: 12, bgcolor: theme.palette.success.main, opacity: 0.9 }} />
               <Typography variant="caption">Reward</Typography>
             </Box>
-            {uncertainties.length > 0 && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Box
-                  sx={{
-                    width: 12,
-                    height: 12,
-                    backgroundColor: theme.palette.secondary.main,
-                    opacity: 0.8,
-                  }}
-                />
-                <Typography variant="caption">Uncertainty</Typography>
-              </Box>
-            )}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <Box sx={{ width: 12, height: 12, bgcolor: theme.palette.warning.main, opacity: 0.9 }} />
+              <Typography variant="caption">Uncertainty</Typography>
+            </Box>
           </Box>
         </Box>
       </Box>
     );
-  },
+  }
 );
 
 export default TimelineComponent;
