@@ -14,10 +14,11 @@ interface UseWebRTCProps {
   checkpoint?: number;
   episodeNum?: number; // Episode number for saved state loading
   step?: number; // Step number for saved state loading
+  forceRelay?: boolean; // optionally force TURN-only
 }
 
 
-export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId, coordinate = null, checkpoint = undefined, episodeNum = undefined, step = undefined }: UseWebRTCProps) {
+export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId, coordinate = null, checkpoint = undefined, episodeNum = undefined, step = undefined, forceRelay = false }: UseWebRTCProps) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const dcIntervalRef = useRef<number | null>(null);
@@ -40,10 +41,21 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   };
 
 
+  const normalizeIceServers = (servers?: any[]): RTCIceServer[] | undefined => {
+    if (!servers || !Array.isArray(servers)) return undefined;
+    return servers.map((s: any) => ({
+      urls: Array.isArray(s.urls) ? s.urls : [s.urls],
+      username: s.username,
+      credential: s.credential
+    }));
+  };
+
   const createPeerConnection = async (iceServers?: RTCIceServer[]) => {
     // Use provided iceServers or fallback to basic STUN
     const iceConfig: RTCConfiguration = {
-      iceServers: iceServers || [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: iceServers || [{ urls: ['stun:stun.l.google.com:19302'] }],
+      iceTransportPolicy: forceRelay ? 'relay' : 'all',
+      // iceCandidatePoolSize: 0 // can be tuned
     };
 
     pcRef.current = new RTCPeerConnection(iceConfig); 
@@ -85,7 +97,8 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       const res = await fetch('/demo_generation/ice_servers', { method: 'GET' });
       if (!res.ok) throw new Error(`Failed to fetch ICE servers: ${res.status}`);
       const data = await res.json();
-      const servers = (data?.iceServers || []) as RTCIceServer[];
+      const servers = normalizeIceServers(data?.iceServers || []);
+      console.debug('Using ICE servers:', servers);
       return servers;
     } catch (e) {
       console.warn('Falling back to default STUN due to error fetching ICE servers:', e);
@@ -96,6 +109,10 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   const start = async ({ useDataChannel }) => {
     const servers = await fetchIceServers();
     const pc = await createPeerConnection(servers);
+    // As a safety, ensure configuration is applied (some browsers allow updating)
+    try {
+      if (servers && servers.length) pc.setConfiguration({ iceServers: servers, iceTransportPolicy: forceRelay ? 'relay' : 'all' });
+    } catch {}
 
     pc.addTransceiver('video', { direction: 'recvonly' });
 
@@ -190,6 +207,11 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
 
     const answer = await res.json();
     setLogs((prev) => ({ ...prev, answerSDP: answer.sdp }));
+    // If backend also returns iceServers, normalize and apply for parity
+    try {
+      const srv = normalizeIceServers(answer?.iceServers);
+      if (srv && srv.length) pc.setConfiguration({ iceServers: srv, iceTransportPolicy: forceRelay ? 'relay' : 'all' });
+    } catch {}
     
     await pc.setRemoteDescription(answer);
   };
