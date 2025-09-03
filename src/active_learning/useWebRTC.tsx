@@ -80,8 +80,22 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     return pc;
   };
 
+  const fetchIceServers = async (): Promise<RTCIceServer[] | undefined> => {
+    try {
+      const res = await fetch('/demo_generation/ice_servers', { method: 'GET' });
+      if (!res.ok) throw new Error(`Failed to fetch ICE servers: ${res.status}`);
+      const data = await res.json();
+      const servers = (data?.iceServers || []) as RTCIceServer[];
+      return servers;
+    } catch (e) {
+      console.warn('Falling back to default STUN due to error fetching ICE servers:', e);
+      return undefined;
+    }
+  };
+
   const start = async ({ useDataChannel }) => {
-    const pc = await createPeerConnection();
+    const servers = await fetchIceServers();
+    const pc = await createPeerConnection(servers);
 
     pc.addTransceiver('video', { direction: 'recvonly' });
 
