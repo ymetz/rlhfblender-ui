@@ -318,8 +318,6 @@ const ImprovedProgressChart = ({ steps, rewards, uncertainties, title }) => {
         })) : [
           {step: 0, reward: 0, uncertainty: 0},
         ];
-
-  console.log("Chart Data:", chartData);
   
   return (
     <Box 

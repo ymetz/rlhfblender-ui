@@ -36,8 +36,6 @@ import { OnboardingHighlight } from './OnboardingSystem';
 import TimelineComponent from './TimelineComponent';
 
 const canvasImageCache = new Map();
-const DEBUG_ALIGNMENT = true;
-const loggedImageKeys = new Set<string>();
 
 // Enhanced trajectory visualization functions to reduce overplotting
 function drawTrajectory(context, points, color, lineWidth = 2) {
@@ -256,6 +254,8 @@ const StateSequenceProjection = (props) => {
     const selectedClusterRef = useRef<SelectedCluster | null>(null);
     const zoomedFunctionRef = useRef<((event: any) => void) | null>(null);
     const currentTransformRef = useRef<d3.ZoomTransform | null>(null);
+    const zoomBehaviorRef = useRef<any>(null);
+    const fitEpisodeInViewRef = useRef<((episodeIdx: number) => void) | null>(null);
     
 
 
@@ -530,6 +530,29 @@ const StateSequenceProjection = (props) => {
                 activeLearningDispatch({ type: 'SET_PREDICTED_REWARDS', payload: grid_data.original_predictions || [] });
                 activeLearningDispatch({ type: 'SET_PREDICTED_UNCERTAINTIES', payload: grid_data.original_uncertainties || [] });
 
+                // Compute and store per-episode stats once on data load
+                try {
+                    const epiIdx = data.episode_indices || [];
+                    const preds = grid_data.original_predictions || [];
+                    const uncs = grid_data.original_uncertainties || [];
+                    const statsMap = new Map<number, { avgReward: number | null; avgUncertainty: number | null; count: number }>();
+                    const uniqueEpisodes = Array.from(new Set(epiIdx));
+                    uniqueEpisodes.forEach((ep: number) => {
+                        const idxs: number[] = [];
+                        for (let i = 0; i < epiIdx.length; i++) {
+                            if (epiIdx[i] === ep) idxs.push(i);
+                        }
+                        const rVals = idxs.map(i => preds[i]).filter(v => typeof v === 'number');
+                        const uVals = idxs.map(i => uncs[i]).filter(v => typeof v === 'number');
+                        const avgR = rVals.length ? rVals.reduce((a, b) => a + b, 0) / rVals.length : null;
+                        const avgU = uVals.length ? uVals.reduce((a, b) => a + b, 0) / uVals.length : null;
+                        statsMap.set(ep, { avgReward: avgR, avgUncertainty: avgU, count: idxs.length });
+                    });
+                    activeLearningDispatch({ type: 'SET_EPISODE_STATS', payload: statsMap });
+                } catch (e) {
+                    console.warn('Failed computing episode stats:', e);
+                }
+
                 // Calculate and set global ranges for consistent timeline scaling
                 const rewards = grid_data.original_predictions || [];
                 const uncertainties = grid_data.original_uncertainties || [];
@@ -601,33 +624,10 @@ const StateSequenceProjection = (props) => {
                     }
                 }
 
-                // Debug: print projection/image metadata
-                if (DEBUG_ALIGNMENT) {
-                    console.log('[Projection] lengths', {
-                        projection_len: data.projection?.length,
-                        original_coords_len: grid_data.original_coordinates?.length,
-                    });
-                    console.log('[Projection] bounds from backend', grid_data.projection_bounds);
-                }
-
                 // Draw the chart with all data including segments
                 // Use API projection coordinates (should be joint/global if available)
                 const coordsForOverlay = data.projection;
 
-                if (DEBUG_ALIGNMENT) {
-                    console.log('[Overlay] using', coordsForOverlay === grid_data.original_coordinates ? 'original_coordinates' : 'projection');
-                    const xs = coordsForOverlay?.map(d => d[0]) || [];
-                    const ys = coordsForOverlay?.map(d => d[1]) || [];
-                    const minX = xs.length ? Math.min(...xs) : null;
-                    const maxX = xs.length ? Math.max(...xs) : null;
-                    const minY = ys.length ? Math.min(...ys) : null;
-                    const maxY = ys.length ? Math.max(...ys) : null;
-                    console.log('[Overlay] extents', { minX, maxX, minY, maxY });
-                    console.log('[Overlay] sample points', {
-                        first: coordsForOverlay?.[0],
-                        last: coordsForOverlay?.[coordsForOverlay.length - 1]
-                    });
-                }
                 drawChart(
                     viewMode,
                     coordsForOverlay,
@@ -747,11 +747,6 @@ const StateSequenceProjection = (props) => {
         const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
         const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
 
-        if (DEBUG_ALIGNMENT) {
-            console.log('[Scales] svg size', { svgWidth, svgHeight });
-            console.log('[Scales] domains', { xDomain, yDomain });
-        }
-
         // Set up color mapping
         Color2D.ranges = { x: xDomain, y: yDomain };
 
@@ -786,14 +781,6 @@ const StateSequenceProjection = (props) => {
                     image: img,
                     bounds: gridData.bounds
                 });
-                if (DEBUG_ALIGNMENT) {
-                    console.log('[Image] prediction loaded', {
-                        key: predictionCacheKey,
-                        naturalWidth: img.naturalWidth,
-                        naturalHeight: img.naturalHeight,
-                        bounds: gridData.bounds
-                    });
-                }
                 
                 // Trigger a redraw now that the image is available, using current transform
                 if (context && view.node()) {
@@ -817,14 +804,6 @@ const StateSequenceProjection = (props) => {
                     image: img,
                     bounds: gridData.bounds
                 });
-                if (DEBUG_ALIGNMENT) {
-                    console.log('[Image] uncertainty loaded', {
-                        key: uncertaintyCacheKey,
-                        naturalWidth: img.naturalWidth,
-                        naturalHeight: img.naturalHeight,
-                        bounds: gridData.bounds
-                    });
-                }
             };
 
             img.onerror = (e) => {
@@ -875,17 +854,6 @@ const StateSequenceProjection = (props) => {
             // Calculate image bounds in projection space
             const imageBounds = calculateImageBounds(xScale, yScale, imgData.bounds);
 
-            if (DEBUG_ALIGNMENT && !loggedImageKeys.has(imageKey)) {
-                console.log('[CanvasDraw] key', imageKey, {
-                    transform: { x: transform.x, y: transform.y, k: transform.k },
-                    imageBounds,
-                    xDomain,
-                    yDomain,
-                    canvas: { width, height }
-                });
-                loggedImageKeys.add(imageKey);
-            }
-
             // Draw the image with proper scaling
             ctx.globalAlpha = 0.5; // Slightly transparent so we can see points on top
             ctx.drawImage(
@@ -924,6 +892,8 @@ const StateSequenceProjection = (props) => {
 
         // Create view group
         const view = svg.append('g').attr('class', 'view');
+        // expose zoom behavior for external transforms
+        zoomBehaviorRef.current = zoom;
 
         // Apply saved transform to the view if available, otherwise fall back to previous transform
         let transformToApply = null;
@@ -1386,7 +1356,7 @@ const StateSequenceProjection = (props) => {
                     .attr('d', 'M' + mappedHull.join('L') + 'Z')
                     .attr('fill', 'none')
                     .attr('stroke', 'transparent')
-                    .attr('stroke-width', 4) // Wide invisible stroke for easier clicking
+                    .attr('stroke-width', 3) // Wide invisible stroke for easier clicking
                     .style('cursor', 'pointer')
                     .on('click', function (event) {
                         event.stopPropagation();
@@ -1411,12 +1381,12 @@ const StateSequenceProjection = (props) => {
                         segmentGroup.selectAll('.uncertainty-segment-hull')
                             .attr('stroke', '#333333')
                             .attr('opacity', 0.7)
-                            .attr('stroke-width', 3);
+                            .attr('stroke-width', 2);
                         
                         // Highlight this segment's visible hull
                         d3.select(this.parentNode).select('.uncertainty-segment-hull')
-                            .attr('stroke-width', 5)
-                            .attr('opacity', 1.0);
+                            .attr('stroke-width', 3.5)
+                            .attr('opacity', 0.9);
                         
                         // Get all indices belonging to this merged segment (precomputed)
                         const segmentIndices = topMergedSegments[index].globalIndices || [];
@@ -1451,8 +1421,8 @@ const StateSequenceProjection = (props) => {
                     .attr('d', 'M' + mappedHull.join('L') + 'Z')
                     .attr('fill', 'none')
                     .attr('stroke', '#333333') // Dark grey
-                    .attr('stroke-width', 3)
-                    .attr('stroke-dasharray', '5,5') // Dashed line
+                    .attr('stroke-width', 2)
+                    .attr('stroke-dasharray', '10,5') // Dashed line
                     .attr('opacity', 0.7)
                     .style('pointer-events', 'none'); // Don't interfere with clicking
                 
@@ -1519,26 +1489,6 @@ const StateSequenceProjection = (props) => {
                 type: 'SET_TRAJECTORY_COLORS',
                 payload: computedTrajectoryColors
             });
-            
-            // Debug on first zoom: map a sample point vs image bounds
-            if (DEBUG_ALIGNMENT && !loggedFirstZoom) {
-                try {
-                    const sample = processedData?.[0];
-                    const px = sample ? xScale(sample[0]) : null;
-                    const py = sample ? yScale(sample[1]) : null;
-                    const imgData = canvasImageCache.get(predictionCacheKey);
-                    const ib = imgData ? calculateImageBounds(xScale, yScale, imgData.bounds) : null;
-                    console.log('[Zoom] first', {
-                        transform: { x: transform.x, y: transform.y, k: transform.k },
-                        sample_coord: sample,
-                        sample_screen: sample && px !== null && py !== null ? { x: px, y: py } : null,
-                        imageBounds: ib
-                    });
-                } catch (e) {
-                    console.log('[Zoom] debug error', e);
-                }
-                loggedFirstZoom = true;
-            }
 
             // First, draw the grid image to the canvas with proper transformation
             if (context) {
@@ -1579,10 +1529,6 @@ const StateSequenceProjection = (props) => {
                     // Batch draw points for better performance
                     //context.globalAlpha = 0.5;
                     context.beginPath();
-
-                    // debug min/max values for processed data coordinates
-                    console.log('Processed data X range:', d3.min(processedData, d => d[0]), d3.max(processedData, d => d[0]));
-                    console.log('Processed data Y range:', d3.min(processedData, d => d[1]), d3.max(processedData, d => d[1]));
 
                     for (const [x, y, i] of processedData.map((d, i) => [xScale(d[0]), yScale(d[1]), i])) {
 
@@ -1681,9 +1627,9 @@ const StateSequenceProjection = (props) => {
                 const stateMarkerGroup = view.append("g")
                     .attr("class", "selected-state-marker");
 
-                // Draw larger highlighted circle with stroke
-                const baseRadius = Math.max(4, 3 / transform.k); // Adaptive radius based on zoom
-                const highlightRadius = baseRadius * 1.5; // Make it bigger
+                // Draw highlighted circle sized in screen pixels (independent of zoom)
+                const desiredScreenRadius = 5; // px
+                const highlightRadius = desiredScreenRadius / transform.k; // convert to local coords
                 
                 // Get the original color of the state
                 const stateColor = point_colors[selectedStateIndex] || '#ff6b6b';
@@ -1695,14 +1641,14 @@ const StateSequenceProjection = (props) => {
                     .attr("r", highlightRadius)
                     .style("fill", stateColor)
                     .style("stroke", "#000000")
-                    .style("stroke-width", Math.max(2, 2 / transform.k))
+                    .style("stroke-width", 2 / transform.k) // keep ~2px on screen
                     .style("opacity", 0.9);
                 
                 // Add a subtle glow effect with a slightly larger circle behind
                 stateMarkerGroup.insert("circle", ":first-child")
                     .attr("cx", xScale(selectedStateX))
                     .attr("cy", yScale(selectedStateY))
-                    .attr("r", highlightRadius * 1.3)
+                    .attr("r", (desiredScreenRadius * 1.6) / transform.k)
                     .style("fill", stateColor)
                     .style("stroke", "none")
                     .style("opacity", 0.3);
@@ -1741,6 +1687,61 @@ const StateSequenceProjection = (props) => {
         
         // Store the zoomed function reference for external calls
         zoomedFunctionRef.current = zoomed;
+
+        // Expose a helper to fit an episode's bounding box into view
+        fitEpisodeInViewRef.current = (episodeToFit: number) => {
+            try {
+                // gather points for the episode
+                const pts = processedData.filter((_, i) => episodeIndices[i] === episodeToFit);
+                if (!pts || pts.length === 0) return;
+
+                const xs = pts.map(p => p[0]);
+                const ys = pts.map(p => p[1]);
+                const minX = Math.min(...xs);
+                const maxX = Math.max(...xs);
+                const minY = Math.min(...ys);
+                const maxY = Math.max(...ys);
+
+                // convert to current pixel space using xScale/yScale
+                const x0 = xScale(minX);
+                const x1 = xScale(maxX);
+                const y0 = yScale(maxY); // y inverted
+                const y1 = yScale(minY);
+
+                const bboxWidth = Math.max(1, x1 - x0);
+                const bboxHeight = Math.max(1, y1 - y0);
+
+                // Scale to fit with padding
+                const margin = 30; // px padding around episode
+                const availableW = Math.max(1, svgWidth - 2 * margin);
+                const availableH = Math.max(1, svgHeight - 2 * margin);
+                const k = Math.min(availableW / bboxWidth, availableH / bboxHeight);
+
+                // Center the episode within the viewport
+                const bboxCenterX = (x0 + x1) / 2;
+                const bboxCenterY = (y0 + y1) / 2;
+                const targetCenterX = svgWidth / 2;
+                const targetCenterY = svgHeight / 2;
+                const tx = targetCenterX - k * bboxCenterX;
+                const ty = targetCenterY - k * bboxCenterY;
+
+                const t = d3.zoomIdentity.translate(tx, ty).scale(k);
+
+                const svgRoot = d3.select(embeddingRef.current).select('svg');
+                // apply to zoom behavior if available
+                if (zoomBehaviorRef.current) {
+                    (svgRoot as any).call(zoomBehaviorRef.current.transform, t);
+                }
+                // ensure layers redraw
+                view.attr('transform', t);
+                currentTransformRef.current = t;
+                if (zoomedFunctionRef.current) {
+                    zoomedFunctionRef.current({ transform: t });
+                }
+            } catch (e) {
+                console.warn('fitEpisodeInView failed:', e);
+            }
+        };
 
         svg.call(zoom as any);
 
@@ -1878,6 +1879,7 @@ const StateSequenceProjection = (props) => {
                     position="absolute"
                     top="10px"
                     left="50px"
+                    right="50px"
                     sx={{ zIndex: 10, display: 'flex', gap: 2, alignItems: 'center' }}
                 >
                     <OnboardingHighlight stepId="load-data" pulse={true}>
@@ -1885,12 +1887,104 @@ const StateSequenceProjection = (props) => {
                             {isLoading ? 'Loading...' : 'Load Data'}
                         </Button>
                     </OnboardingHighlight>
-                    
-                    {/* Episodes overview */}
-                    <Box sx={{ backgroundColor: 'rgba(158, 158, 158, 0.9)', padding: 1, borderRadius: 1, color: 'white' }}>
-                        <Typography variant="caption" fontWeight="bold">
-                            Episodes: {new Set(activeLearningState.episodeIndices).size} displayed
-                        </Typography>
+                    {/* Episodes overview and quick select */}
+                    <Box sx={{
+                        backgroundColor: 'transparent',
+                        padding: 0.5,
+                        borderRadius: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        flex: 1,
+                        minWidth: 0
+                    }}>
+                        <Box sx={{
+                            display: 'flex',
+                            gap: 1,
+                            overflowX: 'auto',
+                            p: 0.5,
+                            flex: 1,
+                            minWidth: 0,
+                            flexWrap: 'wrap'
+                        }}>
+                            {Array.from(new Set(activeLearningState.episodeIndices || [])).map((ep: number) => {
+                                // compute color
+                                const color = (activeLearningState.trajectoryColors && activeLearningState.trajectoryColors.get(ep)) || getFallbackColor(ep);
+                                // use precomputed stats if available
+                                const stat = (activeLearningState as any).episodeStats?.get(ep);
+                                const avgR = stat?.avgReward ?? null;
+                                const avgU = stat?.avgUncertainty ?? null;
+
+                                // Build a small color indicator (VSUP) based on normalized avg values
+                                let indicatorColor = '#bbb';
+                                if (avgR !== null && avgU !== null && activeLearningState.globalRewardRange && activeLearningState.globalUncertaintyRange) {
+                                    const [rMin, rMax] = activeLearningState.globalRewardRange;
+                                    const [uMin, uMax] = activeLearningState.globalUncertaintyRange;
+                                    const rNorm = (rMax > rMin) ? Math.min(1, Math.max(0, (avgR - rMin) / (rMax - rMin))) : 0.5;
+                                    const uNorm = (uMax > uMin) ? Math.min(1, Math.max(0, (avgU - uMin) / (uMax - uMin))) : 0.5;
+                                    const scale = vsup.scale().quantize(vsup.quantization().branching(2).layers(4).valueDomain([0, 1]).uncertaintyDomain([1.0, 0.01])).range(d3.interpolateBrBG);
+                                    indicatorColor = scale(rNorm, uNorm);
+                                }
+
+                                const isSelected = selectedTrajectory === ep || (selectedState && selectedState.episode === ep);
+
+                                return (
+                                    <Box
+                                        key={`ep-tile-${ep}`}
+                                        onClick={() => {
+                                            // select initial state of the episode
+                                            const episodeStartIndex = (activeLearningState.episodeIndices || []).indexOf(ep);
+                                            if (episodeStartIndex !== -1) {
+                                                const coords = (activeLearningState.projectionStates || [])[episodeStartIndex] || [0, 0];
+                                                const safeCoords: [number, number] = coords.length >= 2 ? [coords[0], coords[1]] : [0, 0];
+                                                const newSelectedState: SelectedState = {
+                                                    episode: ep,
+                                                    step: 0,
+                                                    coords: safeCoords,
+                                                    x: safeCoords[0],
+                                                    y: safeCoords[1],
+                                                    index: episodeStartIndex
+                                                };
+                                                setSelectedState(newSelectedState);
+                                                selectedStateRef.current = newSelectedState;
+                                                setSelectedTrajectory(ep);
+                                                selectedTrajectoryRef.current = ep;
+                                                const newStateSelection: SelectionItem = { type: 'state', data: newSelectedState } as any;
+                                                activeLearningDispatch({
+                                                    type: 'SET_SELECTION',
+                                                    payload: [newStateSelection]
+                                                });
+                                                // try to fit in view
+                                                if (fitEpisodeInViewRef.current) {
+                                                    fitEpisodeInViewRef.current(ep);
+                                                }
+                                            }
+                                        }}
+                                        sx={{
+                                            cursor: 'pointer',
+                                            border: `2px solid ${color}`,
+                                            borderRadius: 1,
+                                            px: 1,
+                                            py: 0.75,
+                                            bgcolor: '#ffffff',
+                                            color: 'text.primary',
+                                            boxShadow: isSelected ? 4 : 1,
+                                            minWidth: 96,
+                                            transition: 'box-shadow 0.2s ease, transform 0.05s ease',
+                                            '&:hover': { boxShadow: 3 }
+                                        }}
+                                    >
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: indicatorColor, border: '1px solid #999' }} />
+                                            <Typography variant="caption" sx={{ fontWeight: 700, lineHeight: 1.2 }}>Ep {ep}</Typography>
+                                        </Box>
+                                        <Typography variant="caption" sx={{ display: 'block', opacity: 0.9 }}>
+                                            {avgR !== null ? `R: ${avgR.toFixed(2)}` : 'R: -'}{` `}|{` `}{avgU !== null ? `U: ${avgU.toFixed(2)}` : 'U: -'}
+                                        </Typography>
+                                    </Box>
+                                );
+                            })}
+                        </Box>
                     </Box>
                     
                 </Box>

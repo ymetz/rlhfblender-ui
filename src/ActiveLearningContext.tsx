@@ -64,6 +64,7 @@ export interface ActiveLearningState {
 
   episodeIndices: number[];
   trajectoryColors: Map<number, string>;
+  episodeStats: Map<number, { avgReward: number | null; avgUncertainty: number | null; count: number }>;
   
   // Feedback tracking
   feedbackCounts: {
@@ -113,6 +114,7 @@ type ActiveLearningAction =
   | { type: "SET_CURRENT_REWARD_DATA"; payload: number[] }
   | { type: 'SET_EPISODE_INDICES', payload: number[] }
   | { type: 'SET_TRAJECTORY_COLORS', payload: Map<number, string> }
+  | { type: 'SET_EPISODE_STATS', payload: Map<number, { avgReward: number | null; avgUncertainty: number | null; count: number }> }
   | { type: 'SET_FEEDBACK_COUNTS', payload: { category: string; total: number; current: number; }[] }
   | { type: 'UPDATE_FEEDBACK_COUNT', payload: { category: string; isCurrentSession: boolean } }
   | { type: 'SET_FEEDBACK_HISTORY', payload: FeedbackHistoryEntry[] }
@@ -161,6 +163,7 @@ const initialState: ActiveLearningState = {
   currentRewardData: [],
   episodeIndices: [],
   trajectoryColors: new Map<number, string>(),
+  episodeStats: new Map<number, { avgReward: number | null; avgUncertainty: number | null; count: number }>(),
   
   // Feedback tracking
   feedbackCounts: [
@@ -262,6 +265,8 @@ function activeLearningReducer(
       return { ...state, episodeIndices: action.payload };
     case "SET_TRAJECTORY_COLORS":
       return { ...state, trajectoryColors: action.payload };
+    case "SET_EPISODE_STATS":
+      return { ...state, episodeStats: action.payload };
     case "SET_FEEDBACK_COUNTS":
       return { ...state, feedbackCounts: action.payload };
     case "UPDATE_FEEDBACK_COUNT": {

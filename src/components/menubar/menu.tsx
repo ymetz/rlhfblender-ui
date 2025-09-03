@@ -25,6 +25,7 @@ import {
   useSetupConfigDispatch,
 } from "../../SetupConfigContext";
 import DynamicRLHFModal from "../modals/dynamic-rlhf-modal";
+import ExperimentStartModal from "./components/modals/experiment-start-modal";
 
 type MenuProps = {
   resetSampler: () => void;

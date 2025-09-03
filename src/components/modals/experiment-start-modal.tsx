@@ -49,7 +49,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   };
 
   const handleNext = () => {
-    setActiveTab((prev) => Math.min(prev + 1, 2));
+    setActiveTab((prev) => Math.min(prev + 1, 3));
   };
 
   const feedbackTypes = Object.entries(activeUIConfig.feedbackComponents ?? {})
@@ -96,7 +96,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
         }}
       >
         <List>
-          {["Introduction", "Feedback Options", "Privacy Policy"].map(
+          {["Introduction", "Feedback Options", "Privacy Policy", "Your Task"].map(
             (text, index) => (
               <ListItem
                 button
@@ -129,6 +129,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
             <Tab label="Introduction" />
             <Tab label="Feedback Options" />
             <Tab label="Privacy Policy" />
+            <Tab label="Your Task" />
           </Tabs>
         </Box>
 
@@ -288,6 +289,33 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               </Typography>
             </Box>
           )}
+
+          {/* Your Task Tab */}
+          {activeTab === 3 && (
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Your Task
+              </Typography>
+              <Typography paragraph>
+                Your task is to teach the robot the correct behavior using the feedback tools presented in this interface. Provide feedback to guide learning so the agent improves over time.
+              </Typography>
+              <Typography paragraph>
+                The specific goal is to sweep the wooden square into the goal area, which is marked by a blue circle.
+              </Typography>
+              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <video controls style={{ width: '100%', maxWidth: 600 }}>
+                <source src="/files/goal_video.mp4" type="video/mp4" />
+                  Your browser does not support the video tag.
+                </video>
+                <Typography variant="body2" color="text.secondary">
+                  Demonstration of the desired outcome: sweeping the wooden square into the blue goal area.
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary">
+                You are free to choose whatever feedback you think. is most helpful to teach the desired behavior and is most time-efficient for you.
+              </Typography>
+            </Box>
+          )}
         </DialogContent>
 
         {/* Navigation Buttons */}
@@ -301,7 +329,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
             gap: 2,
           }}
         >
-          {activeTab !== 2 && (
+          {activeTab !== 3 && (
             <Button
               variant="contained"
               endIcon={<NavigateNextIcon />}
@@ -310,7 +338,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               Next
             </Button>
           )}
-          {activeTab === 2 && (
+          {activeTab === 3 && (
             <Button
               variant="contained"
               color="primary"

@@ -500,15 +500,15 @@ const App: React.FC = () => {
                   >
                     Active Feedback Generation for RL
                   </Typography>
-                  {/*<IconButton
+                  <IconButton
                     onClick={() =>
                       dispatch({ type: "SET_START_MODAL_OPEN", payload: true })
                     }
-                    sx={{ marginTop: "0.2vh", float: "right" }}
+                    sx={{ marginTop: "0.2vh", marginRight: "20px", float: "right" }}
                   >
                     <HelpIcon />
                   </IconButton>
-                */}
+                
                 </>
               )}
             </Box>

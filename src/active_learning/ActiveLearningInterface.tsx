@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Box, Paper, Button, CircularProgress, IconButton, Drawer, Typography, Tooltip } from '@mui/material';
-import { ChevronRight, Help } from '@mui/icons-material';
+import { ChevronRight, AirplaneTicket  } from '@mui/icons-material';
 import axios from 'axios';
 // Import components
 import ProjectionComponent from './ProjectionComponent';
@@ -370,7 +370,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             sx={{
               position: 'fixed',
               right: 16,
-              top: 16,
+              bottom: 16,
               zIndex: 1200,
               backgroundColor: 'rgba(25, 118, 210, 0.1)',
               color: 'primary.main',
@@ -384,7 +384,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
               height: '48px',
             }}
           >
-            <Help />
+            <AirplaneTicket />
           </IconButton>
         </Tooltip>
       )}
