@@ -33,7 +33,6 @@ import {
 } from './utils/stateSequenceProjectionHelpers';
 import { computeTrajectoryColors, getFallbackColor } from './utils/trajectoryColors';
 import { OnboardingHighlight } from './OnboardingSystem';
-import TimelineComponent from './TimelineComponent';
 
 const canvasImageCache = new Map();
 
@@ -239,15 +238,11 @@ const StateSequenceProjection = (props) => {
     const [selectedState, setSelectedState] = useState<SelectedState | null>(null);
     const [selectedCoordinate, setSelectedCoordinate] = useState<SelectedCoordinate>({ x: null, y: null });
     const [selectedCluster, setSelectedCluster] = useState<SelectedCluster | null>(null);
-    const [hoveredEpisode, setHoveredEpisode] = useState(null);
-    const [clickedEpisode, setClickedEpisode] = useState(null);
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const multiSelectModeRef = useRef(false);
     const currentSelectionRef = useRef([]);
     const [segmentSize, setSegmentSize] = useState(50);
     const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
-    const [trajectoryColors, setTrajectoryColors] = useState(new Map<number, string>());
-    const [showTimeline, setShowTimeline] = useState(false);
     const selectedTrajectoryRef = useRef(null);
     const selectedStateRef = useRef<SelectedState | null>(null);
     const selectedCoordinateRef = useRef<SelectedCoordinate>();
@@ -256,6 +251,22 @@ const StateSequenceProjection = (props) => {
     const currentTransformRef = useRef<d3.ZoomTransform | null>(null);
     const zoomBehaviorRef = useRef<any>(null);
     const fitEpisodeInViewRef = useRef<((episodeIdx: number) => void) | null>(null);
+    const feedbackHighlightsRef = useRef<{ episodes: Set<number>; states: Set<number>; coordinates: Set<string> } | null>(null);
+    
+    // Count currently selected trajectories (unique episodes) for multi-select helper text
+    const selectedTrajectoriesCount = React.useMemo(() => {
+        const sel = (activeLearningState.selection || []) as any[];
+        const episodes = new Set<number>();
+        for (const item of sel) {
+            if (item?.type === 'state' && item.data && typeof item.data.episode === 'number') {
+                episodes.add(item.data.episode);
+            } else if (item?.type === 'trajectory' && typeof item.data === 'number') {
+                episodes.add(item.data);
+            }
+        }
+        return episodes.size;
+    }, [activeLearningState.selection]);
+    const autoLoadedSessionRef = useRef<string | null>(null);
     
 
 
@@ -292,14 +303,13 @@ const StateSequenceProjection = (props) => {
         currentSelectionRef.current = activeLearningState.selection || [];
     }, [activeLearningState.selection]);
 
-    // Clear timeline when key props change (new checkpoint, benchmark, etc.)
+    // Clear selection when key props change (new checkpoint, benchmark, etc.)
     useEffect(() => {
-        setShowTimeline(false);
         setSelectedState(null);
         setSelectedTrajectory(null);
         setSelectedCluster(null);
         setSelectedCoordinate({ x: null, y: null });
-        
+
         // Clear global selection when props change
         activeLearningDispatch({
             type: 'SET_SELECTION',
@@ -307,14 +317,12 @@ const StateSequenceProjection = (props) => {
         });
     }, [props.benchmarkId, props.checkpointStep, props.embeddingMethod, props.reproject, props.appendTimestamp, activeLearningDispatch]);
 
-    // Show timeline when a state is selected
+    // Keep feedback highlights in a ref for access inside draw/zoom closures
     useEffect(() => {
-        if (selectedState && selectedState.episode !== null && selectedState.step !== null) {
-            setShowTimeline(true);
-        } else {
-            setShowTimeline(false);
-        }
-    }, [selectedState]);
+        feedbackHighlightsRef.current = (activeLearningState as any).feedbackHighlights || null;
+    }, [(activeLearningState as any).feedbackHighlights]);
+
+    // (moved) Auto-load effect is defined after loadData to avoid TDZ
 
     // Sync local state with global selection changes (e.g., from MergedSelectionFeedback)
     useEffect(() => {
@@ -436,8 +444,7 @@ const StateSequenceProjection = (props) => {
             payload: false
         });
         
-        // Clear timeline and selection state when loading new data
-        setShowTimeline(false);
+        // Clear selection state when loading new data
         setSelectedState(null);
         setSelectedTrajectory(null);
         setSelectedCluster(null);
@@ -448,6 +455,9 @@ const StateSequenceProjection = (props) => {
             type: 'SET_SELECTION',
             payload: []
         });
+
+        // Clear feedback highlights for new data/phase
+        activeLearningDispatch({ type: 'CLEAR_FEEDBACK_HIGHLIGHTS' } as any);
         
         // Clear image cache
         canvasImageCache.clear();
@@ -655,6 +665,18 @@ const StateSequenceProjection = (props) => {
             });
     }, [props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkId, props.checkpointStep, props.embeddingSettings, props.benchmarkedModels, props.infos, props.timeStamp, embeddingSequenceLength, activeLearningDispatch, drawChart, viewMode, segmentSize]);
 
+    // Auto-load projection once per session after resetSampler (defined after loadData to avoid TDZ)
+    useEffect(() => {
+        const sessionId = appState.sessionId;
+        const hasProjection = (activeLearningState.projectionStates || []).length > 0;
+        const alreadyAutoLoaded = autoLoadedSessionRef.current === sessionId;
+        const shouldAutoLoad = !!sessionId && sessionId !== '-' && !hasProjection && !alreadyAutoLoaded && !activeLearningState.shouldLoadNewData && !isLoading;
+        if (shouldAutoLoad) {
+            autoLoadedSessionRef.current = sessionId;
+            loadData();
+        }
+    }, [appState.sessionId, activeLearningState.projectionStates, activeLearningState.shouldLoadNewData, isLoading, loadData]);
+
     const drawStateSpace = useCallback((data = [], labels = [], doneData = [], labelInfos = [], episodeIndices = [], gridData = { prediction_image: null, uncertainty_image: null, bounds: null }, predicted_rewards = [], predicted_uncertainties = [], segments = []) => {
 
         const margin = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -674,6 +696,7 @@ const StateSequenceProjection = (props) => {
         }
 
         let processedData = data.map((k, i) => [...k, episodeIndices[i] || 0]);
+        const userTrajectories = activeLearningState.userGeneratedTrajectories || [];
 
         // Create quad tree for fast point lookup
         const quadTree = d3.quadtree(
@@ -925,7 +948,7 @@ const StateSequenceProjection = (props) => {
             .style('opacity', '0');
 
         // Add mouse events
-        view_rect.on('mousemove', function (event) {
+        /*view_rect.on('mousemove', function (event) {
             const mouse = d3.pointer(event);
 
             // Map the clicked point to the data space
@@ -949,11 +972,11 @@ const StateSequenceProjection = (props) => {
             } else {
                 setHoveredEpisode(null);
             }
-        });
+        });*/
 
-        view_rect.on('mouseout', function (event) {
+        /*view_rect.on('mouseout', function (event) {
             setHoveredEpisode(null);
-        });
+        });*/
 
         view_rect.on('click', function (event) {
             // Prevent default to avoid any interference
@@ -1035,7 +1058,6 @@ const StateSequenceProjection = (props) => {
                     selectedStateRef.current = newSelectedState;
                     setSelectedTrajectory(episodeIdx);
                     selectedTrajectoryRef.current = episodeIdx;
-                    setClickedEpisode(episodeIdx);
                     
                     if (multiSelectModeRef.current) {
 
@@ -1348,6 +1370,10 @@ const StateSequenceProjection = (props) => {
                 const segmentElement = segmentGroup.append('g')
                     .attr('class', 'uncertainty-segment')
                     .attr('id', `uncertainty-segment-${mergedSegment.id}`);
+                // Precompute a stable signature based on member indices for highlight matching
+                const segmentIndices = topMergedSegments[index].globalIndices || [];
+                const segmentSignature = JSON.stringify(Array.from(new Set(segmentIndices)).sort((a,b) => a - b).slice(0, 200));
+                segmentElement.attr('data-cluster-sig', segmentSignature);
                 
                 // Add invisible clickable area first
                 segmentElement
@@ -1420,10 +1446,22 @@ const StateSequenceProjection = (props) => {
                     .attr('class', 'uncertainty-segment-hull')
                     .attr('d', 'M' + mappedHull.join('L') + 'Z')
                     .attr('fill', 'none')
-                    .attr('stroke', '#333333') // Dark grey
-                    .attr('stroke-width', 2)
+                    .attr('stroke', (function() {
+                        const hl = feedbackHighlightsRef.current;
+                        const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
+                        return isHighlighted ? '#8A2BE2' : '#333333';
+                    })())
+                    .attr('stroke-width', (function() {
+                        const hl = feedbackHighlightsRef.current;
+                        const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
+                        return isHighlighted ? 3.5 : 2;
+                    })())
                     .attr('stroke-dasharray', '10,5') // Dashed line
-                    .attr('opacity', 0.7)
+                    .attr('opacity', (function() {
+                        const hl = feedbackHighlightsRef.current;
+                        const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
+                        return isHighlighted ? 0.95 : 0.7;
+                    })())
                     .style('pointer-events', 'none'); // Don't interfere with clicking
                 
                 // Add merged segment label (H1, H2, etc. for "High uncertainty")
@@ -1464,9 +1502,18 @@ const StateSequenceProjection = (props) => {
                 pathPoints.pop();
             }
         });
+
+        // Compute similarity-based colors for all trajectories outside the canvas context
+        const computedTrajectoryColors = computeTrajectoryColors(episodeToPaths);
+        
+        // Dispatch the colors to the active learning context
+        activeLearningDispatch({
+            type: 'SET_TRAJECTORY_COLORS',
+            payload: computedTrajectoryColors
+        });
         
         // Zoom handler function
-        function zoomed(event) {
+        function zoomed(event: any) {
 
             const transform = event.transform;
             view.attr('transform', transform);
@@ -1479,16 +1526,6 @@ const StateSequenceProjection = (props) => {
             //const isZoomEnd = event.sourceEvent &&
             //    (event.sourceEvent.type === 'mouseup' || event.sourceEvent.type === 'touchend');
             const isZoomEnd = true;
-
-            // Compute similarity-based colors for all trajectories outside the canvas context
-            const computedTrajectoryColors = computeTrajectoryColors(episodeToPaths);
-            setTrajectoryColors(computedTrajectoryColors);
-            
-            // Dispatch the colors to the active learning context
-            activeLearningDispatch({
-                type: 'SET_TRAJECTORY_COLORS',
-                payload: computedTrajectoryColors
-            });
 
             // First, draw the grid image to the canvas with proper transformation
             if (context) {
@@ -1525,6 +1562,19 @@ const StateSequenceProjection = (props) => {
                         const strokeWidth = isHighlighted ? width * 2 : width;
                         drawTrajectory(context, screenPoints, trajectoryColor, strokeWidth);
                     });
+
+                    if (userTrajectories.length > 0) {
+                        context.save();
+                        context.globalAlpha = 0.92;
+                        const overlayWidth = Math.max(2.5, width * 2.5);
+                        userTrajectories.forEach((trajectory, idx) => {
+                            if (!trajectory.projection || trajectory.projection.length === 0) return;
+                            const screenPoints = trajectory.projection.map((p: number[]) => [xScale(p[0]), yScale(p[1])]);
+                            const trajectoryColor = (trajectory.metadata?.color as string) || '#FF6B35';
+                            drawTrajectory(context, screenPoints, trajectoryColor, overlayWidth);
+                        });
+                        context.restore();
+                    }
 
                     // Batch draw points for better performance
                     //context.globalAlpha = 0.5;
@@ -1579,6 +1629,69 @@ const StateSequenceProjection = (props) => {
                                 context.closePath();
                             }
                         }
+                    }
+
+                    // Overlay highlights for feedback-marked items (current phase)
+                    try {
+                        const highlights = feedbackHighlightsRef.current;
+
+                        if (highlights) {
+                            // Highlight whole episodes with a purple overlay path
+                            if (highlights.episodes && highlights.episodes.size > 0) {
+                                const highlightColor = '#8A2BE2'; // purple
+                                const overlayWidth = Math.max(1.5, width * 2.2);
+                                highlights.episodes.forEach((ep: number) => {
+                                    const pathPoints = episodeToPaths.get(ep);
+                                    if (!pathPoints || pathPoints.length === 0) return;
+                                    const screenPoints = pathPoints.map(p => [xScale(p[0]), yScale(p[1])]);
+                                    drawTrajectory(context, screenPoints, highlightColor, overlayWidth);
+                                });
+                            }
+
+                            // Highlight specific states with an outlined purple ring
+                            if (highlights.states && highlights.states.size > 0) {
+                                const ringColor = '#8A2BE2';
+                                const ringWidth = Math.max(1.5, width * 1.5);
+                                for (const gi of Array.from(highlights.states)) {
+                                    if (gi < 0 || gi >= processedData.length) continue;
+                                    const [sx, sy] = [xScale(processedData[gi][0]), yScale(processedData[gi][1])];
+                                    context.beginPath();
+                                    context.strokeStyle = ringColor;
+                                    context.lineWidth = ringWidth;
+                                    context.globalAlpha = 0.9;
+                                    context.arc(sx, sy, r * 1.8, 0, 2 * Math.PI);
+                                    context.stroke();
+                                    context.closePath();
+                                }
+                            }
+
+                            // Draw small purple crosses for coordinates
+                            if (highlights.coordinates && highlights.coordinates.size > 0) {
+                                const crossColor = '#8A2BE2';
+                                const cs = Math.max(6, 8 / Math.max(0.5, transform.k));
+                                highlights.coordinates.forEach((key: string) => {
+                                    const parts = key.split(',');
+                                    if (parts.length !== 2) return;
+                                    const cx = parseFloat(parts[0]);
+                                    const cy = parseFloat(parts[1]);
+                                    if (Number.isNaN(cx) || Number.isNaN(cy)) return;
+                                    const px = xScale(cx);
+                                    const py = yScale(cy);
+                                    context.beginPath();
+                                    context.strokeStyle = crossColor;
+                                    context.lineWidth = Math.max(1, width * 1.2);
+                                    context.globalAlpha = 0.9;
+                                    context.moveTo(px - cs, py);
+                                    context.lineTo(px + cs, py);
+                                    context.moveTo(px, py - cs);
+                                    context.lineTo(px, py + cs);
+                                    context.stroke();
+                                    context.closePath();
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        // noop
                     }
 
 
@@ -1683,6 +1796,30 @@ const StateSequenceProjection = (props) => {
                     })
                     .attr('filter', isHighlighted ? 'drop-shadow(0 0 6px #FFD700)' : null);
             });
+
+            // Update cluster hull highlighting based on current feedback highlights
+            try {
+                const hl = feedbackHighlightsRef.current;
+                if (hl && hl.clustersSignatures && hl.clustersSignatures.size > 0) {
+                    view.selectAll('.uncertainty-segment').each(function() {
+                        const seg = d3.select(this);
+                        const sig = seg.attr('data-cluster-sig');
+                        const highlighted = !!sig && hl.clustersSignatures!.has(sig);
+                        seg.select('.uncertainty-segment-hull')
+                            .attr('stroke', highlighted ? '#8A2BE2' : '#333333')
+                            .attr('stroke-width', highlighted ? 3.5 : 2)
+                            .attr('opacity', highlighted ? 0.95 : 0.7);
+                    });
+                } else {
+                    // reset to default
+                    view.selectAll('.uncertainty-segment-hull')
+                        .attr('stroke', '#333333')
+                        .attr('stroke-width', 2)
+                        .attr('opacity', 0.7);
+                }
+            } catch (e) {
+                // noop
+            }
         }
         
         // Store the zoomed function reference for external calls
@@ -1756,7 +1893,7 @@ const StateSequenceProjection = (props) => {
         return () => {
             // Cleanup on unmount
         };
-    }, [props, activeLearningState.grid_prediction_image, activeLearningDispatch, maxUncertaintySegments]);
+    }, [props, activeLearningState.grid_prediction_image, activeLearningState.userGeneratedTrajectories, activeLearningDispatch, maxUncertaintySegments]);
 
     return (
         <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -1800,53 +1937,94 @@ const StateSequenceProjection = (props) => {
                         transform: 'translateX(-50%)',
                         zIndex: 10,
                         display: 'flex',
-                        gap: 2,
                         visibility: isLoading ? 'hidden' : 'visible'
                     }}
                 >
-                    <Tooltip title="Clear Selection">
-                        <IconButton
-                            color="default"
-                            sx={{
-                                backgroundColor: 'rgba(185, 185, 185, 0.7)',
-                                '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
-                            }}
-                            onClick={() => {
-                                activeLearningDispatch({
-                                    type: 'SET_SELECTION',
-                                    payload: []
-                                });
-                                // Clear local selection state
-                                setSelectedState(null);
-                                setSelectedTrajectory(null);
-                                setSelectedCluster(null);
-                                setSelectedCoordinate({ x: null, y: null });
-                                // Reset multi-select mode when clearing selection
-                                setMultiSelectMode(false);
-                            }}
-                        >
-                            <DeleteIcon />
-                        </IconButton>
-                    </Tooltip>
-
-                    <OnboardingHighlight stepId="multi-select-mode" pulse={true}>
-                        <Tooltip title={multiSelectMode ? "Multi-Select Mode: ON" : "Multi-Select Mode: OFF"}>
+                    {/* Fixed-width control group to prevent layout shift */}
+                    <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                        <Tooltip title="Clear Selection">
                             <IconButton
-                                color={multiSelectMode ? "primary" : "default"}
+                                color="default"
                                 sx={{
-                                    backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.7)' : 'rgba(185, 185, 185, 0.7)',
-                                    '&:hover': { backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.9)' : 'rgba(185, 185, 185, 0.9)' }
+                                    backgroundColor: 'rgba(185, 185, 185, 0.7)',
+                                    '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
                                 }}
                                 onClick={() => {
-                                    if (selectedTrajectory || selectedState) {
-                                        setMultiSelectMode(!multiSelectMode);
-                                    }
+                                    activeLearningDispatch({
+                                        type: 'SET_SELECTION',
+                                        payload: []
+                                    });
+                                    // Clear local selection state
+                                    setSelectedState(null);
+                                    setSelectedTrajectory(null);
+                                    setSelectedCluster(null);
+                                    setSelectedCoordinate({ x: null, y: null });
+                                    // Reset multi-select mode when clearing selection
+                                    setMultiSelectMode(false);
                                 }}
                             >
-                                <AddIcon />
+                                <DeleteIcon />
                             </IconButton>
                         </Tooltip>
-                    </OnboardingHighlight>
+
+                        <OnboardingHighlight stepId="multi-select-mode" pulse={true}>
+                            <Tooltip title={multiSelectMode ? "Multi-Select Mode: ON" : "Multi-Select Mode: OFF"}>
+                                <IconButton
+                                    color={multiSelectMode ? "primary" : "default"}
+                                    sx={{
+                                        backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.7)' : 'rgba(185, 185, 185, 0.7)',
+                                        '&:hover': { backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.9)' : 'rgba(185, 185, 185, 0.9)' }
+                                    }}
+                                    onClick={() => {
+                                        if (selectedTrajectory || selectedState) {
+                                            setMultiSelectMode(!multiSelectMode);
+                                        }
+                                    }}
+                                >
+                                    <AddIcon />
+                                </IconButton>
+                            </Tooltip>
+                        </OnboardingHighlight>
+
+                        {multiSelectMode && (
+                            <Typography
+                                variant="caption"
+                                sx={{
+                                    position: 'absolute',
+                                    left: 'calc(100% + 8px)',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    px: 1,
+                                    py: 0.3,
+                                    borderRadius: 1,
+                                    bgcolor: 'rgba(25,118,210,0.08)',
+                                    color: 'text.secondary',
+                                    whiteSpace: 'nowrap'
+                                }}
+                            >
+                                Click Trajectory to Add (Already Selected: {selectedTrajectoriesCount})
+                            </Typography>
+                        )}
+                        {!multiSelectMode && selectedTrajectoriesCount > 0 && (
+                            <Typography
+                                variant="caption"
+                                sx={{
+                                    position: 'absolute',
+                                    left: 'calc(100% + 8px)',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    px: 1,
+                                    py: 0.3,
+                                    borderRadius: 1,
+                                    bgcolor: 'rgba(25,118,210,0.08)',
+                                    color: 'text.secondary',
+                                    whiteSpace: 'nowrap'
+                                }}
+                            >
+                                Activate Multi-Select to Compare Multiple Episodes
+                            </Typography>
+                        )}
+                    </Box>
                 </Box>
 
                 {/* Selected cluster info display */}
@@ -2058,87 +2236,6 @@ const StateSequenceProjection = (props) => {
                 )}
             </EmbeddingWrapper>
             
-            {/* Timeline Component - Positioned relative to the StateSequenceProjection container */}
-            {showTimeline && selectedState && selectedState.episode !== null && selectedState.step !== null && (
-                <Box
-                    sx={{
-                        position: 'absolute',
-                        bottom: 15,
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        zIndex: 1000,
-                        pointerEvents: 'auto', // Ensure the timeline can receive events
-                    }}
-                >
-                    <TimelineComponent
-                        selectedEpisode={selectedState.episode}
-                        selectedStep={selectedState.step}
-                        onClose={() => setShowTimeline(false)}
-                        onStepSelect={(step) => {
-                            // Update the selected state with the new step
-                            if (selectedState.episode !== null) {
-                                // Calculate the global index for this episode and step
-                                const episodeStartIndex = activeLearningState.episodeIndices.findIndex(idx => idx === selectedState.episode);
-                                if (episodeStartIndex !== -1) {
-                                    const globalIndex = episodeStartIndex + step;
-                                    const projectionStates = activeLearningState.projectionStates || [];
-                                    
-                                    if (globalIndex < projectionStates.length) {
-                                        const coords = projectionStates[globalIndex];
-                                        // Ensure coords has at least 2 elements
-                                        const safeCoords: [number, number] = coords.length >= 2 ? [coords[0], coords[1]] : [0, 0];
-                                        
-                                        const newSelectedState: SelectedState = {
-                                            episode: selectedState.episode,
-                                            step: step,
-                                            coords: safeCoords,
-                                            x: safeCoords[0],
-                                            y: safeCoords[1],
-                                            index: globalIndex
-                                        };
-                                        
-                                        setSelectedState(newSelectedState);
-                                        selectedStateRef.current = newSelectedState;
-                                        
-                                        // Update global selection
-                                        const newStateSelection: SelectionItem = { 
-                                            type: "state", 
-                                            data: {
-                                                episode: selectedState.episode,
-                                                step: step,
-                                                coords: safeCoords,
-                                                x: safeCoords[0],
-                                                y: safeCoords[1],
-                                                index: globalIndex
-                                            }
-                                        };
-                                        
-                                        activeLearningDispatch({
-                                            type: 'SET_SELECTION',
-                                            payload: [newStateSelection]
-                                        });
-                                        
-                                        // Trigger a redraw to show the updated state
-                                        if (zoomedFunctionRef.current && embeddingRef.current) {
-                                            const svg = d3.select(embeddingRef.current).select('svg');
-                                            if (svg.node()) {
-                                                const view = svg.select('.view');
-                                                if (view.node()) {
-                                                    const viewNode = view.node() as Element;
-                                                    const currentTransform = d3.zoomTransform(viewNode);
-                                                    zoomedFunctionRef.current({ transform: currentTransform });
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }}
-                        width={600}
-                        height={100}
-                    />
-                </Box>
-            )}
         </Box>
     );
 
