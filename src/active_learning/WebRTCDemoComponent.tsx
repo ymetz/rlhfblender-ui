@@ -26,6 +26,7 @@ interface WebRTCDemoComponentProps {
   step?: number;
   onSubmit: () => void;
   onCancel: () => void;
+  isSubmitting?: boolean;
 }
 
 const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
@@ -38,6 +39,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   step,
   onSubmit,
   onCancel,
+  isSubmitting = false,
 }) => {
   const theme = useTheme();
 
@@ -89,53 +91,86 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
 
   // Set up video stream when remoteStream changes
   useEffect(() => {
-    if (remoteStream && videoRef.current) {
-      videoRef.current.srcObject = remoteStream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = remoteStream ?? null;
     }
   }, [remoteStream]);
 
-  // Initialize demo on mount - only run once
+  const coordinateKey = coordinate ? `${coordinate.x},${coordinate.y}` : 'none';
+  const startRef = useRef(start);
+  const stopRef = useRef(stop);
+
   useEffect(() => {
-    let isMounted = true;
+    startRef.current = start;
+  }, [start]);
+
+  useEffect(() => {
+    stopRef.current = stop;
+  }, [stop]);
+
+  const endRemoteSession = useCallback(async () => {
+    try {
+      await fetch('/demo_generation/end_demo_session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, webrtc_enabled: true }),
+      });
+    } catch (err) {
+      console.error('Error ending WebRTC demo session:', err);
+    }
+  }, [sessionId]);
+
+  // Initialize or re-initialize demo whenever key parameters change
+  useEffect(() => {
+    let isActive = true;
+
+    setConnected(false);
+    setLoading(true);
+    setError(null);
+    setStepCount(0);
+    setEpisodeDone(false);
 
     const initDemo = async () => {
-      if (!isMounted) return;
-      
-      setLoading(true);
-      setError(null);
-
       try {
-        await start({ useDataChannel: true });
-        if (isMounted) {
+        await endRemoteSession();
+        await startRef.current?.({ useDataChannel: true });
+        if (isActive) {
           setConnected(true);
         }
       } catch (err) {
-        if (isMounted) {
+        if (isActive) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
           setError(errorMsg);
           console.error('Error initializing WebRTC:', err);
         }
       } finally {
-        if (isMounted) {
+        if (isActive) {
           setLoading(false);
         }
       }
     };
 
-    initDemo();
+    void initDemo();
 
     return () => {
-      isMounted = false;
-      stop();
+      isActive = false;
+      stopRef.current?.();
+      void endRemoteSession();
     };
-  }, []); // Empty dependency array - only run once
+  }, [sessionId, experimentId, environmentId, coordinateKey, checkpoint, episodeNum, step, endRemoteSession]);
 
   // Retry function for error cases
   const handleRetry = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setConnected(false);
+    setStepCount(0);
+    setEpisodeDone(false);
+
+    stop();
 
     try {
+      await endRemoteSession();
       await start({ useDataChannel: true });
       setConnected(true);
     } catch (err) {
@@ -145,7 +180,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [start]);
+  }, [start, stop, endRemoteSession]);
 
   // Setup keyboard event listeners when connected
   useEffect(() => {
@@ -452,9 +487,12 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
               <Button
                 variant="contained"
                 size="small"
-                disabled={!connected}
+                disabled={!connected || isSubmitting}
                 onClick={onSubmit}
               >
+                {isSubmitting && (
+                  <CircularProgress size={16} sx={{ mr: 1 }} color="inherit" />
+                )}
                 Submit Demo
               </Button>
             </Box>

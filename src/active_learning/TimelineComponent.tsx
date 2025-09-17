@@ -22,6 +22,8 @@ type TimelineComponentProps = {
   width?: number;
   height?: number;
   margin?: { top: number; right: number; bottom: number; left: number };
+  variant?: 'overlay' | 'inline';
+  showClose?: boolean;
 };
 
 type TooltipProps = { value: number; index: number; uncertainty?: number };
@@ -54,6 +56,8 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
     width = 600,
     height = 200,
     margin = { top: 16, right: 10, bottom: 30, left: 48 },
+    variant = 'overlay',
+    showClose = true,
     showTooltip,
     hideTooltip,
     tooltipData,
@@ -203,38 +207,57 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
 
     return (
       <Box
-        sx={{
-          position: "absolute",
-          bottom: 60,
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 1000,
-          backgroundColor: "rgba(255,255,255,0.95)",
-          border: "2px solid",
-          borderColor: episodeColor,
-          borderRadius: 2,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
-          backdropFilter: "blur(8px)",
-        }}
+        sx={
+          variant === 'overlay'
+            ? {
+                position: "absolute",
+                bottom: 60,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 1000,
+                backgroundColor: "rgba(255,255,255,0.95)",
+                border: "2px solid",
+                borderColor: episodeColor,
+                borderRadius: 2,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+                backdropFilter: "blur(8px)",
+              }
+            : { width: '100%' }
+        }
       >
-        <Box sx={{ p: 0.5, position: "relative" }}>
-          <IconButton
-            onClick={onClose}
-            size="small"
+        <Box sx={{ p: variant === 'overlay' ? 0.5 : 0, position: "relative" }}>
+          {variant === 'overlay' && showClose && (
+            <IconButton
+              onClick={onClose}
+              size="small"
+              sx={{
+                position: "absolute",
+                top: -8,
+                right: -8,
+                zIndex: 1001,
+                backgroundColor: "rgba(255,255,255,0.9)",
+                "&:hover": { backgroundColor: "rgba(255,255,255,1)" },
+                width: 20,
+                height: 20,
+                border: `1px solid ${episodeColor}`,
+              }}
+            >
+              <CloseIcon sx={{ fontSize: 12 }} />
+            </IconButton>
+          )}
+
+          {/* Title */}
+          <Typography
+            variant={variant === 'overlay' ? 'subtitle2' : 'subtitle2'}
             sx={{
-              position: "absolute",
-              top: -8,
-              right: -8,
-              zIndex: 1001,
-              backgroundColor: "rgba(255,255,255,0.9)",
-              "&:hover": { backgroundColor: "rgba(255,255,255,1)" },
-              width: 20,
-              height: 20,
-              border: `1px solid ${episodeColor}`,
+              color: theme.palette.text.secondary,
+              px: 1,
+              pt: variant === 'overlay' ? 0.5 : 0,
+              pb: 0.5,
             }}
           >
-            <CloseIcon sx={{ fontSize: 12 }} />
-          </IconButton>
+            Episode {selectedEpisode} Timeline
+          </Typography>
 
           <svg width={width} height={height} style={{ borderRadius: 8, overflow: "hidden" }}>
             <rect x={0} y={0} width={width} height={height} fill={theme.palette.background.paper} />
@@ -403,8 +426,14 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
             </TooltipWithBounds>
           )}
 
-          {/* Keep legend if you like; panel chips already label the plots */}
-          <Box sx={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 2, fontSize: "12px" }}>
+          {/* Keep legend inline; skip absolute when embedded */}
+          <Box
+            sx={
+              variant === 'overlay'
+                ? { position: "absolute", top: 8, right: 8, display: "flex", gap: 2, fontSize: "12px" }
+                : { display: "flex", gap: 2, fontSize: "12px", mt: 0.5, justifyContent: 'flex-end' }
+            }
+          >
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               <Box sx={{ width: 12, height: 12, bgcolor: theme.palette.success.main, opacity: 0.9 }} />
               <Typography variant="caption">Reward</Typography>

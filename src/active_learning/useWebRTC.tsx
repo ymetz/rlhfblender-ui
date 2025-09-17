@@ -241,18 +241,36 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   };
 
   const stop = () => {
-    if (dcRef.current) dcRef.current.close();
-    if (dcIntervalRef.current) clearInterval(dcIntervalRef.current);
+    if (dcRef.current) {
+      try {
+        dcRef.current.close();
+      } catch (error) {
+        console.warn('Error closing data channel:', error);
+      }
+      dcRef.current = null;
+    }
+
+    if (dcIntervalRef.current) {
+      clearInterval(dcIntervalRef.current);
+      dcIntervalRef.current = null;
+    }
 
     const pc = pcRef.current;
     if (pc) {
-      if (pc.getTransceivers) {
-        pc.getTransceivers().forEach((t) => t.stop && t.stop());
-      }
+      try {
+        if (pc.getTransceivers) {
+          pc.getTransceivers().forEach((t) => t.stop && t.stop());
+        }
 
-      pc.getSenders().forEach((s) => s.track?.stop());
-      pc.close();
+        pc.getSenders().forEach((s) => s.track?.stop());
+        pc.close();
+      } catch (error) {
+        console.warn('Error closing RTCPeerConnection:', error);
+      }
+      pcRef.current = null;
     }
+
+    setRemoteStream(null);
   };
 
   return { start, stop, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction };

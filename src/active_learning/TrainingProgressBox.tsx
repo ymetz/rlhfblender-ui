@@ -5,8 +5,11 @@ import {
   Typography, 
   LinearProgress, 
   Chip,
-  Stack
+  Stack,
+  IconButton
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
+import { useActiveLearningState } from '../ActiveLearningContext';
 
 interface TrainingProgressBoxProps {
   isTraining: boolean;
@@ -27,6 +30,38 @@ const TrainingProgressBox: React.FC<TrainingProgressBoxProps> = ({
   uncertainty,
   avgReward
 }) => {
+  const activeLearningState = useActiveLearningState();
+  const [dismissed, setDismissed] = React.useState(false);
+
+  // Reset dismissal when new training starts
+  React.useEffect(() => {
+    if (isTraining) setDismissed(false);
+  }, [isTraining]);
+
+  // Previous metrics from progress arrays
+  const prevUncertainty = React.useMemo(() => {
+    const arr = activeLearningState.progressUncertainties || [];
+    return arr.length >= 2 ? arr[arr.length - 2] : null;
+  }, [activeLearningState.progressUncertainties]);
+
+  const prevReward = React.useMemo(() => {
+    const arr = activeLearningState.progressRewards || [];
+    return arr.length >= 2 ? arr[arr.length - 2] : null;
+  }, [activeLearningState.progressRewards]);
+
+  const fmt = (v: number | null) => (v === null || v === undefined) ? '-' : v.toFixed(4);
+  const delta = (cur: number, prev: number | null) => (prev === null || prev === undefined) ? null : (cur - prev);
+  const renderDelta = (d: number | null, mode: 'reward' | 'uncertainty') => {
+    if (d === null) return null;
+    const isGood = mode === 'reward' ? d > 0 : d < 0; // reward up good, uncertainty down good
+    const color = isGood ? 'success.main' : d === 0 ? 'text.secondary' : 'error.main';
+    const sign = d >= 0 ? '+' : '';
+    return (
+      <Box component="span" sx={{ color }}>
+        {` (Δ ${sign}${d.toFixed(4)})`}
+      </Box>
+    );
+  };
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
@@ -58,7 +93,7 @@ const TrainingProgressBox: React.FC<TrainingProgressBoxProps> = ({
     }
   };
 
-  if (!isTraining && phaseStatus !== 'completed') {
+  if ((!isTraining && phaseStatus !== 'completed') || dismissed) {
     return null;
   }
 
@@ -80,11 +115,16 @@ const TrainingProgressBox: React.FC<TrainingProgressBoxProps> = ({
       <Stack spacing={2}>
         <Box display="flex" justifyContent="space-between" alignItems="center">
           <Typography variant="h6">Training Progress</Typography>
-          <Chip 
-            label={getStatusText(phaseStatus)} 
-            color={getStatusColor(phaseStatus) as any}
-            size="small"
-          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Chip 
+              label={getStatusText(phaseStatus)} 
+              color={getStatusColor(phaseStatus) as any}
+              size="small"
+            />
+            <IconButton aria-label="Close" size="small" onClick={() => setDismissed(true)}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
         </Box>
 
         {isTraining && (
@@ -95,10 +135,6 @@ const TrainingProgressBox: React.FC<TrainingProgressBoxProps> = ({
             }}
           />
         )}
-
-        <Typography variant="body2" color="text.secondary">
-          {message}
-        </Typography>
 
         {(trainingLoss > 0 || validationLoss > 0) && (
           <Box>
@@ -132,17 +168,39 @@ const TrainingProgressBox: React.FC<TrainingProgressBoxProps> = ({
               Results
             </Typography>
             <Stack spacing={1}>
-              <Box display="flex" justifyContent="space-between">
-                <Typography variant="body2">Uncertainty:</Typography>
-                <Typography variant="body2" fontFamily="monospace">
-                  {uncertainty.toFixed(4)}
-                </Typography>
+              <Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2">Uncertainty:</Typography>
+                  <Typography variant="body2" fontFamily="monospace">
+                    {uncertainty.toFixed(4)}
+                  </Typography>
+                </Box>
+                {prevUncertainty !== null && (
+                  <Box display="flex" justifyContent="space-between">
+                    <Typography variant="caption" color="text.secondary">Prev / Δ:</Typography>
+                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">
+                      {fmt(prevUncertainty)}
+                      {renderDelta(delta(uncertainty, prevUncertainty), 'uncertainty')}
+                    </Typography>
+                  </Box>
+                )}
               </Box>
-              <Box display="flex" justifyContent="space-between">
-                <Typography variant="body2">Avg Reward:</Typography>
-                <Typography variant="body2" fontFamily="monospace">
-                  {avgReward.toFixed(4)}
-                </Typography>
+              <Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2">Avg Reward:</Typography>
+                  <Typography variant="body2" fontFamily="monospace">
+                    {avgReward.toFixed(4)}
+                  </Typography>
+                </Box>
+                {prevReward !== null && (
+                  <Box display="flex" justifyContent="space-between">
+                    <Typography variant="caption" color="text.secondary">Prev / Δ:</Typography>
+                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">
+                      {fmt(prevReward)}
+                      {renderDelta(delta(avgReward, prevReward), 'reward')}
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             </Stack>
           </Box>

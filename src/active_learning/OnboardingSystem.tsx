@@ -566,13 +566,6 @@ const OnboardingOverlay: React.FC<{
 // Predefined onboarding steps for the Active Learning Interface
 export const createActiveLearningOnboardingSteps = (): OnboardingStep[] => [
   {
-    id: 'load-data',
-    title: 'Load Data',
-    description: 'First, click the "Load Data" button to refresh and display the trajectory data in the projection view.',
-    position: 'right',
-    showOverlay: true,
-  },
-  {
     id: 'select-trajectory',
     title: 'Select Trajectories, Cluster or New Coordinate',
     description: 'Click on different trajectories (colored lines) to see individual states. You can also click on clusters (numbered regions) to select multiple related states.',

@@ -35,6 +35,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   const setupConfigState = useSetupConfigState();
   const { activeUIConfig } = setupConfigState;
   const [activeTab, setActiveTab] = useState(0);
+  const [ssvSlide, setSsvSlide] = useState(0);
 
   const { startModalOpen, startModalContent } = state;
 
@@ -49,7 +50,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   };
 
   const handleNext = () => {
-    setActiveTab((prev) => Math.min(prev + 1, 3));
+    setActiveTab((prev) => Math.min(prev + 1, 4));
   };
 
   const feedbackTypes = Object.entries(activeUIConfig.feedbackComponents ?? {})
@@ -60,11 +61,11 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
         rating:
           "Select a single trajectory from the projection and rate it using the slider (0-10). Videos of the episode will be displayed for review.",
         comparison:
-          "Select multiple trajectories to compare them. Choose the best performing episode from the available options.",
+          "Select multiple trajectories to compare them by activating the multi-selection mode. Choose the best performing episode from the available options.",
         correction:
-          "Select a specific state coordinate in the projection and control the agent via keyboard controls to show correct behavior.",
+          "Select a single state to correct from this position. ",
         demonstration:
-          "Select a coordinate in the projection to start a live demonstration for an unknown state. Demonstrate behavior via keyboard controls",
+          "Select an empty coordinate in the projection to start a demonstration for an unknown state. Demonstrate behavior via keyboard controls",
         clusterRating:
           "Select a cluster of states and rate the overall performance of that cluster.",
         }[key],
@@ -96,7 +97,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
         }}
       >
         <List>
-          {["Introduction", "Feedback Options", "Privacy Policy", "Your Task"].map(
+          {["Introduction", "User Interface", "Feedback Options", "Privacy Policy", "Your Task"].map(
             (text, index) => (
               <ListItem
                 button
@@ -127,6 +128,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
           </Typography>
           <Tabs value={activeTab} onChange={handleTabChange}>
             <Tab label="Introduction" />
+            <Tab label="User Interface" />
             <Tab label="Feedback Options" />
             <Tab label="Privacy Policy" />
             <Tab label="Your Task" />
@@ -145,62 +147,22 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
                 The following instructions will give you a high-level overview of the study's goal and precedure.
               </Typography>
 
-              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                🧩 Basics of RLHF
+              </Typography>
+              <Typography paragraph>
+                Your task will be to provide feedback to help the agent learn the desired behavior. Let's start by giving a very brief overview of the underlying concept of Reinforcement Learning from Human Feedback (RLHF).
+              </Typography>
+
+                <Box sx={{ p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <img
-                  src="/files/tool_workflow.png"
-                  alt="Feedback Panel"
+                  src="/files/RLHF_Summary.png"
+                  alt="RLHF Summary"
                   style={{ width: "100%", height: "auto", objectFit: "contain" }}
                 />
                 <Typography variant="body2" color="text.secondary">
-                  The full workflow of our tool: Based on sampled trajectories, select the most relevant ones and provide feedback. 
-                </Typography>
-              </Box>
-
-              <Typography paragraph>
-                The interface consists of two main components:
-              </Typography>
-              
-              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-                🗺️ State Sequence Projection (Left Panel)
-              </Typography>
-              <Typography paragraph>
-                The main visualization shows a 2D projection of agent state sequences from multiple episodes. 
-                Each trajectory represents an episode, with different colors indicating different episodes or similarity groups.
-              </Typography>
-              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <img
-                  src="/files/state_sequence_projection.png"
-                  alt="State Sequence Projection"
-                  style={{ width: "80%", height: "auto", objectFit: "contain" }}
-                />
-                <Typography variant="body2" color="text.secondary">
-                  State sequence projection showing trajectories
-                </Typography>
-              </Box>
-              <Typography paragraph>
-                <strong>How to interact:</strong>
-              </Typography>
-              <Typography component="div" paragraph>
-                • <strong>Click Load Data</strong> to load episode trajectories into the projection<br/>
-                • <strong>Click on trajectories</strong> to select individual episodes<br/>
-                • <strong>Click on coordinates</strong> to select specific states for demonstration<br/>
-                • <strong>Use action buttons</strong> (Add ➕, Clear 🗑️, Mark ✏️) to manage selections
-              </Typography>
-
-              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
-                📝 Feedback Input (Right Panel)
-              </Typography>
-              <Typography paragraph>
-                Once you select items from the projection, the feedback panel will display options for providing different types of feedback based on your selection.
-              </Typography>
-              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <img
-                  src="/files/feedback_panel.png"
-                  alt="Feedback Panel"
-                  style={{ width: "80%", height: "auto", objectFit: "contain" }}
-                />
-                <Typography variant="body2" color="text.secondary">
-                  Feedback panel with one contextual feedback interaction, here a comparison.
+                  As the human annotator, you observe the agent's behavior and provide feedback. This feedback is used to train a reward model, which in turn guides the agent's learning process. The updated agent
+                  is then recorded and provided back to you in an iterative training process.
                 </Typography>
               </Box>
 
@@ -208,8 +170,86 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
             </Box>
           )}
 
-          {/* Feedback Options Tab */}
+          {/* User Interface Introduction*/}
           {activeTab === 1 && (
+            <Box>
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                🗺️ State Sequence Projection (Left Panel)
+              </Typography>
+              <Typography paragraph>
+                The main visualization shows a 2D projection of agent state sequences from multiple episodes. 
+                Each trajectory represents an episode, with different colors indicating different episodes or similarity groups.
+              </Typography>
+              {/* SSV Carousel */}
+              <Box
+                sx={{
+                  backgroundColor: 'rgba(0,0,0,0.05)',
+                  p: 2,
+                  borderRadius: 1,
+                  mb: 2,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                }}
+              >
+                <Box sx={{ width: '100%', maxWidth: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img
+                    src={["/files/SSV_Explanation_1.png", "/files/SSV_Explanation_2.png", "/files/SSV_Explanation_3.png", "/files/SSV_Explanation_4.png", "/files/SSV_Explanation_5.png", "/files/SSV_Explanation_6.png"][ssvSlide]}
+                    alt={`SSV Explanation ${ssvSlide + 1}`}
+                    style={{ width: '100%', height: 'auto', objectFit: 'contain' }}
+                  />
+                </Box>
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    {
+                      [
+                        '1. The State Sequence View can be used to navigate through recorded behavior of the robot. The 2D coordinates correspond to positions of the robot arm. We use a dimensionality reduction technqiue (PCA) to generate 2D coordinates from mutli-dimensional inputs.',
+                        '2. You can dynamically select and view episodes, either by clicking on a line or selecting an episode from the episode list.',
+                        '3. The view has a consistent color scale, encoding both the predicted reward of the underlying reward modeland uncertainty.',
+                        '4. You select single states wthin a sequence, and also use the time-line to switch between states.',
+                        '5. By clicking on the dashed outlines, you can select an entire cluster of states.',
+                        '6. Depending on your selection, different feedback options will be available in the feedback panel on the right.',
+                      ][ssvSlide]
+                    }
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, mt: 1, width: '100%' }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => setSsvSlide((prev) => (prev + 5) % 6)}
+                  >
+                    Prev
+                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    {[0,1,2,3,4,5].map((i) => (
+                      <Box
+                        key={i}
+                        onClick={() => setSsvSlide(i)}
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          cursor: 'pointer',
+                          backgroundColor: i === ssvSlide ? 'primary.main' : 'grey.400',
+                        }}
+                      />
+                    ))}
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => setSsvSlide((prev) => (prev + 1) % 6)}
+                  >
+                    Next
+                  </Button>
+                </Box>
+              </Box>
+            </Box>
+          )}          
+
+          {/* Feedback Options Tab */}
+          {activeTab === 2 && (
             <Box>
               <Typography variant="h6" gutterBottom>
                 Available Feedback Options
@@ -274,7 +314,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
           )}
 
           {/* Privacy Policy Tab */}
-          {activeTab === 2 && (
+          {activeTab === 3 && (
             <Box>
               <Typography variant="h6" gutterBottom>
                 Data Protection and Privacy
@@ -291,7 +331,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
           )}
 
           {/* Your Task Tab */}
-          {activeTab === 3 && (
+          {activeTab === 4 && (
             <Box>
               <Typography variant="h6" gutterBottom>
                 Your Task
@@ -329,7 +369,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
             gap: 2,
           }}
         >
-          {activeTab !== 3 && (
+          {activeTab !== 4 && (
             <Button
               variant="contained"
               endIcon={<NavigateNextIcon />}
@@ -338,7 +378,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               Next
             </Button>
           )}
-          {activeTab === 3 && (
+          {activeTab === 4 && (
             <Button
               variant="contained"
               color="primary"

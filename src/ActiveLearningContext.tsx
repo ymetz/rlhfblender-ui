@@ -10,6 +10,20 @@ export interface FeedbackHistoryEntry {
   phase: number;
 }
 
+export interface UserDemoTrajectory {
+  id: string;
+  projection: number[][];
+  episodeIndices: number[];
+  rewards: number[];
+  dones: boolean[];
+  videoPath?: string | null;
+  metadata?: any;
+  demoFile?: string;
+  projectionFile?: string;
+  totalReward?: number;
+  source?: string;
+}
+
 export interface ActiveLearningState {
   // Original state properties
   currentPhase: number;
@@ -73,6 +87,16 @@ export interface ActiveLearningState {
     current: number;
   }[];
   feedbackHistory: FeedbackHistoryEntry[];
+
+  // Highlights for items that received feedback in current phase
+  feedbackHighlights?: {
+    episodes: Set<number>;
+    states: Set<number>; // global indices
+    coordinates: Set<string>; // `${x.toFixed(3)},${y.toFixed(3)}`
+    clustersSignatures?: Set<string>; // stringified stable signatures for merged segments
+  };
+
+  userGeneratedTrajectories: UserDemoTrajectory[];
 }
 
 type ActiveLearningAction =
@@ -119,7 +143,11 @@ type ActiveLearningAction =
   | { type: 'UPDATE_FEEDBACK_COUNT', payload: { category: string; isCurrentSession: boolean } }
   | { type: 'SET_FEEDBACK_HISTORY', payload: FeedbackHistoryEntry[] }
   | { type: 'ADD_FEEDBACK_HISTORY_ENTRY', payload: FeedbackHistoryEntry }
-  | { type: 'SET_SHOULD_LOAD_NEW_DATA', payload: boolean };
+  | { type: 'ADD_FEEDBACK_HIGHLIGHTS', payload: { episodes?: number[]; states?: number[]; coordinates?: string[]; clustersSignatures?: string[] } }
+  | { type: 'CLEAR_FEEDBACK_HIGHLIGHTS' }
+  | { type: 'SET_SHOULD_LOAD_NEW_DATA', payload: boolean }
+  | { type: 'ADD_USER_GENERATED_TRAJECTORY', payload: UserDemoTrajectory }
+  | { type: 'RESET_USER_GENERATED_TRAJECTORIES' };
 
 const initialState: ActiveLearningState = {
   // Original state
@@ -174,6 +202,13 @@ const initialState: ActiveLearningState = {
     { category: 'Cluster', total: 0, current: 0 },
   ],
   feedbackHistory: [],
+  feedbackHighlights: {
+    episodes: new Set<number>(),
+    states: new Set<number>(),
+    coordinates: new Set<string>(),
+    clustersSignatures: new Set<string>(),
+  },
+  userGeneratedTrajectories: [],
 };
 
 const ActiveLearningContext = createContext<ActiveLearningState | undefined>(
@@ -287,6 +322,23 @@ function activeLearningReducer(
       return { ...state, feedbackHistory: action.payload };
     case "ADD_FEEDBACK_HISTORY_ENTRY":
       return { ...state, feedbackHistory: [...state.feedbackHistory, action.payload] };
+    case 'ADD_FEEDBACK_HIGHLIGHTS': {
+      const nextEpisodes = new Set(state.feedbackHighlights?.episodes ?? new Set<number>());
+      const nextStates = new Set(state.feedbackHighlights?.states ?? new Set<number>());
+      const nextCoords = new Set(state.feedbackHighlights?.coordinates ?? new Set<string>());
+      const nextClusters = new Set(state.feedbackHighlights?.clustersSignatures ?? new Set<string>());
+      action.payload.episodes?.forEach(e => nextEpisodes.add(e));
+      action.payload.states?.forEach(s => nextStates.add(s));
+      action.payload.coordinates?.forEach(c => nextCoords.add(c));
+      action.payload.clustersSignatures?.forEach(sig => nextClusters.add(sig));
+      return { ...state, feedbackHighlights: { episodes: nextEpisodes, states: nextStates, coordinates: nextCoords, clustersSignatures: nextClusters } };
+    }
+    case 'CLEAR_FEEDBACK_HIGHLIGHTS':
+      return { ...state, feedbackHighlights: { episodes: new Set<number>(), states: new Set<number>(), coordinates: new Set<string>(), clustersSignatures: new Set<string>() } };
+    case 'ADD_USER_GENERATED_TRAJECTORY':
+      return { ...state, userGeneratedTrajectories: [...state.userGeneratedTrajectories, action.payload] };
+    case 'RESET_USER_GENERATED_TRAJECTORIES':
+      return { ...state, userGeneratedTrajectories: [] };
     default:
       throw new Error(`Unhandled action type: ${(action as any).type}`);
   }
