@@ -44,7 +44,7 @@ interface SelectedCluster {
 }
 
 interface SelectionItem {
-    type: "trajectory" | "cluster" | "coordinate" | "state";
+    type: "trajectory" | "cluster" | "coordinate" | "state" | "user_demo";
     data: any;
     label?: string;
 }

@@ -171,6 +171,10 @@ const MergedSelectionFeedback = () => {
 
   // remember the current handle so we can remove it on re-attach/unmount
   const timeUpdateHandlersRef = useRef<Map<number, (e: Event) => void>>(new Map());
+  const loadedMetadataHandlersRef = useRef<Map<number, () => void>>(new Map());
+
+  // track the last step we snapped each video to so we can avoid fighting playback
+  const lastSyncedStepRef = useRef<Map<number, number>>(new Map());
 
   // avoid stale selectedStep in the timeupdate closure
   const selectedStepRef = useRef<number>(0);
@@ -187,10 +191,17 @@ const MergedSelectionFeedback = () => {
     );
   }, [appState.episodeIDsChronologically, appState.selectedCheckpoint]);
   // Extract selection type and data
+  const userGeneratedTrajectories = activeLearningState.userGeneratedTrajectories || [];
+
   const selectionData = useMemo(() => {
     if (selection.length === 0) return { type: 'none', data: [] } as any;
     if (selection.length === 1) {
       const item: any = selection[0];
+      if (item.type === 'user_demo') {
+        const trajectoryId = item.data?.trajectoryId;
+        const trajectory = userGeneratedTrajectories.find((t) => t.id === trajectoryId) || null;
+        return { type: 'user_demo', data: trajectory } as any;
+      }
       if (item.type === 'cluster') return { type: 'cluster', label: (item as any).label, data: item.data } as any;
       if (item.type === 'coordinate') return { type: 'coordinate', data: [item.data] } as any;
       return { type: 'state', data: [item.data] } as any;
@@ -198,7 +209,13 @@ const MergedSelectionFeedback = () => {
     const allTrajectories = selection.every((item: any) => item.type === 'state');
     if (allTrajectories) return { type: 'multi_trajectory', data: selection.map((item: any) => item.data) } as any;
     return { type: 'mixed', data: selection } as any;
-  }, [selection]);
+  }, [selection, userGeneratedTrajectories]);
+
+  const resolveDemoPath = useCallback((path?: string | null) => {
+    if (!path) return null;
+    if (/^https?:\/\//.test(path)) return path;
+    return `/${path.replace(/^\/+/u, '')}`;
+  }, []);
 
   // Initialize videoRefs based on selection length
   useEffect(() => { videoRefs.current = Array(selection.length).fill(null); }, [selection.length]);
@@ -219,6 +236,10 @@ const MergedSelectionFeedback = () => {
           // trajectories are episode-level
           const ep = typeof item.data === 'number' ? item.data : item.data?.episode;
           return { type: 'trajectory', episode: ep };
+        }
+        if (t === 'user_demo') {
+          const trajectoryId = item.data?.trajectoryId ?? item.data?.id;
+          return { type: 'user_demo', trajectoryId };
         }
         if (t === 'cluster') {
           // clusters depend on the set of indices (order-insensitive)
@@ -360,8 +381,19 @@ const MergedSelectionFeedback = () => {
         setLoading(false);
       };
       fetchVideos();
+    } else if (selectionData.type === 'user_demo') {
+      const trajectory: UserDemoTrajectory | null = selectionData.data;
+      const map = new Map<string, string>();
+      if (trajectory?.videoPath) {
+        const resolved = resolveDemoPath(trajectory.videoPath);
+        if (resolved) {
+          map.set(trajectory.id, resolved);
+        }
+      }
+      setVideoURLs(map);
+      setLoading(false);
     }
-  }, [selectionData, allEpisodes, getVideoURL]);
+  }, [selectionData, allEpisodes, getVideoURL, resolveDemoPath]);
 
   // Fetch cluster frame images when cluster is selected
   useEffect(() => {
@@ -406,6 +438,8 @@ const MergedSelectionFeedback = () => {
         return { target_id: `cluster_${data}`, reference: null, origin: 'online', timestamp: Date.now() };
       case 'coordinate':
         return { target_id: `coordinate_${data.x}_${data.y}`, reference: null, origin: 'online', timestamp: Date.now() };
+      case 'user_demo':
+        return { target_id: `user_demo_${data?.trajectoryId ?? Date.now()}`, reference: null, origin: 'online', timestamp: Date.now() };
       default:
         return { target_id: `unknown_${Date.now()}`, reference: null, origin: 'online', timestamp: Date.now() };
     }
@@ -632,6 +666,10 @@ const MergedSelectionFeedback = () => {
           source,
         };
         activeLearningDispatch({ type: 'ADD_USER_GENERATED_TRAJECTORY', payload: trajectory });
+        activeLearningDispatch({
+          type: 'SET_SELECTION',
+          payload: [{ type: 'user_demo', data: { trajectoryId: trajectory.id } }],
+        });
         return trajectory;
       }
 
@@ -728,6 +766,12 @@ const MergedSelectionFeedback = () => {
                     prevEl.removeEventListener('timeupdate', prevHandler);
                     timeUpdateHandlersRef.current.delete(index);
                   }
+                  const prevLoadedHandler = loadedMetadataHandlersRef.current.get(index);
+                  if (prevEl && prevLoadedHandler) {
+                    prevEl.removeEventListener('loadedmetadata', prevLoadedHandler);
+                    loadedMetadataHandlersRef.current.delete(index);
+                  }
+                  lastSyncedStepRef.current.delete(index);
                   setVideoProgress((prev) => {
                     if (!prev.size || !prev.has(index)) return prev;
                     const next = new Map(prev);
@@ -738,13 +782,17 @@ const MergedSelectionFeedback = () => {
                   return;
                 }
 
-                const syncVideoTime = () => {
+                const syncVideoTime = (force = false) => {
                   const duration = el.duration;
                   if (stepSync) {
                     if (duration && !isNaN(duration) && duration > 0) {
                       const targetTime = (currentStepTime / episodeLength) * duration;
-                      if (!isNaN(targetTime) && Math.abs(targetTime - el.currentTime) > 0.1) {
+                      const timeDiff = Math.abs(targetTime - el.currentTime);
+                      const lastSyncedStep = lastSyncedStepRef.current.get(index);
+                      const stepChanged = lastSyncedStep === undefined || lastSyncedStep !== currentStepTime;
+                      if (!isNaN(targetTime) && (force || stepChanged || timeDiff > 1)) {
                         el.currentTime = targetTime;
+                        lastSyncedStepRef.current.set(index, currentStepTime);
                       }
                     }
                     if (currentPlaying === index) {
@@ -826,8 +874,20 @@ const MergedSelectionFeedback = () => {
                 timeUpdateHandlersRef.current.set(index, handleTimeUpdate);
 
                 // 4) Initial sync on mount/when metadata is available
-                if (el.readyState >= 1) syncVideoTime();
-                else el.addEventListener('loadedmetadata', syncVideoTime, { once: true } as any);
+                if (el.readyState >= 1) {
+                  syncVideoTime(true);
+                } else {
+                  const handleLoadedMetadata = () => {
+                    syncVideoTime(true);
+                    el.removeEventListener('loadedmetadata', handleLoadedMetadata);
+                    loadedMetadataHandlersRef.current.delete(index);
+                  };
+                  loadedMetadataHandlersRef.current.set(index, handleLoadedMetadata);
+                  el.addEventListener('loadedmetadata', handleLoadedMetadata);
+                }
+
+                // ensure play/pause state stays in sync on re-render without forcing time snaps
+                syncVideoTime();
 
                 // keep the current el
                 videoRefs.current[index] = el;
@@ -921,6 +981,8 @@ const MergedSelectionFeedback = () => {
         return 'Rate this Cluster of States';
       case 'coordinate':
         return 'Demo from New Coordinate';
+      case 'user_demo':
+        return 'User Generated Demo';
       default:
         return 'Selection';
     }
@@ -988,6 +1050,62 @@ const MergedSelectionFeedback = () => {
             </Box>
           </Box>
         );
+
+      case 'user_demo': {
+        const trajectory: UserDemoTrajectory | null = (selectionData as any).data;
+        if (!trajectory) {
+          return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+              <Typography variant="body2" color="text.secondary">Select a user-generated demo to preview.</Typography>
+            </Box>
+          );
+        }
+
+        const resolvedVideoURL = videoURLs.get(trajectory.id) || resolveDemoPath(trajectory.videoPath);
+
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Typography variant="h6">{title}</Typography>
+            <Paper elevation={3} sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {resolvedVideoURL ? (
+                <video
+                  key={trajectory.id}
+                  controls
+                  style={{ width: '100%', borderRadius: 8 }}
+                  src={resolvedVideoURL}
+                >
+                  Your browser does not support the video tag.
+                </video>
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, bgcolor: 'action.hover' }}>
+                  {loading ? <CircularProgress size={24} /> : 'No video available'}
+                </Box>
+              )}
+              <Stack spacing={0.5}>
+                {trajectory.totalReward !== undefined && (
+                  <Typography variant="body2">Total reward: {Number(trajectory.totalReward ?? 0).toFixed(2)}</Typography>
+                )}
+                {trajectory.metadata?.source && (
+                  <Typography variant="body2" color="text.secondary">
+                    Source: {trajectory.metadata.source}
+                  </Typography>
+                )}
+              </Stack>
+              {resolvedVideoURL && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  href={resolvedVideoURL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open Video in New Tab
+                </Button>
+              )}
+            </Paper>
+          </Box>
+        );
+      }
 
       case 'state': {
         const stateData: any = (selectionData as any).data[0];

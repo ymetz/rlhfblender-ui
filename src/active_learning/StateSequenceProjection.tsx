@@ -18,7 +18,7 @@ import axios from 'axios';
 import { Color2D } from './projection_utils/2dcolormaps';
 // import vsup
 import * as vsup from 'vsup';
-import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
+import { useActiveLearningState, useActiveLearningDispatch, UserDemoTrajectory } from '../ActiveLearningContext';
 import { useAppState } from '../AppStateContext';
 import { useGetter } from '../getter-context';
 import {
@@ -35,6 +35,23 @@ import { computeTrajectoryColors, getFallbackColor } from './utils/trajectoryCol
 import { OnboardingHighlight } from './OnboardingSystem';
 
 const canvasImageCache = new Map();
+
+type LastDrawParams = {
+    data: number[][];
+    labels: any[];
+    doneData: any[];
+    labelInfos: any[];
+    episodeIndices: number[];
+    gridData: { prediction_image: string | null; uncertainty_image: string | null; bounds: any };
+    predictedRewards: any[];
+    predictedUncertainties: any[];
+    segments: any[];
+};
+
+const computeUserTrajectorySignature = (trajectories: UserDemoTrajectory[]) =>
+    trajectories
+        .map((t) => `${t.id}:${t.projection ? t.projection.length : 0}:${t.metadata?.color ?? ''}`)
+        .join('|');
 
 // Enhanced trajectory visualization functions to reduce overplotting
 function drawTrajectory(context, points, color, lineWidth = 2) {
@@ -223,11 +240,9 @@ const StateSequenceProjection = (props) => {
     const activeLearningState = useActiveLearningState();
     const activeLearningDispatch = useActiveLearningDispatch();
     const appState = useAppState();
-    const { getThumbnailURL } = useGetter();
 
     // Refs
     const embeddingRef = useRef(null);
-    const scaleMinMaxRef = useRef(null);
 
     const [minMaxScale, setMinMaxScale] = useState(null);
 
@@ -238,6 +253,9 @@ const StateSequenceProjection = (props) => {
     const [selectedState, setSelectedState] = useState<SelectedState | null>(null);
     const [selectedCoordinate, setSelectedCoordinate] = useState<SelectedCoordinate>({ x: null, y: null });
     const [selectedCluster, setSelectedCluster] = useState<SelectedCluster | null>(null);
+    const [selectedUserTrajectoryId, setSelectedUserTrajectoryId] = useState<string | null>(null);
+    const selectedUserTrajectoryIdRef = useRef<string | null>(null);
+    const [selectedUserDemo, setSelectedUserDemo] = useState<UserDemoTrajectory | null>(null);
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const multiSelectModeRef = useRef(false);
     const currentSelectionRef = useRef([]);
@@ -252,6 +270,8 @@ const StateSequenceProjection = (props) => {
     const zoomBehaviorRef = useRef<any>(null);
     const fitEpisodeInViewRef = useRef<((episodeIdx: number) => void) | null>(null);
     const feedbackHighlightsRef = useRef<{ episodes: Set<number>; states: Set<number>; coordinates: Set<string> } | null>(null);
+    const lastDrawParamsRef = useRef<LastDrawParams | null>(null);
+    const lastUserTrajectorySignatureRef = useRef<string>('');
     
     // Count currently selected trajectories (unique episodes) for multi-select helper text
     const selectedTrajectoriesCount = React.useMemo(() => {
@@ -293,6 +313,10 @@ const StateSequenceProjection = (props) => {
         selectedClusterRef.current = selectedCluster;
     }, [selectedCluster]);
 
+    useEffect(() => {
+        selectedUserTrajectoryIdRef.current = selectedUserTrajectoryId;
+    }, [selectedUserTrajectoryId]);
+
     // Keep multiSelectModeRef in sync with multiSelectMode state
     useEffect(() => {
         multiSelectModeRef.current = multiSelectMode;
@@ -327,13 +351,50 @@ const StateSequenceProjection = (props) => {
     // Sync local state with global selection changes (e.g., from MergedSelectionFeedback)
     useEffect(() => {
         const selection = activeLearningState.selection || [];
+
+        if (selection.length === 1 && selection[0].type === 'user_demo') {
+            const trajectoryId = selection[0].data?.trajectoryId;
+            const trajectory = (activeLearningState.userGeneratedTrajectories || []).find(
+                (t: UserDemoTrajectory) => t.id === trajectoryId
+            ) || null;
+
+            if (trajectory) {
+                setSelectedUserTrajectoryId(trajectory.id);
+                setSelectedUserDemo(trajectory);
+                selectedUserTrajectoryIdRef.current = trajectory.id;
+
+                // Clear standard selections when focusing on a user demo
+                if (selectedTrajectoryRef.current !== null) {
+                    setSelectedTrajectory(null);
+                    selectedTrajectoryRef.current = null;
+                }
+                if (selectedStateRef.current) {
+                    setSelectedState(null);
+                    selectedStateRef.current = null;
+                }
+                if (selectedClusterRef.current) {
+                    setSelectedCluster(null);
+                    selectedClusterRef.current = null;
+                }
+                setSelectedCoordinate({ x: null, y: null });
+                selectedCoordinateRef.current = { x: null, y: null };
+            }
+            return;
+        }
+
+        if (selectedUserTrajectoryIdRef.current) {
+            setSelectedUserTrajectoryId(null);
+            setSelectedUserDemo(null);
+            selectedUserTrajectoryIdRef.current = null;
+        }
+
         if (selection.length === 1 && selection[0].type === 'state') {
             const stateData = selection[0].data;
             if (stateData) {
                 // Calculate the correct global index for this episode and step
                 const episodeIndices = activeLearningState.episodeIndices || [];
                 let globalIndex = -1;
-                
+
                 // Find the starting index of this episode
                 let episodeStartIndex = -1;
                 for (let i = 0; i < episodeIndices.length; i++) {
@@ -342,20 +403,20 @@ const StateSequenceProjection = (props) => {
                         break;
                     }
                 }
-                
+
                 // Calculate the global index for the specific step
                 if (episodeStartIndex !== -1) {
                     globalIndex = episodeStartIndex + stateData.step;
                 }
-                
+
                 // Look up the actual coordinates from the projection data
                 const projectionStates = activeLearningState.projectionStates || [];
                 let actualCoords = [stateData.x || 0, stateData.y || 0]; // fallback
-                
+
                 if (globalIndex >= 0 && globalIndex < projectionStates.length) {
                     actualCoords = projectionStates[globalIndex];
                 }
-                
+
                 const newSelectedState: SelectedState = {
                     episode: stateData.episode,
                     step: stateData.step,
@@ -364,16 +425,18 @@ const StateSequenceProjection = (props) => {
                     y: actualCoords[1],
                     index: globalIndex
                 };
-                
+
                 // Only update if it's different from current state to avoid loops
-                if (!selectedStateRef.current || 
+                if (
+                    !selectedStateRef.current ||
                     selectedStateRef.current.episode !== newSelectedState.episode ||
-                    selectedStateRef.current.step !== newSelectedState.step) {
+                    selectedStateRef.current.step !== newSelectedState.step
+                ) {
                     setSelectedState(newSelectedState);
                     selectedStateRef.current = newSelectedState;
                     setSelectedTrajectory(stateData.episode);
                     selectedTrajectoryRef.current = stateData.episode;
-                    
+
                     // Trigger a redraw to show the updated state
                     if (zoomedFunctionRef.current && embeddingRef.current) {
                         const svg = d3.select(embeddingRef.current).select('svg');
@@ -388,10 +451,63 @@ const StateSequenceProjection = (props) => {
                 }
             }
         }
-    }, [activeLearningState.selection, activeLearningState.episodeIndices, activeLearningState.projectionStates]);
+    }, [
+        activeLearningState.selection,
+        activeLearningState.episodeIndices,
+        activeLearningState.projectionStates,
+        activeLearningState.userGeneratedTrajectories
+    ]);
 
 
 
+
+    const resolveMediaPath = useCallback((path?: string | null) => {
+        if (!path) return null;
+        if (/^https?:\/\//.test(path)) return path;
+        return path.startsWith('/') ? path : `/${path}`;
+    }, []);
+
+    const handleUserTrajectorySelection = useCallback(
+        (trajectory: UserDemoTrajectory, pointIndex?: number) => {
+            if (!trajectory) return;
+
+            setSelectedUserTrajectoryId(trajectory.id);
+            selectedUserTrajectoryIdRef.current = trajectory.id;
+            setSelectedUserDemo(trajectory);
+
+            if (selectedTrajectoryRef.current !== null) {
+                setSelectedTrajectory(null);
+                selectedTrajectoryRef.current = null;
+            }
+
+            if (selectedStateRef.current) {
+                setSelectedState(null);
+                selectedStateRef.current = null;
+            }
+
+            if (selectedClusterRef.current) {
+                setSelectedCluster(null);
+                selectedClusterRef.current = null;
+            }
+
+            setSelectedCoordinate({ x: null, y: null });
+            selectedCoordinateRef.current = { x: null, y: null };
+
+            const selectionItem: SelectionItem = {
+                type: 'user_demo',
+                data: {
+                    trajectoryId: trajectory.id,
+                    pointIndex: pointIndex ?? null,
+                },
+            };
+
+            activeLearningDispatch({
+                type: 'SET_SELECTION',
+                payload: [selectionItem],
+            });
+        },
+        [activeLearningDispatch]
+    );
 
     // Drawing function dispatches to specific visualizations
     const drawChart = useCallback((
@@ -654,6 +770,25 @@ const StateSequenceProjection = (props) => {
                         "bounds": grid_data.projection_bounds
                     },
                     processedSegments
+                );
+
+                lastDrawParamsRef.current = {
+                    data: coordsForOverlay,
+                    labels: data.labels || [],
+                    doneData: data.dones || [],
+                    labelInfos: [],
+                    episodeIndices: data.episode_indices || [],
+                    gridData: {
+                        prediction_image: grid_prediction_image_path,
+                        uncertainty_image: grid_uncertainty_image_path,
+                        bounds: grid_data.projection_bounds,
+                    },
+                    predictedRewards: grid_data.original_predictions || [],
+                    predictedUncertainties: grid_data.original_uncertainties || [],
+                    segments: processedSegments,
+                };
+                lastUserTrajectorySignatureRef.current = computeUserTrajectorySignature(
+                    activeLearningState.userGeneratedTrajectories || []
                 );
 
                 setIsLoading(false);
@@ -947,6 +1082,8 @@ const StateSequenceProjection = (props) => {
             .attr('width', svgWidth)
             .style('opacity', '0');
 
+        const userTrajectoryLayer = view.append('g').attr('class', 'user-trajectory-layer');
+
         // Add mouse events
         /*view_rect.on('mousemove', function (event) {
             const mouse = d3.pointer(event);
@@ -1100,7 +1237,7 @@ const StateSequenceProjection = (props) => {
                 selectedStateRef.current = null;
                 setSelectedCluster(null);
                 selectedClusterRef.current = null;
-                setClickedEpisode(null);
+                //setClickedEpisode(null);
 
                 // Reset cluster hull strokes
                 /*d3.selectAll(".cluster_hull").style("stroke", function() {
@@ -1567,13 +1704,94 @@ const StateSequenceProjection = (props) => {
                         context.save();
                         context.globalAlpha = 0.92;
                         const overlayWidth = Math.max(2.5, width * 2.5);
-                        userTrajectories.forEach((trajectory, idx) => {
+                        userTrajectories.forEach((trajectory) => {
                             if (!trajectory.projection || trajectory.projection.length === 0) return;
                             const screenPoints = trajectory.projection.map((p: number[]) => [xScale(p[0]), yScale(p[1])]);
                             const trajectoryColor = (trajectory.metadata?.color as string) || '#FF6B35';
-                            drawTrajectory(context, screenPoints, trajectoryColor, overlayWidth);
+                            const isSelected = selectedUserTrajectoryIdRef.current === trajectory.id;
+                            drawTrajectory(
+                                context,
+                                screenPoints,
+                                trajectoryColor,
+                                isSelected ? overlayWidth * 1.4 : overlayWidth
+                            );
                         });
                         context.restore();
+
+                        userTrajectoryLayer.raise();
+
+                        const lineGenerator = d3
+                            .line<number[]>()
+                            .x((d) => xScale(d[0]))
+                            .y((d) => yScale(d[1]));
+
+                        const userPaths = userTrajectoryLayer
+                            .selectAll<SVGPathElement, UserDemoTrajectory>('path.user-demo-path')
+                            .data(userTrajectories, (d: any) => d.id);
+
+                        userPaths
+                            .enter()
+                            .append('path')
+                            .attr('class', 'user-demo-path')
+                            .attr('fill', 'none')
+                            .attr('pointer-events', 'stroke')
+                            .style('cursor', 'pointer')
+                            .on('click', (event, trajectory) => {
+                                event.stopPropagation();
+                                handleUserTrajectorySelection(trajectory);
+                            })
+                            .merge(userPaths as any)
+                            .attr('stroke', (d: UserDemoTrajectory) => d.metadata?.color ?? '#2D2D2D')
+                            .attr('stroke-width', (d: UserDemoTrajectory) =>
+                                selectedUserTrajectoryIdRef.current === d.id ? overlayWidth * 1.4 : overlayWidth
+                            )
+                            .attr('opacity', (d: UserDemoTrajectory) =>
+                                selectedUserTrajectoryIdRef.current === d.id ? 0.95 : 0.8
+                            )
+                            .attr('d', (d: UserDemoTrajectory) => lineGenerator(d.projection || []));
+
+                        userPaths.exit().remove();
+
+                        const userPointData = userTrajectories.flatMap((trajectory) =>
+                            (trajectory.projection || []).map((coord, idx) => ({
+                                trajectory,
+                                idx,
+                                coord,
+                            }))
+                        );
+
+                        const userPoints = userTrajectoryLayer
+                            .selectAll<SVGCircleElement, { trajectory: UserDemoTrajectory; idx: number; coord: number[] }>('circle.user-demo-point')
+                            .data(userPointData, (d: any) => `${d.trajectory.id}-${d.idx}`);
+
+                        userPoints
+                            .enter()
+                            .append('circle')
+                            .attr('class', 'user-demo-point')
+                            .attr('stroke', '#ffffff')
+                            .attr('stroke-width', 0.8)
+                            .style('cursor', 'pointer')
+                            .on('click', (event, d) => {
+                                event.stopPropagation();
+                                handleUserTrajectorySelection(d.trajectory, d.idx);
+                            })
+                            .merge(userPoints as any)
+                            .attr('fill', (d) => d.trajectory.metadata?.color ?? '#2D2D2D')
+                            .attr('opacity', (d) =>
+                                selectedUserTrajectoryIdRef.current === d.trajectory.id ? 0.95 : 0.75
+                            )
+                            .attr('cx', (d) => xScale(d.coord[0]))
+                            .attr('cy', (d) => yScale(d.coord[1]))
+                            .attr('r', (d) =>
+                                selectedUserTrajectoryIdRef.current === d.trajectory.id
+                                    ? Math.max(r * 1.4, 3 / transform.k)
+                                    : Math.max(r * 0.9, 2 / transform.k)
+                            );
+
+                        userPoints.exit().remove();
+                    } else {
+                        userTrajectoryLayer.selectAll('.user-demo-path').remove();
+                        userTrajectoryLayer.selectAll('.user-demo-point').remove();
                     }
 
                     // Batch draw points for better performance
@@ -1895,6 +2113,33 @@ const StateSequenceProjection = (props) => {
         };
     }, [props, activeLearningState.grid_prediction_image, activeLearningState.userGeneratedTrajectories, activeLearningDispatch, maxUncertaintySegments]);
 
+    useEffect(() => {
+        const params = lastDrawParamsRef.current;
+        if (!params) return;
+
+        const signature = computeUserTrajectorySignature(
+            activeLearningState.userGeneratedTrajectories || []
+        );
+
+        if (signature === lastUserTrajectorySignatureRef.current) {
+            return;
+        }
+
+        lastUserTrajectorySignatureRef.current = signature;
+
+        drawStateSpace(
+            params.data,
+            params.labels,
+            params.doneData,
+            params.labelInfos,
+            params.episodeIndices,
+            params.gridData,
+            params.predictedRewards,
+            params.predictedUncertainties,
+            params.segments
+        );
+    }, [activeLearningState.userGeneratedTrajectories, drawStateSpace]);
+
     return (
         <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
             <EmbeddingWrapper>
@@ -1927,8 +2172,6 @@ const StateSequenceProjection = (props) => {
                     <EmbeddingContainer ref={embeddingRef} />
                 </OnboardingHighlight>
 
-
-
                 <Box
                     position="absolute"
                     bottom="20px"
@@ -1959,6 +2202,9 @@ const StateSequenceProjection = (props) => {
                                     setSelectedTrajectory(null);
                                     setSelectedCluster(null);
                                     setSelectedCoordinate({ x: null, y: null });
+                                    setSelectedUserTrajectoryId(null);
+                                    setSelectedUserDemo(null);
+                                    selectedUserTrajectoryIdRef.current = null;
                                     // Reset multi-select mode when clearing selection
                                     setMultiSelectMode(false);
                                 }}
