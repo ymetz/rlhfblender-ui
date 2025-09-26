@@ -516,9 +516,11 @@ const App: React.FC = () => {
           {state.app_mode === "active-learning" || state.app_mode === "study-active-learning" ? (
             <ActiveLearningProvider>
               <OnboardingProvider>
-                <ActiveLearningInterface
-                  stepSampler={stepSampler}
-                />
+                <>
+                  <ActiveLearningInterface stepSampler={stepSampler} />
+                  <ExperimentStartModal onClose={handleExperimentStartClose} />
+                  <ExperimentEndModal open={state.endModalOpen} />
+                </>
               </OnboardingProvider>
             </ActiveLearningProvider>
           ) : (
@@ -535,8 +537,6 @@ const App: React.FC = () => {
             open={state.backendConfigModalOpen}
             onClose={closeBackendConfigModal}
           />
-          <ExperimentStartModal onClose={handleExperimentStartClose} />
-          <ExperimentEndModal open={state.endModalOpen} />
           {/*<ShortcutsInfoBox />*/}
           <StudyCodeModal
             open={state.showStudyCode}

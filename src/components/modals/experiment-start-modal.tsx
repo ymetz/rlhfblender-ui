@@ -1,29 +1,34 @@
 import React, { useState } from "react";
 import { useAppState, useAppDispatch } from "../../AppStateContext";
 import { useSetupConfigState } from "../../SetupConfigContext";
+import { useOptionalActiveLearningDispatch } from "../../ActiveLearningContext";
+import PracticeDemoPanel from "../practice/PracticeDemoPanel";
 
 // MUI Components
 import {
-  Dialog,
-  DialogContent,
-  Tabs,
-  Tab,
+  Alert,
+  Box,
+  Button,
   Card,
   CardContent,
-  Typography,
-  Button,
-  Box,
-  Paper,
+  Container,
+  Dialog,
+  DialogContent,
+  Grid,
   List,
   ListItem,
+  ListItemIcon,
   ListItemText,
-  Grid,
-  Container,
+  Paper,
+  Tab,
+  Tabs,
+  Typography,
 } from "@mui/material";
 
-// Optional: Import icons if you want to add them to the navigation buttons
-import NavigateNextIcon from "@mui/icons-material/NavigateNext";
+// Icons
 import CheckIcon from "@mui/icons-material/Check";
+import NavigateNextIcon from "@mui/icons-material/NavigateNext";
+import PrivacyTipOutlinedIcon from "@mui/icons-material/PrivacyTipOutlined";
 
 type ExperimentStartModalProps = {
   onClose: () => void;
@@ -32,6 +37,7 @@ type ExperimentStartModalProps = {
 const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const activeLearningDispatch = useOptionalActiveLearningDispatch();
   const setupConfigState = useSetupConfigState();
   const { activeUIConfig } = setupConfigState;
   const [activeTab, setActiveTab] = useState(0);
@@ -40,6 +46,9 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   const { startModalOpen, startModalContent } = state;
 
   const handleClose = () => {
+    if (activeLearningDispatch) {
+      activeLearningDispatch({ type: 'REMOVE_USER_GENERATED_TRAJECTORIES_BY_SOURCE', payload: 'practice' });
+    }
     dispatch({ type: "SET_START_MODAL_OPEN", payload: false });
     setActiveTab(0);
     onClose();
@@ -49,8 +58,17 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
     setActiveTab(newValue);
   };
 
+  const navigationItems = [
+    "Introduction",
+    "User Interface",
+    "Feedback Options",
+    "Privacy Policy",
+    "Your Task",
+    "Practice Controls",
+  ];
+
   const handleNext = () => {
-    setActiveTab((prev) => Math.min(prev + 1, 4));
+    setActiveTab((prev) => Math.min(prev + 1, navigationItems.length - 1));
   };
 
   const feedbackTypes = Object.entries(activeUIConfig.feedbackComponents ?? {})
@@ -97,7 +115,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
         }}
       >
         <List>
-          {["Introduction", "User Interface", "Feedback Options", "Privacy Policy", "Your Task"].map(
+          {navigationItems.map(
             (text, index) => (
               <ListItem
                 button
@@ -127,11 +145,9 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
             Study Instructions
           </Typography>
           <Tabs value={activeTab} onChange={handleTabChange}>
-            <Tab label="Introduction" />
-            <Tab label="User Interface" />
-            <Tab label="Feedback Options" />
-            <Tab label="Privacy Policy" />
-            <Tab label="Your Task" />
+            {navigationItems.map((label) => (
+              <Tab key={label} label={label} />
+            ))}
           </Tabs>
         </Box>
 
@@ -315,18 +331,64 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
 
           {/* Privacy Policy Tab */}
           {activeTab === 3 && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: 3 }}>
+              <Typography variant="h6">
                 Data Protection and Privacy
               </Typography>
-              <Typography paragraph color="text.secondary">
-                By clicking "Agree and Continue" you agree to participate in
-                this study. With your participation in this study, you agree
-                that your data will be used for research purposes only. Your
-                data will be stored anonymously and will not be passed on to
-                third parties. You can withdraw your consent at any time by
-                contacting the study supervisor.
+              <Typography color="text.secondary">
+                By clicking "Agree and Continue" you consent to participate in this research study. Your inputs are
+                stored without personal identifiers and never shared outside the study team. You may withdraw at any
+                point by notifying the study supervisor.
               </Typography>
+
+              <Paper variant="outlined" sx={{ p: 2, backgroundColor: (theme) => theme.palette.action.hover }}>
+                <Typography variant="subtitle1" gutterBottom>
+                  What we collect to run the study
+                </Typography>
+                <List dense disablePadding>
+                  <ListItem disableGutters sx={{ alignItems: "flex-start" }}>
+                    <ListItemIcon sx={{ minWidth: 32, pt: 0.5 }}>
+                      <PrivacyTipOutlinedIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Screen recordings of the interface during your session"
+                      secondary="Used to review participant interactions and troubleshoot potential issues."
+                    />
+                  </ListItem>
+                  <ListItem disableGutters sx={{ alignItems: "flex-start" }}>
+                    <ListItemIcon sx={{ minWidth: 32, pt: 0.5 }}>
+                      <PrivacyTipOutlinedIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Feedback inputs and interaction events"
+                      secondary="Ratings, selections, and timeline interactions captured to evaluate feedback quality."
+                    />
+                  </ListItem>
+                  <ListItem disableGutters sx={{ alignItems: "flex-start" }}>
+                    <ListItemIcon sx={{ minWidth: 32, pt: 0.5 }}>
+                      <PrivacyTipOutlinedIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="System logs and timestamps"
+                      secondary="Technical diagnostics (e.g., latency, errors) recorded to keep the system stable."
+                    />
+                  </ListItem>
+                  <ListItem disableGutters sx={{ alignItems: "flex-start" }}>
+                    <ListItemIcon sx={{ minWidth: 32, pt: 0.5 }}>
+                      <PrivacyTipOutlinedIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Session audio when explicit consent is given"
+                      secondary="Think-aloud protocols are only recorded in moderated sessions—not in browser-only studies."
+                    />
+                  </ListItem>
+                </List>
+              </Paper>
+
+              <Alert severity="info" variant="outlined">
+                We erase raw recordings on request and publish only aggregated, anonymized results. Contact the study
+                supervisor if you need clarification or data deletion after participation.
+              </Alert>
             </Box>
           )}
 
@@ -356,6 +418,11 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               </Typography>
             </Box>
           )}
+
+          {/* Practice Controls Tab */}
+          {activeTab === navigationItems.length - 1 && (
+            <PracticeDemoPanel />
+          )}
         </DialogContent>
 
         {/* Navigation Buttons */}
@@ -369,7 +436,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
             gap: 2,
           }}
         >
-          {activeTab !== 4 && (
+          {activeTab !== navigationItems.length - 1 && (
             <Button
               variant="contained"
               endIcon={<NavigateNextIcon />}
@@ -378,7 +445,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               Next
             </Button>
           )}
-          {activeTab === 4 && (
+          {activeTab === navigationItems.length - 1 && (
             <Button
               variant="contained"
               color="primary"

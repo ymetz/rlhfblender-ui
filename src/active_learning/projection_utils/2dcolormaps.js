@@ -1,4 +1,5 @@
-import Colormap from './colormap.png';
+//import Colormap from './colormap.png';
+import Colormap from './tri_corner_red_green_purple.png'
 /*
  * Copyright 2017 Dominik Jäckle
  *

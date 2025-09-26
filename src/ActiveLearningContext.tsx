@@ -94,6 +94,7 @@ export interface ActiveLearningState {
     states: Set<number>; // global indices
     coordinates: Set<string>; // `${x.toFixed(3)},${y.toFixed(3)}`
     clustersSignatures?: Set<string>; // stringified stable signatures for merged segments
+    correctionEpisodes?: Set<number>;
   };
 
   userGeneratedTrajectories: UserDemoTrajectory[];
@@ -143,11 +144,12 @@ type ActiveLearningAction =
   | { type: 'UPDATE_FEEDBACK_COUNT', payload: { category: string; isCurrentSession: boolean } }
   | { type: 'SET_FEEDBACK_HISTORY', payload: FeedbackHistoryEntry[] }
   | { type: 'ADD_FEEDBACK_HISTORY_ENTRY', payload: FeedbackHistoryEntry }
-  | { type: 'ADD_FEEDBACK_HIGHLIGHTS', payload: { episodes?: number[]; states?: number[]; coordinates?: string[]; clustersSignatures?: string[] } }
+  | { type: 'ADD_FEEDBACK_HIGHLIGHTS', payload: { episodes?: number[]; states?: number[]; coordinates?: string[]; clustersSignatures?: string[]; correctionEpisodes?: number[] } }
   | { type: 'CLEAR_FEEDBACK_HIGHLIGHTS' }
   | { type: 'SET_SHOULD_LOAD_NEW_DATA', payload: boolean }
   | { type: 'ADD_USER_GENERATED_TRAJECTORY', payload: UserDemoTrajectory }
-  | { type: 'RESET_USER_GENERATED_TRAJECTORIES' };
+  | { type: 'RESET_USER_GENERATED_TRAJECTORIES' }
+  | { type: 'REMOVE_USER_GENERATED_TRAJECTORIES_BY_SOURCE'; payload: string };
 
 const initialState: ActiveLearningState = {
   // Original state
@@ -327,18 +329,46 @@ function activeLearningReducer(
       const nextStates = new Set(state.feedbackHighlights?.states ?? new Set<number>());
       const nextCoords = new Set(state.feedbackHighlights?.coordinates ?? new Set<string>());
       const nextClusters = new Set(state.feedbackHighlights?.clustersSignatures ?? new Set<string>());
+      const nextCorrections = new Set(state.feedbackHighlights?.correctionEpisodes ?? new Set<number>());
       action.payload.episodes?.forEach(e => nextEpisodes.add(e));
       action.payload.states?.forEach(s => nextStates.add(s));
       action.payload.coordinates?.forEach(c => nextCoords.add(c));
       action.payload.clustersSignatures?.forEach(sig => nextClusters.add(sig));
-      return { ...state, feedbackHighlights: { episodes: nextEpisodes, states: nextStates, coordinates: nextCoords, clustersSignatures: nextClusters } };
+      action.payload.correctionEpisodes?.forEach(ep => nextCorrections.add(ep));
+      return {
+        ...state,
+        feedbackHighlights: {
+          episodes: nextEpisodes,
+          states: nextStates,
+          coordinates: nextCoords,
+          clustersSignatures: nextClusters,
+          correctionEpisodes: nextCorrections,
+        },
+      };
     }
     case 'CLEAR_FEEDBACK_HIGHLIGHTS':
-      return { ...state, feedbackHighlights: { episodes: new Set<number>(), states: new Set<number>(), coordinates: new Set<string>(), clustersSignatures: new Set<string>() } };
+      return {
+        ...state,
+        feedbackHighlights: {
+          episodes: new Set<number>(),
+          states: new Set<number>(),
+          coordinates: new Set<string>(),
+          clustersSignatures: new Set<string>(),
+          correctionEpisodes: new Set<number>(),
+        },
+      };
     case 'ADD_USER_GENERATED_TRAJECTORY':
       return { ...state, userGeneratedTrajectories: [...state.userGeneratedTrajectories, action.payload] };
     case 'RESET_USER_GENERATED_TRAJECTORIES':
       return { ...state, userGeneratedTrajectories: [] };
+    case 'REMOVE_USER_GENERATED_TRAJECTORIES_BY_SOURCE':
+      return {
+        ...state,
+        userGeneratedTrajectories: state.userGeneratedTrajectories.filter((traj) => {
+          const source = traj.source ?? traj.metadata?.source;
+          return source !== action.payload;
+        }),
+      };
     default:
       throw new Error(`Unhandled action type: ${(action as any).type}`);
   }
@@ -374,4 +404,12 @@ export const useActiveLearningDispatch = () => {
     );
   }
   return context;
+};
+
+export const useOptionalActiveLearningState = () => {
+  return useContext(ActiveLearningContext);
+};
+
+export const useOptionalActiveLearningDispatch = () => {
+  return useContext(ActiveLearningDispatchContext);
 };

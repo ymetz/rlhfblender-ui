@@ -16,6 +16,14 @@ import { Close, Fullscreen, FullscreenExit, KeyboardArrowDown, KeyboardArrowUp }
 import { useTheme } from '@mui/material/styles';
 import { useWebRTC } from './useWebRTC';
 
+interface WebRTCFooterControls {
+  connected: boolean;
+  isSubmitting: boolean;
+  onCancel: () => void;
+  onSubmit: () => void;
+  reset: () => Promise<void>;
+}
+
 interface WebRTCDemoComponentProps {
   sessionId: string;
   experimentId: string;
@@ -27,6 +35,7 @@ interface WebRTCDemoComponentProps {
   onSubmit: () => void;
   onCancel: () => void;
   isSubmitting?: boolean;
+  footerContent?: (controls: WebRTCFooterControls) => React.ReactNode;
 }
 
 const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
@@ -40,6 +49,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   onSubmit,
   onCancel,
   isSubmitting = false,
+  footerContent,
 }) => {
   const theme = useTheme();
 
@@ -469,32 +479,49 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
         {(!fullscreen || controlsVisible) && (
           <>
             <Divider />
-            <Box sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              p: 1,
-              bgcolor: fullscreen ? 'rgba(0,0,0,0.8)' : 'background.paper'
-            }}>
-              <Button
-                startIcon={<Close />}
-                size="small"
-                onClick={onCancel}
-                sx={{ color: fullscreen ? 'white' : 'inherit' }}
-              >
-                Cancel
-              </Button>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                p: 1,
+                bgcolor: fullscreen ? 'rgba(0,0,0,0.8)' : 'background.paper',
+                alignItems: 'center',
+                gap: 1,
+                flexWrap: 'wrap'
+              }}
+            >
+              {footerContent ? (
+                footerContent({
+                  connected,
+                  isSubmitting,
+                  onCancel,
+                  onSubmit,
+                  reset: handleRetry,
+                })
+              ) : (
+                <>
+                  <Button
+                    startIcon={<Close />}
+                    size="small"
+                    onClick={onCancel}
+                    sx={{ color: fullscreen ? 'white' : 'inherit' }}
+                  >
+                    Cancel
+                  </Button>
 
-              <Button
-                variant="contained"
-                size="small"
-                disabled={!connected || isSubmitting}
-                onClick={onSubmit}
-              >
-                {isSubmitting && (
-                  <CircularProgress size={16} sx={{ mr: 1 }} color="inherit" />
-                )}
-                Submit Demo
-              </Button>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    disabled={!connected || isSubmitting}
+                    onClick={onSubmit}
+                  >
+                    {isSubmitting && (
+                      <CircularProgress size={16} sx={{ mr: 1 }} color="inherit" />
+                    )}
+                    Submit Demo
+                  </Button>
+                </>
+              )}
             </Box>
           </>
         )}

@@ -101,17 +101,6 @@ const toolbarSx = {
   gap: 1,
 };
 
-const stickyActionBarSx = {
-  position: 'sticky' as const,
-  bottom: 0,
-  p: 1.5,
-  mt: 'auto',
-  borderTop: '1px solid',
-  borderColor: 'divider',
-  backgroundColor: 'background.paper',
-  zIndex: 2,
-};
-
 // ————————————————————————————————————————————————————————————
 // Helper function to map feedback type to category
 // ————————————————————————————————————————————————————————————
@@ -169,13 +158,6 @@ const MergedSelectionFeedback = () => {
   // keep the last emitted bucket per video index to avoid repeated dispatches
   const lastSentBucketRef = useRef<Map<number, number>>(new Map());
 
-  // remember the current handle so we can remove it on re-attach/unmount
-  const timeUpdateHandlersRef = useRef<Map<number, (e: Event) => void>>(new Map());
-  const loadedMetadataHandlersRef = useRef<Map<number, () => void>>(new Map());
-
-  // track the last step we snapped each video to so we can avoid fighting playback
-  const lastSyncedStepRef = useRef<Map<number, number>>(new Map());
-
   // avoid stale selectedStep in the timeupdate closure
   const selectedStepRef = useRef<number>(0);
   useEffect(() => { selectedStepRef.current = selectedStep; }, [selectedStep]);
@@ -183,12 +165,21 @@ const MergedSelectionFeedback = () => {
   // Use selection directly from state
   const selection = useMemo(() => activeLearningState.selection || [], [activeLearningState.selection]);
   const allEpisodes = useMemo(() => {
+    console.log("allEpisodes recompute", appState.episodeIDsChronologically, appState.selectedCheckpoint);
     const episodes = appState.episodeIDsChronologically || [];
     const selectedCheckpoint = appState.selectedCheckpoint;
+
+    if (selectedCheckpoint === undefined || selectedCheckpoint === null || selectedCheckpoint < 0) {
+      return [];
+    }
+
+    const checkpointStep = Number(selectedCheckpoint);
+    if (Number.isNaN(checkpointStep)) {
+      return [];
+    }
+
     // Filter episodes to only include those from the current checkpoint
-    return episodes.filter((episode: Episode) =>
-      selectedCheckpoint && episode.checkpoint_step === Number(selectedCheckpoint)
-    );
+    return episodes.filter((episode: Episode) => episode.checkpoint_step === checkpointStep);
   }, [appState.episodeIDsChronologically, appState.selectedCheckpoint]);
   // Extract selection type and data
   const userGeneratedTrajectories = activeLearningState.userGeneratedTrajectories || [];
@@ -424,6 +415,20 @@ const MergedSelectionFeedback = () => {
     } else { setClusterFrameImages([]); }
   }, [selectionData, allEpisodes, fetchClusterFrames, (activeLearningState as any).episodeIndices]);
 
+  useEffect(() => {
+  videoRefs.current.forEach((video, index) => {
+    if (video) {
+      if (currentPlaying === index) {
+        video.play().catch((e) => {
+          console.log(`Failed to play video ${index}:`, e);
+        });
+      } else {
+        video.pause();
+      }
+    }
+  });
+}, [currentPlaying]);
+
   // Generate proper target based on selection type
   const createTarget = (selectionType: string, data: any, step?: number) => {
     switch (selectionType) {
@@ -508,7 +513,16 @@ const MergedSelectionFeedback = () => {
       const uniqueStates = Array.from(new Set(stateIdxArr));
       const uniqueCoords = Array.from(new Set(coordKeys));
 
-      activeLearningDispatch({ type: 'ADD_FEEDBACK_HIGHLIGHTS', payload: { episodes: uniqueEpisodes, states: uniqueStates, coordinates: uniqueCoords, clustersSignatures: Array.from(new Set(clusterSigs)) } });
+      activeLearningDispatch({
+        type: 'ADD_FEEDBACK_HIGHLIGHTS',
+        payload: {
+          episodes: uniqueEpisodes,
+          states: uniqueStates,
+          coordinates: uniqueCoords,
+          clustersSignatures: Array.from(new Set(clusterSigs)),
+          correctionEpisodes: isCorrective ? uniqueEpisodes : undefined,
+        },
+      });
     } catch (e) {
       // no-op
     }
@@ -710,10 +724,44 @@ const MergedSelectionFeedback = () => {
       if (episodeIdx === -1) return '#888888';
       return d3.interpolateCool(episodeIdx / Math.max(1, allEpisodes.length - 1));
     },
-    [allEpisodes.length, (activeLearningState as any).trajectoryColors]
+    [activeLearningState, allEpisodes.length]
   );
 
-  // Get video element for an episode
+  const attachVideoRef = (index: number) => (el: HTMLVideoElement | null) => {
+  videoRefs.current[index] = el;
+  };
+
+  useEffect(() => {
+    videoRefs.current.forEach((video, index) => {
+      if (!video) return;
+      
+      const stateData = selectionData.type === 'state' ? selectionData.data[0] : null;
+      const episodeIdx = typeof stateData === 'number' ? stateData : stateData?.episode;
+      
+      // Only sync if this is the selected episode
+      if (episodeIdx !== index) return;
+      
+      const episodeLength = getEpisodeLength(index);
+      const duration = video.duration;
+      
+      // Sync video time with selected step
+      if (duration && !isNaN(duration) && duration > 0) {
+        const targetTime = (selectedStep / episodeLength) * duration;
+        if (!isNaN(targetTime) && Math.abs(targetTime - video.currentTime) > 0.5) {
+          video.currentTime = targetTime;
+        }
+      }
+      
+      // Handle play/pause
+      if (currentPlaying === index) {
+        video.play().catch(e => console.log('Play failed:', e));
+      } else {
+        video.pause();
+      }
+    });
+  }, [currentPlaying, selectedStep, selectionData, getEpisodeLength]);
+
+  // Get video element for an episode (REPLACE THE EXISTING getVideoElement)
   const getVideoElement = (
     episode: Episode,
     index: number,
@@ -725,8 +773,6 @@ const MergedSelectionFeedback = () => {
   ) => {
     const episodeId = IDfromEpisode(episode);
     const videoUrl = videoURLs.get(episodeId);
-    const episodeLength = totalSteps || getEpisodeLength(index);
-    //const getMaxWidth = () => (singleTrajectory ? 'min(720px, 70vw)' : small ? '220px' : '320px');
 
     return (
       <Box
@@ -738,161 +784,58 @@ const MergedSelectionFeedback = () => {
           overflow: 'hidden',
           aspectRatio: '16/9',
           mx: 'auto',
-          //maxWidth: getMaxWidth(),
           boxShadow: currentPlaying === index ? '0 0 0 4px rgba(76, 175, 80, 0.25) inset' : 'none',
           transition: 'box-shadow 0.2s ease',
         }}
       >
         {videoUrl ? (
           <>
-            <video
-              src={videoUrl}
-              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              muted
-              autoPlay={currentPlaying === index && !stepSync}
-              loop={currentPlaying === index && !stepSync}
-              ref={(el) => {
-                // 1) Clean up any old listener on the previous element if we’re switching refs
-                const prevEl = videoRefs.current[index];
-                const prevHandler = timeUpdateHandlersRef.current.get(index);
-                if (prevEl && prevHandler) {
-                  prevEl.removeEventListener('timeupdate', prevHandler);
-                  timeUpdateHandlersRef.current.delete(index);
-                }
-
-                if (!el) {
-                  // Unmount case: remove if existing
-                  if (prevEl && prevHandler) {
-                    prevEl.removeEventListener('timeupdate', prevHandler);
-                    timeUpdateHandlersRef.current.delete(index);
-                  }
-                  const prevLoadedHandler = loadedMetadataHandlersRef.current.get(index);
-                  if (prevEl && prevLoadedHandler) {
-                    prevEl.removeEventListener('loadedmetadata', prevLoadedHandler);
-                    loadedMetadataHandlersRef.current.delete(index);
-                  }
-                  lastSyncedStepRef.current.delete(index);
-                  setVideoProgress((prev) => {
-                    if (!prev.size || !prev.has(index)) return prev;
-                    const next = new Map(prev);
-                    next.delete(index);
-                    return next;
-                  });
-                  videoRefs.current[index] = null;
-                  return;
-                }
-
-                const syncVideoTime = (force = false) => {
-                  const duration = el.duration;
-                  if (stepSync) {
-                    if (duration && !isNaN(duration) && duration > 0) {
-                      const targetTime = (currentStepTime / episodeLength) * duration;
-                      const timeDiff = Math.abs(targetTime - el.currentTime);
-                      const lastSyncedStep = lastSyncedStepRef.current.get(index);
-                      const stepChanged = lastSyncedStep === undefined || lastSyncedStep !== currentStepTime;
-                      if (!isNaN(targetTime) && (force || stepChanged || timeDiff > 1)) {
-                        el.currentTime = targetTime;
-                        lastSyncedStepRef.current.set(index, currentStepTime);
-                      }
-                    }
-                    if (currentPlaying === index) {
-                      el.play().catch(() => { });
-                    } else {
-                      el.pause();
-                    }
-                  } else if (currentPlaying === index) {
-                    el.play().catch(() => { });
-                  } else {
-                    el.pause();
-                  }
-                };
-
-                // 2) Throttled timeupdate that only fires once per bucket of steps
-                const handleTimeUpdate = () => {
-                  const duration = el.duration;
-                  if (duration && isFinite(duration) && duration > 0) {
-                    const progress = Math.min(1, Math.max(0, el.currentTime / duration));
-                    setVideoProgress((prev) => {
-                      const existing = prev.get(index);
-                      if (existing !== undefined && Math.abs(existing - progress) < 0.005) {
-                        return prev;
-                      }
-                      const next = new Map(prev);
-                      next.set(index, progress);
-                      return next;
-                    });
-                  }
-
-                  // only when playing this video, and only in the single-trajectory view
-                  if (!(currentPlaying === index && singleTrajectory)) return;
-
-                  if (!duration || !isFinite(duration) || duration <= 0) return;
-
-                  const newStep = Math.floor((el.currentTime / duration) * episodeLength);
-                  // "bucket" every N steps: consistent, frame-rate independent
-                  const bucket = Math.floor(newStep / STEP_UPDATE_STRIDE);
-
-                  const last = lastSentBucketRef.current.get(index);
-                  if (last === bucket) return; // already sent an update for this bucket
-
-                  lastSentBucketRef.current.set(index, bucket);
-
-                  // Update the local UI step first (React won’t re-render if unchanged)
-                  const shouldUpdateStep = newStep !== selectedStepRef.current;
-                  let selectionPayload: any = null;
-
-                  // Only dispatch when this component is in 'state' mode; keep payload identical to slider
-                  if ((selectionData as any).type === 'state') {
-                    const baseIdx = selectedStepRef.current; // latest value
-                    selectionPayload = [{
-                      type: 'state',
-                      data: {
-                        episode: index,
-                        step: newStep,
-                        coords: currentStateData?.coords || [0, 0],
-                        x: currentStateData?.x || 0,
-                        y: currentStateData?.y || 0,
-                        index: (currentStateData?.index || 0) + (newStep - baseIdx),
-                      },
-                    }];
-                  }
-
-                  if (shouldUpdateStep || selectionPayload) {
-                    startTransition(() => {
-                      if (shouldUpdateStep) {
-                        setSelectedStep(newStep);
-                      }
-                      if (selectionPayload) {
-                        activeLearningDispatch({ type: 'SET_SELECTION', payload: selectionPayload });
-                      }
-                    });
-                  }
-                };
-
-                // 3) Attach a single listener, remember it, and ensure cleanup next time
-                el.addEventListener('timeupdate', handleTimeUpdate);
-                timeUpdateHandlersRef.current.set(index, handleTimeUpdate);
-
-                // 4) Initial sync on mount/when metadata is available
-                if (el.readyState >= 1) {
-                  syncVideoTime(true);
-                } else {
-                  const handleLoadedMetadata = () => {
-                    syncVideoTime(true);
-                    el.removeEventListener('loadedmetadata', handleLoadedMetadata);
-                    loadedMetadataHandlersRef.current.delete(index);
-                  };
-                  loadedMetadataHandlersRef.current.set(index, handleLoadedMetadata);
-                  el.addEventListener('loadedmetadata', handleLoadedMetadata);
-                }
-
-                // ensure play/pause state stays in sync on re-render without forcing time snaps
-                syncVideoTime();
-
-                // keep the current el
-                videoRefs.current[index] = el;
-              }}
-            />
+<video
+  src={videoUrl}
+  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+  muted
+  ref={attachVideoRef(index)}
+  onTimeUpdate={(e) => {
+    if (!singleTrajectory || currentPlaying !== index) return;
+    
+    const video = e.currentTarget;
+    const duration = video.duration;
+    if (!duration || duration <= 0) return;
+    
+    const episodeLength = totalSteps || getEpisodeLength(index);
+    const newStep = Math.floor((video.currentTime / duration) * episodeLength);
+    
+    // Throttle updates
+    const bucket = Math.floor(newStep / STEP_UPDATE_STRIDE);
+    const lastBucket = lastSentBucketRef.current.get(index);
+    if (lastBucket === bucket) return;
+    
+    lastSentBucketRef.current.set(index, bucket);
+    
+    if (newStep !== selectedStep) {
+      startTransition(() => {
+        setSelectedStep(newStep);
+        // Update selection if needed
+        if (selectionData.type === 'state') {
+          activeLearningDispatch({
+            type: 'SET_SELECTION',
+            payload: [{
+              type: 'state',
+              data: {
+                episode: index,
+                step: newStep,
+                coords: currentStateData?.coords || [0, 0],
+                x: currentStateData?.x || 0,
+                y: currentStateData?.y || 0,
+                index: (currentStateData?.index || 0) + (newStep - selectedStep),
+              },
+            }],
+          });
+        }
+      });
+    }
+  }}
+/>
             <IconButton
               size="small"
               sx={{
@@ -1108,6 +1051,7 @@ const MergedSelectionFeedback = () => {
       }
 
       case 'state': {
+        console.log("SELECT WHEN STATE", selectionData, allEpisodes);
         const stateData: any = (selectionData as any).data[0];
         let episode: Episode; let episodeIdx: number; let episodeLength: number;
         if (typeof stateData === 'number') { episodeIdx = stateData; episode = allEpisodes[episodeIdx]; episodeLength = getEpisodeLength(episodeIdx); }
