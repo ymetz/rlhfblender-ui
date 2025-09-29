@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Box, Paper, Button, CircularProgress, IconButton, Drawer, Typography, Tooltip } from '@mui/material';
-import { ChevronRight, AirplaneTicket  } from '@mui/icons-material';
+import { Box, Paper, Button, CircularProgress, IconButton, Typography, Tooltip, Dialog, DialogContent } from '@mui/material';
+import { ChevronRight, AirplaneTicket } from '@mui/icons-material';
 import axios from 'axios';
 // Import components
 import ProjectionComponent from './ProjectionComponent';
 import MergedSelectionFeedback from './MergedSelectionFeedback';
-import TrainingProgressBox from './TrainingProgressBox';
 import TrainingProgressPanel from './TrainingProgressPanel';
 import { useActiveLearningState, useActiveLearningDispatch } from '../ActiveLearningContext';
 import { FeedbackType, Feedback } from '../types';
@@ -23,7 +22,8 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
   const [waiting, setWaiting] = React.useState(false);
   const [isTraining, setIsTraining] = React.useState(false);
-  const [trainingProgressOpen, setTrainingProgressOpen] = useState(false);
+  const [progressModalOpen, setProgressModalOpen] = useState(false);
+  const [pendingProgressSummary, setPendingProgressSummary] = useState(false);
   const [trainingStatus, setTrainingStatus] = React.useState({
     phaseStatus: '',
     message: '',
@@ -39,6 +39,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   const appStateDispatch = useAppDispatch();
   
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastDataTimestampRef = useRef<number | null>(null);
   
   // Get onboarding hook (will only work when wrapped in OnboardingProvider)
   const { startOnboardingIfFirstTime, startActiveLearningTour, isOnboardingReady, triggerStepComplete } = useActiveLearningOnboarding();
@@ -110,6 +111,8 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           payload: updatedFeedbackCounts 
         });
 
+        setPendingProgressSummary(true);
+
         // Check if "simulation" exists and is true in resultsData - chose next checkpoint from existing checkpoint list,
         // do not add a new one
         if (resultsData.simulation) {
@@ -152,7 +155,8 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         message: 'Failed to get training status'
       }));
       setIsTraining(false);
-      
+      setPendingProgressSummary(false);
+
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
@@ -168,6 +172,8 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
     }
     
     setIsTraining(true);
+    setProgressModalOpen(false);
+    setPendingProgressSummary(false);
     pollingIntervalRef.current = setInterval(() => {
       pollTrainingProgress(phase);
     }, 3000); // Poll every 3 seconds
@@ -190,6 +196,19 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
       }
     };
   }, []);
+
+  useEffect(() => {
+    const timestamp = activeLearningState.lastDataUpdateTimestamp ?? 0;
+    const previous = lastDataTimestampRef.current ?? 0;
+
+    if (timestamp > 0 && timestamp !== previous) {
+      if (pendingProgressSummary) {
+        setProgressModalOpen(true);
+        setPendingProgressSummary(false);
+      }
+      lastDataTimestampRef.current = timestamp;
+    }
+  }, [activeLearningState.lastDataUpdateTimestamp, pendingProgressSummary]);
 
   const handleContinue = async () => {
     setWaiting(true);
@@ -280,6 +299,15 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
     // Note: setWaiting(false) is now handled by the polling function when training completes
 };
 
+  const handleProgressModalOpen = useCallback(() => {
+    setProgressModalOpen(true);
+    setPendingProgressSummary(false);
+  }, []);
+
+  const handleProgressModalClose = useCallback(() => {
+    setProgressModalOpen(false);
+  }, []);
+
 
   return (
     <Box
@@ -291,76 +319,44 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         position: 'relative',
       }}
     >
-      {/* Collapsible Training Progress Drawer */}
-      <Drawer
-        variant="temporary"
-        anchor="left"
-        open={trainingProgressOpen}
-        onClose={() => setTrainingProgressOpen(false)}
-        sx={{
-          '& .MuiDrawer-paper': {
-            width: '40vw',
-            height: '100%',
+      <Tooltip title="Training Dashboard" placement="right">
+        <IconButton
+          onClick={handleProgressModalOpen}
+          sx={{
+            position: 'fixed',
+            left: 0,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 1200,
+            backgroundColor: 'primary.main',
+            color: 'white',
+            borderRadius: '0 8px 8px 0',
+            '&:hover': {
+              backgroundColor: 'primary.dark',
+            },
+            width: '40px',
+            height: '160px',
             display: 'flex',
             flexDirection: 'column',
-            p: 1,
-            gap: 1,
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
-          },
-        }}
-        ModalProps={{
-          BackdropProps: {
-            sx: {
-              backgroundColor: 'rgba(0, 0, 0, 0.1)',
-              backdropFilter: 'blur(4px)',
-            },
-          },
-        }}
-      >
-        <TrainingProgressPanel onClose={() => setTrainingProgressOpen(false)} />
-      </Drawer>
-
-      {/* Training Progress Tab Button */}
-      {!trainingProgressOpen && (
-        <Tooltip title="Training Progress" placement="right">
-          <IconButton
-            onClick={() => setTrainingProgressOpen(true)}
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 0.5,
+          }}
+        >
+          <ChevronRight sx={{ fontSize: '16px' }} />
+          <Typography
+            variant="caption"
             sx={{
-              position: 'fixed',
-              left: 0,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              zIndex: 1200,
-              backgroundColor: 'primary.main',
-              color: 'white',
-              borderRadius: '0 8px 8px 0',
-              '&:hover': {
-                backgroundColor: 'primary.dark',
-              },
-              width: '40px',
-              height: '160px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 0.5,
+              writingMode: 'vertical-rl',
+              textOrientation: 'mixed',
+              fontSize: '10px',
+              lineHeight: 1,
             }}
           >
-            <ChevronRight sx={{ fontSize: '16px' }} />
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                writingMode: 'vertical-rl',
-                textOrientation: 'mixed',
-                fontSize: '10px',
-                lineHeight: 1,
-              }}
-            >
-              TRAINING PROGRESS
-            </Typography>
-          </IconButton>
-        </Tooltip>
-      )}
+            TRAINING DASHBOARD
+          </Typography>
+        </IconButton>
+      </Tooltip>
 
       {/* Onboarding Help Button - Only show when conditions are met */}
       {isOnboardingReady() && (
@@ -483,18 +479,34 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           </Paper>
         </Box>
       </Box>
-      
-      {/* Training Progress Box */}
-      <TrainingProgressBox
-        isTraining={isTraining}
-        trainingLoss={trainingStatus.trainingLoss}
-        validationLoss={trainingStatus.validationLoss}
-        phaseStatus={trainingStatus.phaseStatus}
-        message={trainingStatus.message}
-        uncertainty={trainingStatus.uncertainty}
-        avgReward={trainingStatus.avgReward}
-      />
-      
+      <Dialog
+        open={progressModalOpen}
+        onClose={handleProgressModalClose}
+        fullWidth
+        maxWidth="xl"
+        PaperProps={{
+          sx: {
+            minHeight: '75vh',
+            maxHeight: '85vh',
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogContent sx={{ p: 3 }}>
+          <TrainingProgressPanel
+            onClose={handleProgressModalClose}
+            trainingSummary={{
+              isTraining,
+              trainingLoss: trainingStatus.trainingLoss,
+              validationLoss: trainingStatus.validationLoss,
+              phaseStatus: trainingStatus.phaseStatus,
+              message: trainingStatus.message,
+              uncertainty: trainingStatus.uncertainty,
+              avgReward: trainingStatus.avgReward,
+            }}
+          />
+        </DialogContent>
+      </Dialog>
       {waiting && (
         <Box
           sx={{

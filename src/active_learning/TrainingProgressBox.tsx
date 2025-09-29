@@ -1,17 +1,16 @@
 import React from 'react';
-import { 
-  Box, 
-  Paper, 
-  Typography, 
-  LinearProgress, 
+import {
+  Box,
+  Paper,
+  Typography,
+  LinearProgress,
   Chip,
   Stack,
-  IconButton
+  Divider,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
 import { useActiveLearningState } from '../ActiveLearningContext';
 
-interface TrainingProgressBoxProps {
+interface TrainingProgressSummaryProps {
   isTraining: boolean;
   trainingLoss: number;
   validationLoss: number;
@@ -19,24 +18,20 @@ interface TrainingProgressBoxProps {
   message: string;
   uncertainty: number;
   avgReward: number;
+  showTrainingIndicators?: boolean;
 }
 
-const TrainingProgressBox: React.FC<TrainingProgressBoxProps> = ({
+const TrainingProgressBox: React.FC<TrainingProgressSummaryProps> = ({
   isTraining,
   trainingLoss,
   validationLoss,
   phaseStatus,
   message,
   uncertainty,
-  avgReward
+  avgReward,
+  showTrainingIndicators = true,
 }) => {
   const activeLearningState = useActiveLearningState();
-  const [dismissed, setDismissed] = React.useState(false);
-
-  // Reset dismissal when new training starts
-  React.useEffect(() => {
-    if (isTraining) setDismissed(false);
-  }, [isTraining]);
 
   // Previous metrics from progress arrays
   const prevUncertainty = React.useMemo(() => {
@@ -93,43 +88,38 @@ const TrainingProgressBox: React.FC<TrainingProgressBoxProps> = ({
     }
   };
 
-  if ((!isTraining && phaseStatus !== 'completed') || dismissed) {
-    return null;
-  }
-
   return (
     <Paper
-      elevation={3}
+      elevation={2}
       sx={{
-        position: 'fixed',
-        top: 20,
-        right: 20,
-        width: 300,
         p: 2,
-        zIndex: 1000,
-        backgroundColor: 'background.paper',
-        border: '1px solid',
-        borderColor: 'divider',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
       }}
     >
-      <Stack spacing={2}>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="h6">Training Progress</Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Chip 
-              label={getStatusText(phaseStatus)} 
-              color={getStatusColor(phaseStatus) as any}
-              size="small"
-            />
-            <IconButton aria-label="Close" size="small" onClick={() => setDismissed(true)}>
-              <CloseIcon fontSize="small" />
-            </IconButton>
+      <Stack spacing={2} sx={{ flex: 1 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+              Training Progress
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {message || 'Review the latest training results'}
+            </Typography>
           </Box>
+          <Chip
+            label={getStatusText(phaseStatus)}
+            color={getStatusColor(phaseStatus) as any}
+            size="small"
+            sx={{ minWidth: 120, justifyContent: 'center' }}
+          />
         </Box>
 
-        {isTraining && (
-          <LinearProgress 
-            sx={{ 
+        {isTraining && showTrainingIndicators && (
+          <LinearProgress
+            sx={{
               height: 6,
               borderRadius: 3,
             }}
@@ -161,6 +151,8 @@ const TrainingProgressBox: React.FC<TrainingProgressBoxProps> = ({
             </Stack>
           </Box>
         )}
+
+        <Divider sx={{ my: 1 }} />
 
         {phaseStatus === 'completed' && (
           <Box>

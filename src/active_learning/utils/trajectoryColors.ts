@@ -1,6 +1,33 @@
+import { Color2D } from '../projection_utils/2dcolormaps';
+
 /**
  * Shared utility functions for trajectory coloring across components
  */
+
+const normalize = (value: number, min: number, max: number): number => {
+    if (!Number.isFinite(value)) return 0.5;
+    if (max === min) return 0.5;
+    const ratio = (value - min) / (max - min);
+    return Math.min(1, Math.max(0, ratio));
+};
+
+const extent = (values: number[]): [number, number] => {
+    if (values.length === 0) return [0, 1];
+    let min = values[0];
+    let max = values[0];
+    for (let i = 1; i < values.length; i += 1) {
+        const value = values[i];
+        if (!Number.isFinite(value)) {
+            continue;
+        }
+        if (value < min) min = value;
+        if (value > max) max = value;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+        return [0, 1];
+    }
+    return [min, max];
+};
 
 /**
  * Similarity-based color assignment using final states
@@ -10,7 +37,7 @@
 export function computeTrajectoryColors(episodeToPaths: Map<number, number[][]>): Map<number, string> {
     const trajectoryColors = new Map<number, string>();
     const finalStates = new Map<number, [number, number]>();
-    
+
     // Extract final states for each trajectory
     episodeToPaths.forEach((pathPoints, episodeIdx) => {
         if (pathPoints.length > 0) {
@@ -18,41 +45,38 @@ export function computeTrajectoryColors(episodeToPaths: Map<number, number[][]>)
             finalStates.set(episodeIdx, [finalState[0], finalState[1]]);
         }
     });
-    
-    // Compute similarity matrix and assign colors
+
     const episodes = Array.from(finalStates.keys());
-    const finalStateArray = episodes.map(ep => finalStates.get(ep)).filter(Boolean) as [number, number][];
-    
-    if (finalStateArray.length === 0) return trajectoryColors;
-    
-    // Use 2D color mapping based on final state position
+    const finalStateArray = episodes.map((ep) => finalStates.get(ep)).filter(Boolean) as [number, number][];
+
+    if (finalStateArray.length === 0) {
+        return trajectoryColors;
+    }
+
+    const xs = finalStateArray.map(([x]) => x);
+    const ys = finalStateArray.map(([, y]) => y);
+    const [xMin, xMax] = extent(xs);
+    const [yMin, yMax] = extent(ys);
+
+    const colorMapReady = Color2D.isReady();
+    if (!colorMapReady) {
+        void Color2D.ensureReady();
+    }
+
     episodes.forEach((episodeIdx, i) => {
         const finalState = finalStateArray[i];
-        if (finalState) {
-            // Use hue based on angle from center, saturation based on distance
-            const centerX = finalStateArray.reduce((sum, state) => sum + state[0], 0) / finalStateArray.length;
-            const centerY = finalStateArray.reduce((sum, state) => sum + state[1], 0) / finalStateArray.length;
-            
-            const dx = finalState[0] - centerX;
-            const dy = finalState[1] - centerY;
-            const angle = Math.atan2(dy, dx);
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            // Convert to hue (0-360)
-            const hue = ((angle + Math.PI) / (2 * Math.PI)) * 360;
-            
-            // Normalize distance for saturation (0-100)
-            const maxDistance = Math.max(...finalStateArray.map(state => {
-                const dx2 = state[0] - centerX;
-                const dy2 = state[1] - centerY;
-                return Math.sqrt(dx2 * dx2 + dy2 * dy2);
-            }));
-            const saturation = maxDistance > 0 ? Math.min(100, (distance / maxDistance) * 80 + 20) : 50;
-            
-            trajectoryColors.set(episodeIdx, `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, 50%)`);
+        if (!finalState) {
+            return;
         }
+
+        const [x, y] = finalState;
+        const normalizedX = normalize(x, xMin, xMax);
+        const normalizedY = normalize(y, yMin, yMax);
+
+        const color = Color2D.getColorNormalized(normalizedX, normalizedY);
+        trajectoryColors.set(episodeIdx, color ?? getFallbackColor(episodeIdx));
     });
-    
+
     return trajectoryColors;
 }
 

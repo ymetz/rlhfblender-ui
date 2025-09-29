@@ -126,6 +126,26 @@ const StateSequenceProjection = (props) => {
         }
         return episodes.size;
     }, [activeLearningState.selection]);
+    const selectedEpisodesSet = React.useMemo(() => {
+        const selection = (activeLearningState.selection || []) as SelectionItem[];
+        const episodes = new Set<number>();
+        for (const item of selection) {
+            if (item?.type === 'state' && item.data && typeof item.data.episode === 'number') {
+                episodes.add(item.data.episode);
+            } else if (item?.type === 'trajectory' && typeof item.data === 'number') {
+                episodes.add(item.data);
+            }
+        }
+
+        if (typeof selectedTrajectory === 'number') {
+            episodes.add(selectedTrajectory);
+        }
+        if (selectedState && typeof selectedState.episode === 'number') {
+            episodes.add(selectedState.episode);
+        }
+
+        return episodes;
+    }, [activeLearningState.selection, selectedState, selectedTrajectory]);
     const autoLoadedSessionRef = useRef<string | null>(null);
     const feedbackHighlights = (activeLearningState as any).feedbackHighlights;
     const highlightedEpisodesSet: Set<number> | undefined = feedbackHighlights?.episodes;
@@ -344,6 +364,78 @@ const StateSequenceProjection = (props) => {
         [activeLearningDispatch]
     );
 
+    const handleEpisodeTileClick = useCallback((ep: number) => {
+        const episodeIndices = activeLearningState.episodeIndices || [];
+        const episodeStartIndex = episodeIndices.indexOf(ep);
+
+        if (episodeStartIndex === -1) {
+            return;
+        }
+
+        const coords = (activeLearningState.projectionStates || [])[episodeStartIndex] || [0, 0];
+        const safeCoords: [number, number] = coords.length >= 2 ? [coords[0], coords[1]] : [0, 0];
+
+        const newSelectedState: SelectedState = {
+            episode: ep,
+            step: 0,
+            coords: safeCoords,
+            x: safeCoords[0],
+            y: safeCoords[1],
+            index: episodeStartIndex,
+        };
+
+        setSelectedState(newSelectedState);
+        selectedStateRef.current = newSelectedState;
+        setSelectedTrajectory(ep);
+        selectedTrajectoryRef.current = ep;
+
+        const newStateSelection: SelectionItem = { type: 'state', data: newSelectedState };
+        const currentSelection = (activeLearningState.selection || []) as SelectionItem[];
+        const alreadySelected = currentSelection.some((item) => {
+            if (!item) return false;
+            if (item.type === 'state' && item.data && typeof item.data.episode === 'number') {
+                return item.data.episode === ep;
+            }
+            if (item.type === 'trajectory' && typeof item.data === 'number') {
+                return item.data === ep;
+            }
+            return false;
+        });
+
+        let nextSelection = currentSelection;
+
+        if (multiSelectMode) {
+            if (!alreadySelected) {
+                nextSelection = [...currentSelection, newStateSelection];
+                activeLearningDispatch({
+                    type: 'SET_SELECTION',
+                    payload: nextSelection,
+                });
+            }
+        } else {
+            nextSelection = [newStateSelection];
+            activeLearningDispatch({
+                type: 'SET_SELECTION',
+                payload: nextSelection,
+            });
+
+            if (fitEpisodeInViewRef.current) {
+                fitEpisodeInViewRef.current(ep);
+            }
+        }
+
+        currentSelectionRef.current = nextSelection;
+    }, [
+        activeLearningDispatch,
+        activeLearningState.episodeIndices,
+        activeLearningState.projectionStates,
+        activeLearningState.selection,
+        fitEpisodeInViewRef,
+        multiSelectMode,
+        setSelectedState,
+        setSelectedTrajectory,
+    ]);
+
     // Drawing function dispatches to specific visualizations
     const drawChart = useCallback((
         mode = 'state_space',
@@ -484,7 +576,8 @@ const StateSequenceProjection = (props) => {
                 activeLearningDispatch({ type: 'SET_POINT_CONNECTIONS', payload: data.connections });
                 activeLearningDispatch({ type: 'SET_FEATURE_EMBEDDINGS', payload: data.feature_embedding });
                 activeLearningDispatch({ type: 'SET_TRANSITION_EMBEDDINGS', payload: data.transition_embedding });
-                activeLearningDispatch({ type: 'SET_LAST_DATA_UPDATE_TIMESTAMP', payload: props.timeStamp });
+                const dataTimestamp = props.timeStamp ?? Date.now();
+                activeLearningDispatch({ type: 'SET_LAST_DATA_UPDATE_TIMESTAMP', payload: dataTimestamp });
                 activeLearningDispatch({ type: 'SET_SELECTED_POINTS', payload: selected_points });
                 activeLearningDispatch({ type: 'SET_HIGHLIGHTED_POINTS', payload: highlighted_points });
                 activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: data.episode_indices || [] });
@@ -941,7 +1034,7 @@ const StateSequenceProjection = (props) => {
                                     indicatorColor = scale(rNorm, uNorm);
                                 }
 
-                                const isSelected = selectedTrajectory === ep || (selectedState && selectedState.episode === ep);
+                                const isSelected = selectedEpisodesSet.has(ep);
                                 const hasFeedback = highlightedEpisodesSet?.has(ep) ?? false;
                                 const hasCorrection = correctionEpisodesSet?.has(ep) ?? false;
                                 const ratedBorderColor = theme.palette.mode === 'dark' ? theme.palette.grey[600] : theme.palette.grey[400];
@@ -949,6 +1042,10 @@ const StateSequenceProjection = (props) => {
                                 const indicatorDisplayColor = hasFeedback ? ratedBorderColor : indicatorColor;
                                 const cardTextColor = hasFeedback ? theme.palette.text.secondary : theme.palette.text.primary;
                                 const tooltipTitle = hasFeedback ? 'Feedback recorded for this episode' : undefined;
+                                const baseBackground = hasFeedback ? theme.palette.action.hover : theme.palette.background.paper;
+                                const backgroundColor = isSelected ? theme.palette.action.selected : baseBackground;
+                                const boxShadowValue = isSelected ? theme.shadows[4] : theme.shadows[1];
+                                const hoverShadowValue = isSelected ? theme.shadows[6] : theme.shadows[2];
 
                                 return (
                                     <Tooltip
@@ -958,35 +1055,7 @@ const StateSequenceProjection = (props) => {
                                         arrow
                                     >
                                         <Box
-                                            onClick={() => {
-                                                // select initial state of the episode
-                                                const episodeStartIndex = (activeLearningState.episodeIndices || []).indexOf(ep);
-                                                if (episodeStartIndex !== -1) {
-                                                    const coords = (activeLearningState.projectionStates || [])[episodeStartIndex] || [0, 0];
-                                                    const safeCoords: [number, number] = coords.length >= 2 ? [coords[0], coords[1]] : [0, 0];
-                                                    const newSelectedState: SelectedState = {
-                                                        episode: ep,
-                                                        step: 0,
-                                                        coords: safeCoords,
-                                                        x: safeCoords[0],
-                                                        y: safeCoords[1],
-                                                        index: episodeStartIndex
-                                                    };
-                                                    setSelectedState(newSelectedState);
-                                                    selectedStateRef.current = newSelectedState;
-                                                    setSelectedTrajectory(ep);
-                                                    selectedTrajectoryRef.current = ep;
-                                                    const newStateSelection: SelectionItem = { type: 'state', data: newSelectedState } as any;
-                                                    activeLearningDispatch({
-                                                        type: 'SET_SELECTION',
-                                                        payload: [newStateSelection]
-                                                    });
-                                                    // try to fit in view
-                                                    if (fitEpisodeInViewRef.current) {
-                                                        fitEpisodeInViewRef.current(ep);
-                                                    }
-                                                }
-                                            }}
+                                            onClick={() => handleEpisodeTileClick(ep)}
                                             sx={{
                                                 cursor: 'pointer',
                                                 border: '2px solid',
@@ -994,12 +1063,12 @@ const StateSequenceProjection = (props) => {
                                                 borderRadius: 1,
                                                 px: 1,
                                                 py: 0.75,
-                                                bgcolor: (theme) => hasFeedback ? theme.palette.action.hover : theme.palette.background.paper,
+                                                bgcolor: backgroundColor,
                                                 color: cardTextColor,
-                                                boxShadow: isSelected ? 4 : 1,
+                                                boxShadow: boxShadowValue,
                                                 minWidth: 96,
                                                 transition: 'box-shadow 0.2s ease, transform 0.05s ease',
-                                                '&:hover': { boxShadow: 3 }
+                                                '&:hover': { boxShadow: hoverShadowValue }
                                             }}
                                         >
                                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 0.5 }}>
