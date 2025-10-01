@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback, startTransition, useDeferredValue } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback, startTransition } from 'react';
 import {
   Box,
   Typography,
@@ -24,7 +24,12 @@ import {
   ModeEdit,
 } from '@mui/icons-material';
 import { useAppState, useAppDispatch } from '../AppStateContext';
-import { useActiveLearningState, useActiveLearningDispatch, UserDemoTrajectory } from '../ActiveLearningContext';
+import {
+  useActiveLearningState,
+  useActiveLearningDispatch,
+  UserDemoTrajectory,
+  FeedbackHistoryEntry,
+} from '../ActiveLearningContext';
 import * as d3 from 'd3';
 import { IDfromEpisode } from '../id';
 import { useGetter } from '../getter-context';
@@ -107,16 +112,26 @@ const toolbarSx = {
 const getFeedbackCategory = (feedbackType: FeedbackType, selectionType?: string): string => {
   switch (feedbackType) {
     case FeedbackType.Evaluative:
-      return selectionType === 'cluster' ? 'Cluster' : 'Rating';
+      return 'Rating';
     case FeedbackType.Comparative:
       return 'Comparison';
     case FeedbackType.Corrective:
       return 'Correction';
     case FeedbackType.Demonstrative:
       return 'Demo';
+    case FeedbackType.ClusterRating:
+      return 'Cluster';
     default:
       return 'Rating';
   }
+};
+
+const DEFAULT_UNCERTAINTY_EFFECTS: Record<string, number> = {
+  Rating: -0.02,
+  Comparison: -0.08,
+  Correction: 0.04,
+  Demo: -0.12,
+  Cluster: -0.05,
 };
 
 const MergedSelectionFeedback = () => {
@@ -129,6 +144,7 @@ const MergedSelectionFeedback = () => {
 
   // State for videos and interaction
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  const userDemoVideoRef = useRef<HTMLVideoElement | null>(null);
   const [videoURLs, setVideoURLs] = useState<Map<string, string>>(new Map<string, string>());
   const [clusterFrameImages, setClusterFrameImages] = useState<string[]>([]);
   const [coordinateFrameImage, setCoordinateFrameImage] = useState<string | null>(null);
@@ -145,7 +161,6 @@ const MergedSelectionFeedback = () => {
   const [savingDemo, setSavingDemo] = useState(false);
   const [currentPlaying, setCurrentPlaying] = useState<number | null>(null);
   const [selectedStep, setSelectedStep] = useState(0);
-  const deferredSelectedStep = useDeferredValue(selectedStep);
   const [showCorrectionInterface, setShowCorrectionInterface] = useState(false);
   const [videoProgress, setVideoProgress] = useState<Map<number, number>>(() => new Map());
 
@@ -155,8 +170,6 @@ const MergedSelectionFeedback = () => {
 
   const STEP_UPDATE_STRIDE = 20; // or 20
 
-  // keep the last emitted bucket per video index to avoid repeated dispatches
-  const lastSentBucketRef = useRef<Map<number, number>>(new Map());
 
   // avoid stale selectedStep in the timeupdate closure
   const selectedStepRef = useRef<number>(0);
@@ -165,7 +178,6 @@ const MergedSelectionFeedback = () => {
   // Use selection directly from state
   const selection = useMemo(() => activeLearningState.selection || [], [activeLearningState.selection]);
   const allEpisodes = useMemo(() => {
-    console.log("allEpisodes recompute", appState.episodeIDsChronologically, appState.selectedCheckpoint);
     const episodes = appState.episodeIDsChronologically || [];
     const selectedCheckpoint = appState.selectedCheckpoint;
 
@@ -190,8 +202,20 @@ const MergedSelectionFeedback = () => {
       const item: any = selection[0];
       if (item.type === 'user_demo') {
         const trajectoryId = item.data?.trajectoryId;
+        const pointIndex =
+          typeof item.data?.pointIndex === 'number' && Number.isFinite(item.data.pointIndex)
+            ? item.data.pointIndex
+            : null;
         const trajectory = userGeneratedTrajectories.find((t) => t.id === trajectoryId) || null;
-        return { type: 'user_demo', data: trajectory } as any;
+        return {
+          type: 'user_demo',
+          data: {
+            trajectory,
+            trajectoryId,
+            pointIndex,
+            raw: item.data ?? null,
+          },
+        } as any;
       }
       if (item.type === 'cluster') return { type: 'cluster', label: (item as any).label, data: item.data } as any;
       if (item.type === 'coordinate') return { type: 'coordinate', data: [item.data] } as any;
@@ -296,6 +320,13 @@ const MergedSelectionFeedback = () => {
   useEffect(() => {
     if (selectionData.type === 'state' && currentStateData && currentStep !== null) {
       setSelectedStep(currentStep);
+    } else if (selectionData.type === 'user_demo') {
+      const pointIndex = (selectionData as any).data?.pointIndex;
+      if (typeof pointIndex === 'number' && Number.isFinite(pointIndex)) {
+        setSelectedStep(pointIndex);
+      } else {
+        setSelectedStep(0);
+      }
     } else if (selectionData.type === 'trajectory' && selection.length === 2) {
       const stateSelection: any = (selection as any).find((item: any) => item.type === 'state');
       if (stateSelection && stateSelection.data?.step !== undefined) setSelectedStep(stateSelection.data.step);
@@ -304,6 +335,50 @@ const MergedSelectionFeedback = () => {
       setSelectedStep(0);
     }
   }, [selectionData.type, currentStateData, currentStep, selection]);
+
+  useEffect(() => {
+    if (selectionData.type !== 'user_demo') return;
+
+    const data = (selectionData as any).data || {};
+    const trajectory: UserDemoTrajectory | null = data?.trajectory ?? null;
+    const pointIndex =
+      typeof data?.pointIndex === 'number' && Number.isFinite(data.pointIndex)
+        ? data.pointIndex
+        : null;
+    const videoElement = userDemoVideoRef.current;
+
+    if (!trajectory || videoElement === null || pointIndex === null) return;
+
+    const totalSteps = Array.isArray(trajectory.projection) ? trajectory.projection.length : 0;
+    if (totalSteps <= 0) return;
+
+    const clampedIndex = Math.max(0, Math.min(pointIndex, totalSteps - 1));
+
+    const syncVideoTime = () => {
+      const duration = videoElement.duration;
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      const denominator = Math.max(totalSteps - 1, 1);
+      const targetTime = denominator > 0 ? (clampedIndex / denominator) * duration : 0;
+      if (!Number.isFinite(targetTime)) return;
+      if (Math.abs(videoElement.currentTime - targetTime) > 0.1) {
+        videoElement.currentTime = targetTime;
+      }
+    };
+
+    if (videoElement.readyState >= 1 && Number.isFinite(videoElement.duration) && videoElement.duration > 0) {
+      syncVideoTime();
+      return;
+    }
+
+    const handleLoadedMetadata = () => {
+      syncVideoTime();
+    };
+
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+    return () => {
+      videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    };
+  }, [selectionData]);
 
   // Fetch coordinate frame when coordinate is selected
   useEffect(() => {
@@ -373,12 +448,17 @@ const MergedSelectionFeedback = () => {
       };
       fetchVideos();
     } else if (selectionData.type === 'user_demo') {
-      const trajectory: UserDemoTrajectory | null = selectionData.data;
+      const data = (selectionData as any).data || {};
+      const trajectory: UserDemoTrajectory | null = data?.trajectory ?? null;
+      const trajectoryId: string | undefined = data?.trajectoryId;
+      const rawVideoPath: string | undefined = data?.raw?.videoPath;
       const map = new Map<string, string>();
-      if (trajectory?.videoPath) {
-        const resolved = resolveDemoPath(trajectory.videoPath);
+      const storageId = trajectory?.id ?? trajectoryId;
+      const videoPath = trajectory?.videoPath ?? rawVideoPath;
+      if (storageId && videoPath) {
+        const resolved = resolveDemoPath(videoPath);
         if (resolved) {
-          map.set(trajectory.id, resolved);
+          map.set(storageId, resolved);
         }
       }
       setVideoURLs(map);
@@ -443,11 +523,148 @@ const MergedSelectionFeedback = () => {
         return { target_id: `cluster_${data}`, reference: null, origin: 'online', timestamp: Date.now() };
       case 'coordinate':
         return { target_id: `coordinate_${data.x}_${data.y}`, reference: null, origin: 'online', timestamp: Date.now() };
-      case 'user_demo':
-        return { target_id: `user_demo_${data?.trajectoryId ?? Date.now()}`, reference: null, origin: 'online', timestamp: Date.now() };
+      case 'user_demo': {
+        const trajectoryId = data?.trajectory?.id ?? data?.trajectoryId ?? Date.now();
+        const target: any = {
+          target_id: `user_demo_${trajectoryId}`,
+          reference: null,
+          origin: 'online',
+          timestamp: Date.now(),
+        };
+        if (typeof data?.pointIndex === 'number' && Number.isFinite(data.pointIndex)) {
+          target.step = data.pointIndex;
+        }
+        return target;
+      }
       default:
         return { target_id: `unknown_${Date.now()}`, reference: null, origin: 'online', timestamp: Date.now() };
     }
+  };
+
+  const getEpisodeNumberFromIndex = (episodeIdx: number | undefined): number | undefined => {
+    if (episodeIdx === undefined || episodeIdx === null) return undefined;
+    const episodeRecord = allEpisodes?.[episodeIdx];
+    if (episodeRecord && typeof episodeRecord.episode_num === 'number') {
+      return episodeRecord.episode_num;
+    }
+    return typeof episodeIdx === 'number' ? episodeIdx : undefined;
+  };
+
+  const summarizeSelectionForHistory = (category: string): any => {
+    switch (selectionData.type) {
+      case 'state': {
+        const state = selectionData.data?.[0];
+        if (state === undefined || state === null) break;
+        const episodeIdx = typeof state === 'number' ? state : state.episode;
+        const episodeNum = getEpisodeNumberFromIndex(episodeIdx);
+        const step = typeof state === 'object' && state !== null ? state.step : undefined;
+        const summary: Record<string, unknown> = {};
+        if (typeof episodeNum === 'number') summary.episode = episodeNum;
+        if (typeof step === 'number') summary.step = step;
+        if (!Object.keys(summary).length) summary.description = `${category} feedback`;
+        return summary;
+      }
+      case 'multi_trajectory': {
+        const episodes = (selectionData.data || [])
+          .map((item: any) => getEpisodeNumberFromIndex(typeof item === 'number' ? item : item?.episode))
+          .filter((ep: any): ep is number => typeof ep === 'number');
+        if (episodes.length >= 2) {
+          return { episodes: Array.from(new Set(episodes)).slice(0, 4) };
+        }
+        if (episodes.length === 1) {
+          return { episode: episodes[0] };
+        }
+        break;
+      }
+      case 'cluster': {
+        const label = selectionData.label ?? 'Cluster';
+        const size = selectionData.data?.length ?? 0;
+        return { cluster_id: label, description: `${label} (${size} states)` };
+      }
+      case 'coordinate': {
+        const coord = selectionData.data?.[0];
+        if (coord && coord.x !== undefined && coord.y !== undefined) {
+          const x = Number(coord.x);
+          const y = Number(coord.y);
+          if (Number.isFinite(x) && Number.isFinite(y)) {
+            return { description: `Coordinate (${x.toFixed(2)}, ${y.toFixed(2)})` };
+          }
+        }
+        break;
+      }
+      case 'user_demo': {
+        const data = (selectionData as any).data || {};
+        const trajectory: UserDemoTrajectory | null = data?.trajectory ?? null;
+        const source = trajectory?.metadata?.source ?? 'demo';
+        const summary: Record<string, unknown> = { description: `Demonstration (${source})` };
+        if (typeof data?.pointIndex === 'number' && Number.isFinite(data.pointIndex)) {
+          summary.step = data.pointIndex;
+        }
+        return summary;
+      }
+      default:
+        break;
+    }
+
+    if (selection && selection.length > 0) {
+      return { description: `${category} feedback` };
+    }
+
+    return { description: 'Feedback' };
+  };
+
+  const buildFeedbackHistoryEntry = (fb: Feedback, category: string): FeedbackHistoryEntry | null => {
+    const timestamp = fb.timestamp ?? Date.now();
+    const entry: FeedbackHistoryEntry = {
+      id: `${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
+      type: category,
+      target: summarizeSelectionForHistory(category),
+      uncertaintyEffect: DEFAULT_UNCERTAINTY_EFFECTS[category] ?? 0,
+      timestamp,
+      phase: activeLearningState.currentPhase,
+    };
+
+    if (fb.feedback_type === FeedbackType.Comparative && fb.targets?.length) {
+      const episodes = fb.targets
+        .map((target) => {
+          const reference = target.reference as any;
+          if (reference && typeof reference.episode_num === 'number') {
+            return reference.episode_num;
+          }
+          if (typeof target.target_id === 'string') {
+            return target.target_id;
+          }
+          return undefined;
+        })
+        .filter((val) => val !== undefined);
+      if (episodes.length >= 2) {
+        entry.target = { episodes: episodes.slice(0, 4) };
+      }
+    } else if (fb.granularity === 'segment' && fb.targets?.length) {
+      const segment = fb.targets[0] as any;
+      const episodeNum = getEpisodeNumberFromIndex(segment?.reference?.episode);
+      if (typeof episodeNum === 'number' && segment?.start !== undefined && segment?.end !== undefined) {
+        entry.target = {
+          episode: episodeNum,
+          description: `Episode ${episodeNum} (steps ${segment.start}-${segment.end})`,
+        };
+      }
+    } else if (fb.feedback_type === FeedbackType.Corrective && fb.targets?.length) {
+      const firstTarget = fb.targets[0] as any;
+      const episodeIdx = firstTarget?.reference?.episode ?? firstTarget?.episode;
+      const episodeNum = getEpisodeNumberFromIndex(episodeIdx);
+      const step = firstTarget?.step;
+      entry.target = {
+        episode: episodeNum,
+        step: typeof step === 'number' ? step : undefined,
+        description:
+          typeof episodeNum === 'number' && typeof step === 'number'
+            ? `Episode ${episodeNum}, Step ${step}`
+            : `${category} feedback`,
+      };
+    }
+
+    return entry;
   };
 
   // Submit feedback to the system
@@ -459,6 +676,11 @@ const MergedSelectionFeedback = () => {
       fb.feedback_type === FeedbackType.Evaluative ? (selectionData as any).type : undefined
     );
     activeLearningDispatch({ type: 'UPDATE_FEEDBACK_COUNT', payload: { category, isCurrentSession: true } });
+
+    const historyEntry = buildFeedbackHistoryEntry(fb, category);
+    if (historyEntry) {
+      activeLearningDispatch({ type: 'ADD_FEEDBACK_HISTORY_ENTRY', payload: historyEntry });
+    }
     setSubmitted(true);
     triggerStepComplete('provide-feedback');
 
@@ -611,10 +833,12 @@ const MergedSelectionFeedback = () => {
       }));
     });
 
+    console.log('Submitting cluster rating feedback for segments:', episodeSegments, targets);
+
     if (!targets.length) return;
 
     const fb: Feedback = {
-      feedback_type: FeedbackType.Evaluative,
+      feedback_type: FeedbackType.ClusterRating,
       targets,
       granularity: 'segment',
       timestamp: Date.now(),
@@ -664,6 +888,7 @@ const MergedSelectionFeedback = () => {
 
       if (data?.success && data.artifacts) {
         const artifacts = data.artifacts;
+        const demoFilePath = artifacts.demo_file ?? data.file_path ?? null;
         const palette = ['#FF6B35', '#FFB703', '#8338EC', '#3A86FF', '#219EBC'];
         const color = palette[(activeLearningState.userGeneratedTrajectories.length) % palette.length];
         const trajectory: UserDemoTrajectory = {
@@ -674,7 +899,7 @@ const MergedSelectionFeedback = () => {
           dones: artifacts.dones ?? [],
           videoPath: artifacts.video_path ?? null,
           metadata: { ...(artifacts.metadata ?? {}), source, color, ...extraMetadata },
-          demoFile: artifacts.demo_file ?? null,
+          demoFile: demoFilePath,
           projectionFile: artifacts.projection_file ?? null,
           totalReward: artifacts.total_reward,
           source,
@@ -698,7 +923,7 @@ const MergedSelectionFeedback = () => {
   }, [activeLearningDispatch, activeLearningState.embeddingMethod, activeLearningState.userGeneratedTrajectories.length, appState.selectedCheckpoint]);
 
   const submitDemo = async (extraMetadata: Record<string, any> = {}) => {
-    await saveDemoAndIntegrate(appState.sessionId, 'generated', extraMetadata);
+    const trajectory = await saveDemoAndIntegrate(appState.sessionId, 'generated', extraMetadata);
     const demoEpisode: Episode = {
       env_name: appState.selectedExperiment.env_id,
       benchmark_type: 'generated',
@@ -712,6 +937,7 @@ const MergedSelectionFeedback = () => {
       granularity: 'episode',
       timestamp: Date.now(),
       session_id: appState.sessionId,
+      demonstration_path: trajectory?.demoFile ?? null,
     } as any;
     submitFeedback(fb);
   };
@@ -731,44 +957,72 @@ const MergedSelectionFeedback = () => {
   videoRefs.current[index] = el;
   };
 
+  const attachUserDemoVideoRef = useCallback((video: HTMLVideoElement | null) => {
+    userDemoVideoRef.current = video;
+  }, []);
+
   useEffect(() => {
+    const cleanupFns: Array<() => void> = [];
+
     videoRefs.current.forEach((video, index) => {
       if (!video) return;
-      
+
       const stateData = selectionData.type === 'state' ? selectionData.data[0] : null;
       const episodeIdx = typeof stateData === 'number' ? stateData : stateData?.episode;
-      
+
       // Only sync if this is the selected episode
-      if (episodeIdx !== index) return;
-      
-      const episodeLength = getEpisodeLength(index);
-      const duration = video.duration;
-      
-      // Sync video time with selected step
-      if (duration && !isNaN(duration) && duration > 0) {
-        const targetTime = (selectedStep / episodeLength) * duration;
-        if (!isNaN(targetTime) && Math.abs(targetTime - video.currentTime) > 0.5) {
+      if (episodeIdx !== index) {
+        if (currentPlaying !== index) {
+          try { video.pause(); } catch { /* noop */ }
+        }
+        return;
+      }
+
+      const episodeLength = Math.max(1, getEpisodeLength(index));
+      const clampedStep = Math.max(0, Math.min(selectedStep, episodeLength - 1));
+
+      const syncVideoTime = () => {
+        const duration = video.duration;
+        if (!Number.isFinite(duration) || duration <= 0) return;
+        const denominator = Math.max(episodeLength - 1, 1);
+        const targetTime = denominator > 0 ? (clampedStep / denominator) * duration : 0;
+        if (!Number.isFinite(targetTime)) return;
+        if (Math.abs(video.currentTime - targetTime) > 0.1) {
           video.currentTime = targetTime;
         }
+      };
+
+      if (video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0) {
+        syncVideoTime();
+      } else {
+        const handleLoadedMetadata = () => {
+          syncVideoTime();
+        };
+        video.addEventListener('loadedmetadata', handleLoadedMetadata);
+        cleanupFns.push(() => {
+          video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        });
       }
-      
+
       // Handle play/pause
       if (currentPlaying === index) {
-        video.play().catch(e => console.log('Play failed:', e));
+        video.play().catch((e) => console.log('Play failed:', e));
       } else {
-        video.pause();
+        try { video.pause(); } catch { /* noop */ }
       }
     });
+
+    return () => {
+      cleanupFns.forEach((fn) => fn());
+    };
   }, [currentPlaying, selectedStep, selectionData, getEpisodeLength]);
 
-  // Get video element for an episode (REPLACE THE EXISTING getVideoElement)
   const getVideoElement = (
     episode: Episode,
     index: number,
     small = false,
     singleTrajectory = false,
-    stepSync = false,
-    currentStepTime = 0,
+    stepInVideo?: number,
     totalSteps?: number
   ) => {
     const episodeId = IDfromEpisode(episode);
@@ -804,13 +1058,6 @@ const MergedSelectionFeedback = () => {
     
     const episodeLength = totalSteps || getEpisodeLength(index);
     const newStep = Math.floor((video.currentTime / duration) * episodeLength);
-    
-    // Throttle updates
-    const bucket = Math.floor(newStep / STEP_UPDATE_STRIDE);
-    const lastBucket = lastSentBucketRef.current.get(index);
-    if (lastBucket === bucket) return;
-    
-    lastSentBucketRef.current.set(index, bucket);
     
     if (newStep !== selectedStep) {
       startTransition(() => {
@@ -995,7 +1242,14 @@ const MergedSelectionFeedback = () => {
         );
 
       case 'user_demo': {
-        const trajectory: UserDemoTrajectory | null = (selectionData as any).data;
+        const data = (selectionData as any).data || {};
+        const trajectory: UserDemoTrajectory | null = data?.trajectory ?? null;
+        const trajectoryId: string | undefined = trajectory?.id ?? data?.trajectoryId;
+        const pointIndex =
+          typeof data?.pointIndex === 'number' && Number.isFinite(data.pointIndex)
+            ? data.pointIndex
+            : null;
+
         if (!trajectory) {
           return (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -1004,7 +1258,9 @@ const MergedSelectionFeedback = () => {
           );
         }
 
-        const resolvedVideoURL = videoURLs.get(trajectory.id) || resolveDemoPath(trajectory.videoPath);
+        const resolvedVideoURL =
+          (trajectoryId ? videoURLs.get(trajectoryId) : undefined) ||
+          (trajectory.videoPath ? resolveDemoPath(trajectory.videoPath) : null);
 
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1012,10 +1268,11 @@ const MergedSelectionFeedback = () => {
             <Paper elevation={3} sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {resolvedVideoURL ? (
                 <video
-                  key={trajectory.id}
+                  key={trajectoryId}
                   controls
                   style={{ width: '100%', borderRadius: 8 }}
                   src={resolvedVideoURL}
+                  ref={attachUserDemoVideoRef}
                 >
                   Your browser does not support the video tag.
                 </video>
@@ -1031,6 +1288,11 @@ const MergedSelectionFeedback = () => {
                 {trajectory.metadata?.source && (
                   <Typography variant="body2" color="text.secondary">
                     Source: {trajectory.metadata.source}
+                  </Typography>
+                )}
+                {pointIndex !== null && (
+                  <Typography variant="body2" color="text.secondary">
+                    Selected step: {pointIndex}
                   </Typography>
                 )}
               </Stack>
@@ -1051,7 +1313,6 @@ const MergedSelectionFeedback = () => {
       }
 
       case 'state': {
-        console.log("SELECT WHEN STATE", selectionData, allEpisodes);
         const stateData: any = (selectionData as any).data[0];
         let episode: Episode; let episodeIdx: number; let episodeLength: number;
         if (typeof stateData === 'number') { episodeIdx = stateData; episode = allEpisodes[episodeIdx]; episodeLength = getEpisodeLength(episodeIdx); }
@@ -1070,7 +1331,7 @@ const MergedSelectionFeedback = () => {
               minHeight: showCorrectionInterface && useWebRTCCorrection ? 'min(200px, 25vh)' : 'min(280px, 35vh)',
               mb: 2
             }}>
-              <Box sx={{ width: '100%' }}>{getVideoElement(episode, episodeIdx, false, true, true, selectedStep, episodeLength)}</Box>
+              <Box sx={{ width: '100%' }}>{getVideoElement(episode, episodeIdx, false, true, selectedStep, episodeLength)}</Box>
             </Box>
 
             {/* Timeline controls */}
@@ -1092,7 +1353,7 @@ const MergedSelectionFeedback = () => {
               <Box sx={{ mt: 1 }} ref={timelineContainerRef}>
                 <TimelineComponent
                   selectedEpisode={episodeIdx}
-                  selectedStep={deferredSelectedStep}
+                  selectedStep={selectedStep}
                   onClose={() => { /* inline usage: no-op */ }}
                   onStepSelect={showCorrectionInterface ? undefined : ((newStep) => {
                     const clamped = Math.max(0, Math.min(newStep, Math.max(0, episodeLength - 1)));
@@ -1116,7 +1377,7 @@ const MergedSelectionFeedback = () => {
                   showClose={false}
                 />
                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5, textAlign: 'center', color: 'text.secondary' }}>
-                  Step: {deferredSelectedStep} / {Math.max(0, episodeLength - 1)}
+                  Step: {selectedStep} / {Math.max(0, episodeLength - 1)}
                 </Typography>
               </Box>
             </Box>
@@ -1144,7 +1405,7 @@ const MergedSelectionFeedback = () => {
                     step={selectedStep}
                     isSubmitting={savingDemo}
                     onSubmit={async () => {
-                      await saveDemoAndIntegrate(`${appState.sessionId}_correction`, 'correction', {
+                      const trajectory = await saveDemoAndIntegrate(`${appState.sessionId}_correction`, 'correction', {
                         episode: episode.episode_num,
                         step: selectedStep,
                       });
@@ -1155,6 +1416,7 @@ const MergedSelectionFeedback = () => {
                         timestamp: Date.now(),
                         session_id: appState.sessionId,
                         correction: `Demo correction from episode ${episode.episode_num}, step ${selectedStep}`,
+                        correction_path: trajectory?.demoFile ?? null,
                       } as any;
                       submitFeedback(fb);
                     }}

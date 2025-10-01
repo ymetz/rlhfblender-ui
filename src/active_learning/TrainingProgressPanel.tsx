@@ -85,10 +85,14 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
   const formatTargetDescription = (target: any) => {
     if (!target) return 'No target specified';
 
+    if (typeof target === 'string') return target;
+
+    if (target.description) return target.description;
+
     if (target.episode !== undefined && target.step !== undefined) {
       return `Episode ${target.episode}, Step ${target.step}`;
     }
-
+    
     if (target.episodes && Array.isArray(target.episodes)) {
       return `Episodes ${target.episodes.join(' vs ')}`;
     }

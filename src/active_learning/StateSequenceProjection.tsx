@@ -555,6 +555,18 @@ const StateSequenceProjection = (props) => {
                 const grid_data = gridRes.data;
                 const grid_uncertainty_data = gridUncertaintyRes.data;
 
+                console.log("Loaded projection data:", grid_data.x_range, grid_data.y_range);
+                const xs = data.projection.map(p => p[0]);
+                const ys = data.projection.map(p => p[1]);
+
+                // get min/max
+                const minX = Math.min(...xs);
+                const maxX = Math.max(...xs);
+                const minY = Math.min(...ys);
+                const maxY = Math.max(...ys);
+
+                console.log({ minX, maxX, minY, maxY });
+
                 // Update state with projection data
                 activeLearningDispatch({ type: 'SET_EMBEDDING_DATA', payload: data.embedding });
 

@@ -28,6 +28,7 @@ enum FeedbackType {
   Comparative = "comparative",
   Corrective = "corrective",
   Demonstrative = "demonstrative",
+  ClusterRating = "clusterRating",
   FeatureSelection = "featureSelection",
   Text = "text",
   Meta = "meta",
