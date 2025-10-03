@@ -229,7 +229,19 @@ const MergedSelectionFeedback = () => {
   const resolveDemoPath = useCallback((path?: string | null) => {
     if (!path) return null;
     if (/^https?:\/\//.test(path)) return path;
-    return `/${path.replace(/^\/+/u, '')}`;
+
+    const sanitized = path.replace(/\\/g, '/');
+    let normalized = sanitized;
+    if (normalized.startsWith('./')) {
+      normalized = normalized.slice(2);
+    }
+    normalized = normalized.replace(/^\/+/u, '');
+
+    if (normalized.startsWith('data/')) {
+      return `/datafiles/${normalized.slice('data/'.length)}`;
+    }
+
+    return `/${normalized}`;
   }, []);
 
   // Initialize videoRefs based on selection length
