@@ -568,7 +568,7 @@ export const createActiveLearningOnboardingSteps = (): OnboardingStep[] => [
   {
     id: 'select-trajectory',
     title: 'Select Trajectories, Cluster or New Coordinate',
-    description: 'Click on different trajectories (colored lines) to see individual states. You can also click on clusters (numbered regions) to select multiple related states.',
+    description: 'Click on different trajectories (colored lines) to see individual states. You can also click on clusters (dashed outlines) to select multiple related states.',
     position: 'left',
     showOverlay: true,
   },

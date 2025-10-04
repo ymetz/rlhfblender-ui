@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from 'react';
-import { Box, Typography } from '@mui/material';
+import React, { useEffect, useRef, useState } from 'react';
+import { Box, Collapse, IconButton, Typography } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import * as vsup from 'vsup';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 interface ColorLegendProps {
     minMax: [number, number] | null;
@@ -86,61 +87,128 @@ export const ColorLegend: React.FC<ColorLegendProps> = ({ minMax, width, title }
     );
 };
 
-export const GlyphLegendComponent: React.FC = () => {
+export const Legend: React.FC = () => {
     const legendRef = useRef<HTMLDivElement | null>(null);
+    const [expanded, setExpanded] = useState(true);
 
     useEffect(() => {
-        if (!legendRef.current) return;
+        if (!legendRef.current || !expanded) {
+            if (legendRef.current) {
+                d3.select(legendRef.current).select('svg').remove();
+            }
+            return;
+        }
 
-        d3.select(legendRef.current).select('svg').remove();
+        const legendItems: Array<{ label: string; type: 'start' | 'end' | 'episode' | 'cluster' | 'selected' }> = [
+            { label: 'Start states', type: 'start' },
+            { label: 'End states', type: 'end' },
+            { label: 'Episode', type: 'episode' },
+            { label: 'Cluster', type: 'cluster' },
+            { label: 'Selected Episode', type: 'selected' },
+        ];
+
+        const itemSpacing = 28;
+        const verticalOffset = 16;
+        const svgWidth = 200;
+        const svgHeight = verticalOffset + legendItems.length * itemSpacing;
 
         const svg = d3.select(legendRef.current)
             .append('svg')
-            .attr('width', 160)
-            .attr('height', 80)
-            .append('g')
-            .attr('transform', 'translate(10, 10)');
+            .attr('width', svgWidth)
+            .attr('height', svgHeight)
+            .append('g');
 
-        const startGroup = svg.append('g')
-            .attr('transform', 'translate(15, 20)');
+        legendItems.forEach((item, index) => {
+            const group = svg.append('g')
+                .attr('transform', `translate(15, ${verticalOffset + index * itemSpacing})`);
 
-        startGroup.append('polygon')
-            .attr('points', '-7,-7 7,0 -7,7')
-            .attr('fill', '#4CAF50')
-            .attr('stroke', '#2E7D32')
-            .attr('stroke-width', 2);
+            switch (item.type) {
+                case 'start':
+                    group.append('polygon')
+                        .attr('points', '-7,-7 7,0 -7,7')
+                        .attr('fill', '#4CAF50')
+                        .attr('stroke', '#2E7D32')
+                        .attr('stroke-width', 2);
+                    break;
+                case 'end':
+                    group.append('rect')
+                        .attr('x', -6)
+                        .attr('y', -6)
+                        .attr('width', 12)
+                        .attr('height', 12)
+                        .attr('fill', '#F44336')
+                        .attr('stroke', '#C62828')
+                        .attr('stroke-width', 2);
+                    break;
+                case 'episode':
+                    group.append('line')
+                        .attr('x1', -12)
+                        .attr('y1', 0)
+                        .attr('x2', 12)
+                        .attr('y2', 0)
+                        .attr('stroke', '#4C78A8')
+                        .attr('stroke-width', 3)
+                        .attr('stroke-linecap', 'round');
+                    break;
+                case 'cluster':
+                    group.append('polygon')
+                        .attr('points', '-12,-8 2,-12 14,-4 8,10 -10,6')
+                        .attr('fill', 'rgba(51, 51, 51, 0.12)')
+                        .attr('stroke', '#333333')
+                        .attr('stroke-width', 2)
+                        .attr('stroke-dasharray', '6,4');
+                    break;
+                case 'selected':
+                    group.append('line')
+                        .attr('x1', -12)
+                        .attr('y1', 0)
+                        .attr('x2', 12)
+                        .attr('y2', 0)
+                        .attr('stroke', '#FF7043')
+                        .attr('stroke-width', 3)
+                        .attr('stroke-linecap', 'round');
 
-        startGroup.append('text')
-            .attr('x', 20)
-            .attr('y', 4)
-            .attr('font-size', '12px')
-            .attr('fill', '#333333')
-            .text('Start states');
+                    [-12, -6, 0, 6, 12].forEach((x) => {
+                        group.append('circle')
+                            .attr('cx', x)
+                            .attr('cy', 0)
+                            .attr('r', 3)
+                            .attr('fill', '#FF7043')
+                            .attr('stroke', '#ffffff')
+                            .attr('stroke-width', 1);
+                    });
+                    break;
+                default:
+                    break;
+            }
 
-        const endGroup = svg.append('g')
-            .attr('transform', 'translate(15, 45)');
-
-        endGroup.append('rect')
-            .attr('x', -6)
-            .attr('y', -6)
-            .attr('width', 12)
-            .attr('height', 12)
-            .attr('fill', '#F44336')
-            .attr('stroke', '#C62828')
-            .attr('stroke-width', 2);
-
-        endGroup.append('text')
-            .attr('x', 20)
-            .attr('y', 4)
-            .attr('font-size', '12px')
-            .attr('fill', '#333333')
-            .text('End states');
-    }, []);
+            group.append('text')
+                .attr('x', 32)
+                .attr('y', 3)
+                .attr('font-size', '12px')
+                .attr('fill', '#333333')
+                .text(item.label);
+        });
+    }, [expanded]);
 
     return (
         <Box>
-            <Typography variant="caption" fontWeight="bold">Marker Legend</Typography>
-            <div ref={legendRef} />
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="caption" fontWeight="bold">Legend</Typography>
+                <IconButton
+                    size="small"
+                    onClick={() => setExpanded(prev => !prev)}
+                    sx={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}
+                    aria-label={expanded ? 'Collapse legend' : 'Expand legend'}
+                >
+                    <ExpandMoreIcon fontSize="small" />
+                </IconButton>
+            </Box>
+            <Collapse in={expanded} collapsedSize={0}>
+                <Box sx={{ pt: 0.5 }}>
+                    <div ref={legendRef} />
+                </Box>
+            </Collapse>
         </Box>
     );
 };

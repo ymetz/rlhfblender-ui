@@ -163,6 +163,7 @@ const MergedSelectionFeedback = () => {
   const [selectedStep, setSelectedStep] = useState(0);
   const [showCorrectionInterface, setShowCorrectionInterface] = useState(false);
   const [videoProgress, setVideoProgress] = useState<Map<number, number>>(() => new Map());
+  const [userDemoVideoStatus, setUserDemoVideoStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
@@ -243,6 +244,32 @@ const MergedSelectionFeedback = () => {
 
     return `/${normalized}`;
   }, []);
+
+  const waitForVideoAvailability = useCallback(
+    async (videoPath?: string | null, timeoutMs = 8000, intervalMs = 500) => {
+      if (!videoPath) return false;
+      const resolvedPath = resolveDemoPath(videoPath);
+      if (!resolvedPath) return false;
+
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        try {
+          const response = await fetch(resolvedPath, {
+            method: 'HEAD',
+            cache: 'no-store',
+          });
+          if (response.ok) {
+            return true;
+          }
+        } catch (error) {
+          // Asset not ready yet; retry until timeout
+        }
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+      return false;
+    },
+    [resolveDemoPath]
+  );
 
   // Initialize videoRefs based on selection length
   useEffect(() => { videoRefs.current = Array(selection.length).fill(null); }, [selection.length]);
@@ -347,6 +374,29 @@ const MergedSelectionFeedback = () => {
       setSelectedStep(0);
     }
   }, [selectionData.type, currentStateData, currentStep, selection]);
+
+  useEffect(() => {
+    if (selectionData.type !== 'user_demo') {
+      setUserDemoVideoStatus('idle');
+      return;
+    }
+
+    const data = (selectionData as any).data || {};
+    const trajectory: UserDemoTrajectory | null = data?.trajectory ?? null;
+    const trajectoryId: string | undefined = trajectory?.id ?? data?.trajectoryId;
+    const rawVideoPath: string | undefined = data?.raw?.videoPath;
+    const resolved =
+      (trajectoryId ? videoURLs.get(trajectoryId) : undefined) ||
+      (trajectory?.videoPath ? resolveDemoPath(trajectory.videoPath) : null) ||
+      (rawVideoPath ? resolveDemoPath(rawVideoPath) : null);
+
+    if (!resolved) {
+      setUserDemoVideoStatus('idle');
+      return;
+    }
+
+    setUserDemoVideoStatus((prev) => (prev === 'idle' ? 'loading' : prev));
+  }, [selectionData, videoURLs, resolveDemoPath]);
 
   useEffect(() => {
     if (selectionData.type !== 'user_demo') return;
@@ -917,10 +967,22 @@ const MergedSelectionFeedback = () => {
           source,
         };
         activeLearningDispatch({ type: 'ADD_USER_GENERATED_TRAJECTORY', payload: trajectory });
-        activeLearningDispatch({
-          type: 'SET_SELECTION',
-          payload: [{ type: 'user_demo', data: { trajectoryId: trajectory.id } }],
-        });
+
+        void (async () => {
+          try {
+            const videoReady = await waitForVideoAvailability(trajectory.videoPath);
+            if (videoReady) {
+              activeLearningDispatch({
+                type: 'SET_SELECTION',
+                payload: [{ type: 'user_demo', data: { trajectoryId: trajectory.id } }],
+              });
+            } else {
+              console.warn('Demo video not ready yet; skipping immediate preview.');
+            }
+          } catch (checkError) {
+            console.warn('Unable to verify demo video availability before preview.', checkError);
+          }
+        })();
         return trajectory;
       }
 
@@ -932,7 +994,7 @@ const MergedSelectionFeedback = () => {
     } finally {
       setSavingDemo(false);
     }
-  }, [activeLearningDispatch, activeLearningState.embeddingMethod, activeLearningState.userGeneratedTrajectories.length, appState.selectedCheckpoint]);
+  }, [activeLearningDispatch, activeLearningState.embeddingMethod, activeLearningState.userGeneratedTrajectories.length, appState.selectedCheckpoint, waitForVideoAvailability]);
 
   const submitDemo = async (extraMetadata: Record<string, any> = {}) => {
     const trajectory = await saveDemoAndIntegrate(appState.sessionId, 'generated', extraMetadata);
@@ -1176,7 +1238,7 @@ const MergedSelectionFeedback = () => {
       case 'none':
         return 'No Selection';
       case 'state':
-        return 'Rate Episode';
+        return 'Rate Entire Episode';
       case 'multi_trajectory':
         return 'Select the Best Episode';
       case 'cluster':
@@ -1270,24 +1332,62 @@ const MergedSelectionFeedback = () => {
           );
         }
 
+        const rawVideoPath: string | undefined = data?.raw?.videoPath;
         const resolvedVideoURL =
           (trajectoryId ? videoURLs.get(trajectoryId) : undefined) ||
-          (trajectory.videoPath ? resolveDemoPath(trajectory.videoPath) : null);
+          (trajectory?.videoPath ? resolveDemoPath(trajectory.videoPath) : null) ||
+          (rawVideoPath ? resolveDemoPath(rawVideoPath) : null);
 
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Typography variant="h6">{title}</Typography>
             <Paper elevation={3} sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {resolvedVideoURL ? (
-                <video
-                  key={trajectoryId}
-                  controls
-                  style={{ width: '100%', borderRadius: 8 }}
-                  src={resolvedVideoURL}
-                  ref={attachUserDemoVideoRef}
-                >
-                  Your browser does not support the video tag.
-                </video>
+                <>
+                  <video
+                    key={trajectoryId}
+                    controls
+                    style={{ width: '100%', borderRadius: 8, display: userDemoVideoStatus === 'error' ? 'none' : 'block' }}
+                    src={resolvedVideoURL}
+                    ref={attachUserDemoVideoRef}
+                    onLoadStart={() => setUserDemoVideoStatus('loading')}
+                    onCanPlay={() => setUserDemoVideoStatus('ready')}
+                    onLoadedData={() => setUserDemoVideoStatus('ready')}
+                    onError={() => setUserDemoVideoStatus('error')}
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                  {userDemoVideoStatus === 'loading' && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
+                      <Stack spacing={1} alignItems="center">
+                        <CircularProgress size={24} />
+                        <Typography variant="body2" color="text.secondary">Preparing video preview…</Typography>
+                      </Stack>
+                    </Box>
+                  )}
+                  {userDemoVideoStatus === 'error' && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4, bgcolor: 'action.hover', borderRadius: 1 }}>
+                      <Stack spacing={1} alignItems="center">
+                        <Typography variant="body2" color="text.secondary" align="center">
+                          Video is still processing. Please try again shortly.
+                        </Typography>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => {
+                            setUserDemoVideoStatus('loading');
+                            const video = userDemoVideoRef.current;
+                            if (video) {
+                              try { video.load(); } catch { /* noop */ }
+                            }
+                          }}
+                        >
+                          Retry
+                        </Button>
+                      </Stack>
+                    </Box>
+                  )}
+                </>
               ) : (
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, bgcolor: 'action.hover' }}>
                   {loading ? <CircularProgress size={24} /> : 'No video available'}
@@ -1315,6 +1415,7 @@ const MergedSelectionFeedback = () => {
                   href={resolvedVideoURL}
                   target="_blank"
                   rel="noopener noreferrer"
+                  disabled={userDemoVideoStatus !== 'ready'}
                 >
                   Open Video in New Tab
                 </Button>

@@ -13,7 +13,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 //import RebaseEditIcon from '@mui/icons-material/RebaseEdit';
-import { styled, useTheme } from '@mui/material/styles';
+import { styled, useTheme, alpha } from '@mui/material/styles';
 import * as d3 from 'd3';
 import axios from 'axios';
 // import vsup
@@ -32,7 +32,7 @@ import {
 } from './utils/stateSequenceProjectionHelpers';
 import { getFallbackColor } from './utils/trajectoryColors';
 import { OnboardingHighlight } from './OnboardingSystem';
-import { ColorLegend, GlyphLegend, GlyphLegendComponent, ObjectLegend } from './components/ProjectionLegends';
+import { ColorLegend, GlyphLegend, Legend, ObjectLegend } from './components/ProjectionLegends';
 import { drawStateSpaceVisualization } from './utils/drawStateSpace';
 import { clearCanvasImageCache } from './utils/canvasCache';
 import { computeUserTrajectorySignature } from './utils/trajectorySignature';
@@ -886,10 +886,20 @@ const StateSequenceProjection = (props) => {
                         <Tooltip title="Clear Selection">
                             <IconButton
                                 color="default"
-                                sx={{
-                                    backgroundColor: 'rgba(185, 185, 185, 0.7)',
-                                    '&:hover': { backgroundColor: 'rgba(185, 185, 185, 0.9)' }
-                                }}
+                                sx={(theme) => ({
+                                    width: 52,
+                                    height: 52,
+                                    backgroundColor: alpha(theme.palette.grey[500], 0.4),
+                                    color: theme.palette.text.primary,
+                                    border: `1px solid ${alpha(theme.palette.grey[500], 0.5)}`,
+                                    boxShadow: `0 2px 8px ${alpha(theme.palette.grey[700], 0.2)}`,
+                                    transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
+                                    '&:hover': {
+                                        backgroundColor: alpha(theme.palette.grey[600], 0.55),
+                                        boxShadow: `0 3px 10px ${alpha(theme.palette.grey[700], 0.3)}`,
+                                    },
+                                    '& .MuiSvgIcon-root': { fontSize: 24 },
+                                })}
                                 onClick={() => {
                                     activeLearningDispatch({
                                         type: 'SET_SELECTION',
@@ -915,9 +925,27 @@ const StateSequenceProjection = (props) => {
                             <Tooltip title={multiSelectMode ? "Multi-Select Mode: ON" : "Multi-Select Mode: OFF"}>
                                 <IconButton
                                     color={multiSelectMode ? "primary" : "default"}
-                                    sx={{
-                                        backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.7)' : 'rgba(185, 185, 185, 0.7)',
-                                        '&:hover': { backgroundColor: multiSelectMode ? 'rgba(25, 118, 210, 0.9)' : 'rgba(185, 185, 185, 0.9)' }
+                                    sx={(theme) => {
+                                        const activeColor = theme.palette.primary.main;
+                                        return {
+                                            width: 52,
+                                            height: 52,
+                                            backgroundColor: multiSelectMode
+                                                ? alpha(activeColor, 0.95)
+                                                : alpha(theme.palette.primary.main, 0.15),
+                                            color: multiSelectMode ? theme.palette.common.white : theme.palette.primary.main,
+                                            border: `1px solid ${alpha(activeColor, multiSelectMode ? 0.6 : 0.35)}`,
+                                            boxShadow: multiSelectMode
+                                                ? `0 3px 10px ${alpha(activeColor, 0.35)}`
+                                                : `0 2px 8px ${alpha(theme.palette.grey[700], 0.25)}`,
+                                            transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
+                                            '&:hover': {
+                                                backgroundColor: multiSelectMode
+                                                    ? activeColor
+                                                    : alpha(theme.palette.primary.light, 0.3),
+                                            },
+                                            '& .MuiSvgIcon-root': { fontSize: 24 },
+                                        };
                                     }}
                                     onClick={() => {
                                         if (selectedTrajectory || selectedState) {
@@ -1127,7 +1155,7 @@ const StateSequenceProjection = (props) => {
 
                 {/* Glyph legend */}
                 <GlyphLegend>
-                    <GlyphLegendComponent />
+                    <Legend />
                 </GlyphLegend>
 
                 {/* Load Data Hint Overlay */}

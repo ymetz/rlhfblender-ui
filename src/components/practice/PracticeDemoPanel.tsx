@@ -10,7 +10,7 @@ import {
 } from '../../ActiveLearningContext';
 import WebRTCDemoComponent from '../../active_learning/WebRTCDemoComponent';
 import { computeTrajectoryColors, getFallbackColor } from '../../active_learning/utils/trajectoryColors';
-import { GlyphLegendComponent } from '../../active_learning/components/ProjectionLegends';
+import { Legend } from '../../active_learning/components/ProjectionLegends';
 
 const DEFAULT_CANVAS_SIZE = 360;
 const PRACTICE_EXPERIMENT_ID = "1"; // Special ID for practice mode
@@ -227,7 +227,7 @@ const PracticeDemoPanel: React.FC = () => {
             <canvas ref={canvasRef} />
           </Box>
           <Box>
-            <GlyphLegendComponent />
+            <Legend />
           </Box>
         </Paper>
 
