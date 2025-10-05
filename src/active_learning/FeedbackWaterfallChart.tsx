@@ -81,11 +81,16 @@ const FeedbackWaterfallChart: React.FC<FeedbackWaterfallChartProps> = ({
       .domain(['Rating', 'Comparison', 'Correction', 'Demo', 'Cluster'])
       .range(['#2196F3', '#4CAF50', '#FF9800', '#9C27B0', '#F44336']);
 
-    // Draw bars
+    // Draw bars and markers
     waterfallData.forEach((d, i) => {
-      let barHeight = Math.abs(yScale(0) - yScale(Math.abs(d.value)));
-      let barY = yScale(Math.max(0, d.cumulative));
+      const prevCumulative = i > 0 ? waterfallData[i - 1].cumulative : baselineUncertainty;
+
+      let barHeight = 0;
+      let barY = yScale(d.cumulative);
       let barColor = '#666';
+      let barStroke = '#fff';
+      let barStrokeWidth = 1;
+      let barDasharray: string | null = null;
       let isDecrease = false;
       let isIncrease = false;
 
@@ -94,49 +99,67 @@ const FeedbackWaterfallChart: React.FC<FeedbackWaterfallChartProps> = ({
         barY = yScale(d.cumulative);
         barColor = '#999';
       } else if (d.type === 'feedback') {
-        // Position bar based on previous cumulative value
-        const prevCumulative = i > 0 ? waterfallData[i - 1].cumulative : baselineUncertainty;
+        barHeight = Math.abs(yScale(prevCumulative) - yScale(d.cumulative));
         if (d.value > 0) {
-          // Increase in uncertainty (bad)
           barY = yScale(d.cumulative);
-          barColor = 'rgba(244, 67, 54, 0.7)'; // Low saturation red
+          barColor = 'rgba(244, 67, 54, 0.7)';
           isIncrease = true;
         } else {
-          // Decrease in uncertainty (good)
           barY = yScale(prevCumulative);
-          barColor = 'rgba(76, 175, 80, 0.7)'; // Low saturation green
+          barColor = 'rgba(76, 175, 80, 0.7)';
           isDecrease = true;
         }
       } else if (d.type === 'total') {
-        barHeight = Math.abs(yScale(0) - yScale(d.cumulative));
-        barY = yScale(d.cumulative);
-        barColor = d.cumulative > baselineUncertainty ? 'rgba(244, 67, 54, 0.8)' : 'rgba(76, 175, 80, 0.8)';
+        barStroke = 'rgba(120, 120, 120, 0.9)';
+        barStrokeWidth = 1.5;
+        barDasharray = '4,2';
       }
 
-      // Draw bar
       const barGroup = svg.append('g');
-      
-      barGroup.append('rect')
-        .attr('x', xScale(d.label)!)
-        .attr('y', barY)
-        .attr('width', xScale.bandwidth())
-        .attr('height', barHeight)
-        .attr('fill', barColor)
-        .attr('stroke', '#fff')
-        .attr('stroke-width', 1);
 
-      // Add feedback type indicator circle for feedback bars
-      if (d.type === 'feedback' && d.feedbackType) {
-        let circleY;
-        if (isDecrease) {
-          // For decreases: circle at the top (where the decrease starts)
-          circleY = barY - 3;
-        } else {
-          // For increases: circle at the bottom/baseline (where the increase starts)
-          circleY = barY + barHeight + 3;
+      if (d.type === 'total') {
+        const xBand = xScale(d.label)!;
+        const lineXStart = xBand + xScale.bandwidth() * 0.15;
+        const lineXEnd = xBand + xScale.bandwidth() * 0.85;
+        const lineY = yScale(d.cumulative);
+
+        barGroup.append('line')
+          .attr('x1', lineXStart)
+          .attr('x2', lineXEnd)
+          .attr('y1', lineY)
+          .attr('y2', lineY)
+          .attr('stroke', barStroke)
+          .attr('stroke-width', barStrokeWidth)
+          .attr('stroke-dasharray', barDasharray ?? null);
+
+        barGroup.append('circle')
+          .attr('cx', (lineXStart + lineXEnd) / 2)
+          .attr('cy', lineY)
+          .attr('r', 3)
+          .attr('fill', '#fff')
+          .attr('stroke', barStroke)
+          .attr('stroke-width', 1);
+      } else {
+        const rect = barGroup.append('rect')
+          .attr('x', xScale(d.label)!)
+          .attr('y', barY)
+          .attr('width', xScale.bandwidth())
+          .attr('height', barHeight)
+          .attr('fill', barColor)
+          .attr('stroke', barStroke)
+          .attr('stroke-width', barStrokeWidth);
+
+        if (barDasharray) {
+          rect.attr('stroke-dasharray', barDasharray);
         }
+      }
+
+      if (d.type === 'feedback' && d.feedbackType) {
+        const circleY = isDecrease
+          ? barY - 3
+          : barY + barHeight + 3;
         const circleColor = colorScale(d.feedbackType);
-        
+
         barGroup.append('circle')
           .attr('cx', xScale(d.label)! + xScale.bandwidth() / 2)
           .attr('cy', circleY)
@@ -146,20 +169,14 @@ const FeedbackWaterfallChart: React.FC<FeedbackWaterfallChartProps> = ({
           .attr('stroke-width', 1);
       }
 
-      // Add value labels - position based on increase/decrease
       let labelY;
       if (d.type === 'feedback') {
-        if (isIncrease) {
-          // Increases: label at top
-          labelY = barY - 8;
-        } else {
-          // Decreases: label at bottom
-          labelY = barY + barHeight + 12;
-        }
+        labelY = isIncrease ? barY - 8 : barY + barHeight + 12;
       } else {
-        // Baseline and total: label at top
         labelY = barY - 8;
       }
+
+      const labelValue = d.type === 'total' ? d.cumulative : d.value;
 
       svg.append('text')
         .attr('x', xScale(d.label)! + xScale.bandwidth() / 2)
@@ -168,7 +185,7 @@ const FeedbackWaterfallChart: React.FC<FeedbackWaterfallChartProps> = ({
         .attr('font-size', '10px')
         .attr('font-weight', 'bold')
         .attr('fill', '#333')
-        .text(d.value.toFixed(2));
+        .text(labelValue.toFixed(2));
     });
 
     // Draw connecting lines between bars
@@ -201,16 +218,6 @@ const FeedbackWaterfallChart: React.FC<FeedbackWaterfallChartProps> = ({
       .call(d3.axisLeft(yScale).ticks(5).tickFormat(d => (d as number).toFixed(2)))
       .selectAll('text')
       .attr('font-size', '8px');
-
-    // Add zero line
-    svg.append('line')
-      .attr('x1', 0)
-      .attr('x2', width)
-      .attr('y1', yScale(0))
-      .attr('y2', yScale(0))
-      .attr('stroke', '#000')
-      .attr('stroke-width', 1)
-      .attr('opacity', 0.3);
 
   }, [feedbackHistory, baselineUncertainty]);
 

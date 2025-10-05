@@ -32,15 +32,15 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
     uncertainty: 0,
     avgReward: 0
   });
-  
+
   const activeLearningState = useActiveLearningState();
   const appState = useAppState();
   const activeLearningDispatch = useActiveLearningDispatch();
   const appStateDispatch = useAppDispatch();
-  
+
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastDataTimestampRef = useRef<number | null>(null);
-  
+
   // Get onboarding hook (will only work when wrapped in OnboardingProvider)
   const { startOnboardingIfFirstTime, startActiveLearningTour, isOnboardingReady, triggerStepComplete } = useActiveLearningOnboarding();
 
@@ -74,7 +74,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
       // Check if training is complete
       if (resultsData.phaseStatus === 'completed' || statusData.status === 'completed') {
         setIsTraining(false);
-        
+
         // Stop polling
         if (pollingIntervalRef.current) {
           clearInterval(pollingIntervalRef.current);
@@ -105,10 +105,10 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           total: item.total,
           current: 0
         }));
-        
-        activeLearningDispatch({ 
-          type: 'SET_FEEDBACK_COUNTS', 
-          payload: updatedFeedbackCounts 
+
+        activeLearningDispatch({
+          type: 'SET_FEEDBACK_COUNTS',
+          payload: updatedFeedbackCounts
         });
 
         setPendingProgressSummary(true);
@@ -122,17 +122,17 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         else {
           // For DynamicRLHF, use the current phase as the checkpoint
           const nextCheckpoint = activeLearningState.currentPhase;
-          
+
           // Add the new checkpoint to the experiment's checkpoint list and update UI
           const updatedExperiment = {
             ...appState.selectedExperiment,
             checkpoint_list: [...(appState.selectedExperiment.checkpoint_list || []), nextCheckpoint.toString()]
           };
-          
+
           appStateDispatch({ type: 'SET_SELECTED_EXPERIMENT', payload: updatedExperiment });
           appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: Number(nextCheckpoint) });
         }
-        
+
         // Check if we've reached the maximum number of iterations
         const maxIterations = 5; // This should ideally come from the session data
         if (activeLearningState.currentPhase >= maxIterations) {
@@ -141,13 +141,13 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         } else {
           await stepSampler();
         }
-        
+
         setWaiting(false);
       }
 
     } catch (error) {
       console.error('Error polling training progress:', error);
-      
+
       // If there's an error, assume training failed
       setTrainingStatus(prev => ({
         ...prev,
@@ -170,7 +170,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
     }
-    
+
     setIsTraining(true);
     setProgressModalOpen(false);
     setPendingProgressSummary(false);
@@ -212,10 +212,10 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
   const handleContinue = async () => {
     setWaiting(true);
-    
+
     // Trigger onboarding step completion for next-phase
     triggerStepComplete('next-phase');
-    
+
     try {
       // First, submit any scheduled feedback that hasn't been submitted yet
       if (appState.scheduledFeedback.length > 0) {
@@ -230,16 +230,16 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             meta_action: "submit",
             targets: [],
           };
-          
+
           // Include submit feedback in the payload
           const feedbackToSubmit = [...appState.scheduledFeedback, submitFeedback];
-          
+
           // Submit all feedback to server
           await axios.post("/data/give_feedback", feedbackToSubmit);
-          
+
           // Clear scheduled feedback
           appStateDispatch({ type: "CLEAR_SCHEDULED_FEEDBACK" });
-          
+
         } catch (error) {
           console.error("Error submitting scheduled feedback:", error);
         }
@@ -257,11 +257,11 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
       // Phase 0 = initial data collection (called from dynamic-rlhf-modal)
       // Phase 1+ = training iterations with feedback
       const phaseToCall = activeLearningState.currentPhase === 0 ? 1 : activeLearningState.currentPhase + 1;
-      
+
       // Update the current phase before training
-      activeLearningDispatch({ 
-        type: 'SET_CURRENT_PHASE', 
-        payload: phaseToCall 
+      activeLearningDispatch({
+        type: 'SET_CURRENT_PHASE',
+        payload: phaseToCall
       });
 
       // Then, train the current iteration
@@ -282,7 +282,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
         // Start polling for progress updates
         startPolling(phaseToCall);
-        
+
         // Note: Progress updates and UI state changes will be handled by the polling function
         // when training completes
       } else {
@@ -297,7 +297,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
       stopPolling();
     }
     // Note: setWaiting(false) is now handled by the polling function when training completes
-};
+  };
 
   const handleProgressModalOpen = useCallback(() => {
     setProgressModalOpen(true);
@@ -486,13 +486,24 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         maxWidth="xl"
         PaperProps={{
           sx: {
-            minHeight: '75vh',
-            maxHeight: '85vh',
+            // give the dialog a fixed, bounded height
+            height: '85vh',
+            display: 'flex',
+            flexDirection: 'column',
             overflow: 'hidden',
           },
         }}
       >
-        <DialogContent sx={{ p: 3 }}>
+        <DialogContent
+          sx={{
+            p: 3,
+            // let content fill the paper and allow inner scrolling
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            overflow: 'hidden',
+          }}
+        >
           <TrainingProgressPanel
             onClose={handleProgressModalClose}
             trainingSummary={{

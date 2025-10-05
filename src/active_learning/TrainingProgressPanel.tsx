@@ -42,6 +42,9 @@ const DEFAULT_UNCERTAINTY_EFFECT: Record<string, number> = {
   Cluster: -0.05,
 };
 
+const MIN_SYNTHETIC_UNCERTAINTY = 0;
+const MAX_SYNTHETIC_UNCERTAINTY = 0.98;
+
 const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, trainingSummary }) => {
   const activeLearningState = useActiveLearningState();
 
@@ -54,15 +57,67 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
   const feedbackHistory = useMemo(() => {
     const history = activeLearningState.feedbackHistory;
     if (!history || history.length === 0) return [] as FeedbackHistoryEntry[];
-    return history.map((entry, index) => ({
-      ...entry,
-      id: entry.id || `feedback_${index}`,
-      uncertaintyEffect:
-        typeof entry.uncertaintyEffect === 'number'
-          ? entry.uncertaintyEffect
-          : DEFAULT_UNCERTAINTY_EFFECT[entry.type] ?? -0.03,
-    }));
-  }, [activeLearningState.feedbackHistory]);
+
+    let runningUncertainty = Math.max(baselineUncertainty, MIN_SYNTHETIC_UNCERTAINTY);
+    return history.map((entry, index) => {
+      const hasExplicitEffect =
+        typeof entry.uncertaintyEffect === 'number' && !Number.isNaN(entry.uncertaintyEffect);
+
+      const totalEntries = history.length;
+
+      let effect = hasExplicitEffect
+        ? entry.uncertaintyEffect
+        : DEFAULT_UNCERTAINTY_EFFECT[entry.type] ?? -0.03;
+
+      if (!hasExplicitEffect) {
+        const baseMagnitude = Math.max(Math.abs(effect), 0.015);
+        const remainingSlots = Math.max(1, totalEntries - index);
+        const decay = Math.max(0.12, Math.pow(0.82, index));
+        const scale = Math.min(1.5, baseMagnitude / 0.05);
+
+        const remainingDown = Math.max(0, runningUncertainty - MIN_SYNTHETIC_UNCERTAINTY);
+        const remainingUp = Math.max(0, MAX_SYNTHETIC_UNCERTAINTY - runningUncertainty);
+
+        if (effect <= 0) {
+          if (remainingSlots === 1) {
+            effect = -remainingDown;
+          } else if (remainingDown > 0) {
+            const rate = Math.min(0.65, Math.max(0.1, 0.35 * scale * decay));
+            const plannedDrop = remainingDown * rate;
+            effect = -Math.min(remainingDown, plannedDrop);
+          } else {
+            effect = 0;
+          }
+        } else {
+          if (remainingUp > 0) {
+            const rate = Math.min(0.25, Math.max(0.05, 0.18 * scale * decay));
+            const plannedIncrease = remainingUp * rate;
+            effect = Math.min(remainingUp, plannedIncrease);
+          } else {
+            effect = 0;
+          }
+        }
+      }
+
+      const projected = runningUncertainty + effect;
+      if (projected < MIN_SYNTHETIC_UNCERTAINTY) {
+        effect = MIN_SYNTHETIC_UNCERTAINTY - runningUncertainty;
+      } else if (projected > MAX_SYNTHETIC_UNCERTAINTY) {
+        effect = MAX_SYNTHETIC_UNCERTAINTY - runningUncertainty;
+      }
+
+      runningUncertainty = Math.min(
+        Math.max(runningUncertainty + effect, MIN_SYNTHETIC_UNCERTAINTY),
+        MAX_SYNTHETIC_UNCERTAINTY,
+      );
+
+      return {
+        ...entry,
+        id: entry.id || `feedback_${index}`,
+        uncertaintyEffect: effect,
+      };
+    });
+  }, [activeLearningState.feedbackHistory, baselineUncertainty]);
 
   const getFeedbackTypeColor = (type: string) => {
     const colorMap: { [key: string]: string } = {
@@ -92,7 +147,7 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
     if (target.episode !== undefined && target.step !== undefined) {
       return `Episode ${target.episode}, Step ${target.step}`;
     }
-    
+
     if (target.episodes && Array.isArray(target.episodes)) {
       return `Episodes ${target.episodes.join(' vs ')}`;
     }
@@ -213,8 +268,8 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
   };
 
   return (
-    <>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexShrink: 0 }}>
         <Box>
           <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
             Training Progress Dashboard
@@ -237,10 +292,13 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
             md: 'repeat(2, minmax(0, 1fr))',
             xl: 'repeat(3, minmax(0, 1fr))',
           },
-          height: '100%',
+          flex: 1,
+          minHeight: 0,        // important
+          gridAutoRows: 'minmax(0, 1fr)',
+          overflow: 'hidden',
         }}
       >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0, height: '100%' }}>
           <Box sx={{ flex: 1, minHeight: 220 }}>
             <TrainingProgressSummary
               isTraining={trainingSummary.isTraining}
@@ -288,7 +346,7 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
           </Paper>
         </Box>
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0, height: '100%' }}>
           <Paper
             elevation={2}
             sx={{
@@ -359,46 +417,45 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
           </Paper>
         </Box>
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 0, height: '100%' }}>
           <Paper
             elevation={2}
             sx={{
               p: 1,
               flex: 1,
-              minHeight: 320,
+              minHeight: 0,         // allow shrinking inside the grid cell
               display: 'flex',
               flexDirection: 'column',
+              overflow: 'hidden',   // keep scroll on the inner box only
+              minWidth: 0,
             }}
           >
-            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, flexShrink: 0 }}>
               Feedback History
             </Typography>
+
             <Box
               sx={{
                 flex: 1,
-                overflow: 'auto',
-                '&::-webkit-scrollbar': {
-                  width: '6px',
-                },
-                '&::-webkit-scrollbar-track': {
-                  backgroundColor: '#f1f1f1',
-                  borderRadius: '3px',
-                },
+                minHeight: 0,        // THIS makes the child scrollable
+                overflowY: 'auto',
+                pr: 0.5,
+                '&::-webkit-scrollbar': { width: '6px' },
+                '&::-webkit-scrollbar-track': { backgroundColor: '#f1f1f1', borderRadius: '3px' },
                 '&::-webkit-scrollbar-thumb': {
                   backgroundColor: '#c1c1c1',
                   borderRadius: '3px',
-                  '&:hover': {
-                    backgroundColor: '#a8a8a8',
-                  },
+                  '&:hover': { backgroundColor: '#a8a8a8' },
                 },
               }}
             >
               {renderFeedbackHistoryByPhase(feedbackHistory)}
             </Box>
           </Paper>
+
         </Box>
       </Box>
-    </>
+    </Box>
   );
 };
 

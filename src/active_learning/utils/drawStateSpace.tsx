@@ -701,6 +701,21 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         });
         
 
+        // Styling helpers for cluster hulls so rated clusters can be visually muted
+        const clusterHullStyles = {
+            defaultStroke: '#333333',
+            defaultWidth: 2,
+            defaultOpacity: 0.75,
+            selectedWidth: 4,
+            selectedOpacity: 0.95,
+            feedbackStroke: '#d3d3d3',
+            feedbackWidth: 2.6,
+            feedbackOpacity: 0.55,
+        } as const;
+
+        const buildClusterSignature = (indices: number[]) =>
+            JSON.stringify(Array.from(new Set(indices)).sort((a, b) => a - b).slice(0, 200));
+
         // Render top K merged segments by uncertainty 
         const maxSegments = maxUncertaintySegments;
         if (segments.length > 0 && predicted_uncertainties.length > 0) {
@@ -803,7 +818,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     .attr('id', `uncertainty-segment-${mergedSegment.id}`);
                 // Precompute a stable signature based on member indices for highlight matching
                 const segmentIndices = topMergedSegments[index].globalIndices || [];
-                const segmentSignature = JSON.stringify(Array.from(new Set(segmentIndices)).sort((a,b) => a - b).slice(0, 200));
+                const segmentSignature = buildClusterSignature(segmentIndices);
                 segmentElement.attr('data-cluster-sig', segmentSignature);
                 
                 // Add invisible clickable area first
@@ -836,14 +851,14 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                         
                         // Reset all segment strokes
                         segmentGroup.selectAll('.uncertainty-segment-hull')
-                            .attr('stroke', '#333333')
-                            .attr('opacity', 0.7)
-                            .attr('stroke-width', 2);
+                            .attr('stroke', clusterHullStyles.defaultStroke)
+                            .attr('opacity', clusterHullStyles.defaultOpacity)
+                            .attr('stroke-width', clusterHullStyles.defaultWidth);
                         
                         // Highlight this segment's visible hull
                         d3.select(this.parentNode).select('.uncertainty-segment-hull')
-                            .attr('stroke-width', 3.5)
-                            .attr('opacity', 0.9);
+                            .attr('stroke-width', clusterHullStyles.selectedWidth)
+                            .attr('opacity', clusterHullStyles.selectedOpacity);
                         
                         // Get all indices belonging to this merged segment (precomputed)
                         const segmentIndices = topMergedSegments[index].globalIndices || [];
@@ -880,18 +895,18 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     .attr('stroke', (function() {
                         const hl = feedbackHighlightsRef.current;
                         const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
-                        return isHighlighted ? '#b1b1b1ff' : '#333333';
+                        return isHighlighted ? clusterHullStyles.feedbackStroke : clusterHullStyles.defaultStroke;
                     })())
                     .attr('stroke-width', (function() {
                         const hl = feedbackHighlightsRef.current;
                         const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
-                        return isHighlighted ? 1.8 : 2;
+                        return isHighlighted ? clusterHullStyles.feedbackWidth : clusterHullStyles.defaultWidth;
                     })())
                     .attr('stroke-dasharray', '10,5') // Dashed line
                     .attr('opacity', (function() {
                         const hl = feedbackHighlightsRef.current;
                         const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
-                        return isHighlighted ? 0.7 : 0.8;
+                        return isHighlighted ? clusterHullStyles.feedbackOpacity : clusterHullStyles.defaultOpacity;
                     })())
                     .style('pointer-events', 'none'); // Don't interfere with clicking
                 
@@ -1360,19 +1375,35 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                         const sig = seg.attr('data-cluster-sig');
                         const highlighted = !!sig && hl.clustersSignatures!.has(sig);
                         seg.select('.uncertainty-segment-hull')
-                            .attr('stroke', highlighted ? '#b1b1b1ff' : '#333333')
-                            .attr('stroke-width', highlighted ? 2.5 : 2)
-                            .attr('opacity', highlighted ? 0.8 : 0.7);
+                            .attr('stroke', highlighted ? clusterHullStyles.feedbackStroke : clusterHullStyles.defaultStroke)
+                            .attr('stroke-width', highlighted ? clusterHullStyles.feedbackWidth : clusterHullStyles.defaultWidth)
+                            .attr('opacity', highlighted ? clusterHullStyles.feedbackOpacity : clusterHullStyles.defaultOpacity);
                     });
                 } else {
                     // reset to default
                     view.selectAll('.uncertainty-segment-hull')
-                        .attr('stroke', '#333333')
-                        .attr('stroke-width', 2)
-                        .attr('opacity', 0.7);
+                        .attr('stroke', clusterHullStyles.defaultStroke)
+                        .attr('stroke-width', clusterHullStyles.defaultWidth)
+                        .attr('opacity', clusterHullStyles.defaultOpacity);
                 }
             } catch (e) {
                 // noop
+            }
+
+            const selectedCluster = selectedClusterRef.current;
+            if (selectedCluster?.indices?.length) {
+                const selectedSignature = buildClusterSignature(selectedCluster.indices);
+                const highlightSet = feedbackHighlightsRef.current?.clustersSignatures;
+                view.selectAll('.uncertainty-segment').each(function() {
+                    const seg = d3.select(this);
+                    if (seg.attr('data-cluster-sig') === selectedSignature) {
+                        const isRated = !!highlightSet && highlightSet.has(selectedSignature);
+                        const baseWidth = isRated ? clusterHullStyles.feedbackWidth : clusterHullStyles.defaultWidth;
+                        seg.select('.uncertainty-segment-hull')
+                            .attr('stroke-width', Math.max(clusterHullStyles.selectedWidth, baseWidth))
+                            .attr('opacity', isRated ? clusterHullStyles.feedbackOpacity : clusterHullStyles.selectedOpacity);
+                    }
+                });
             }
         }
         

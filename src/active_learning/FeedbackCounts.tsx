@@ -117,12 +117,21 @@ const BarChart = ({
 
   // Find max value for y-axis (use original total)
   const maxValue = Math.max(0, ...data.map(d => d.total)); // Ensure maxValue is >= 0
+  const yDomainMax = maxValue === 0 ? 5 : Math.max(1, Math.ceil(maxValue * 1.1));
 
   const yScale = scaleLinear<number>({
-    domain: [0, maxValue === 0 ? 10 : maxValue * 1.1], // Handle case where max is 0, provide small default max
+    domain: [0, yDomainMax],
     range: [yMax, 0],
-    nice: true,
   });
+
+  const tickStep = Math.max(1, Math.ceil(yDomainMax / 5));
+  const tickValues: number[] = [];
+  for (let tick = 0; tick <= yDomainMax; tick += tickStep) {
+    tickValues.push(tick);
+  }
+  if (tickValues[tickValues.length - 1] !== yDomainMax) {
+    tickValues.push(yDomainMax);
+  }
 
   // Tooltip handler - fixed to properly display tooltip
   const handleTooltip = (event: React.TouchEvent<SVGRectElement> | React.MouseEvent<SVGRectElement>) => {
@@ -187,7 +196,7 @@ const BarChart = ({
             height={yMax}
             stroke="#e0e0e0"
             strokeOpacity={0.6}
-            numTicksRows={5}
+            numTicksRows={Math.max(1, tickValues.length - 1)}
           />
 
           {/* Bar stack with darker colors for the rest/base and lighter for current on top */}
@@ -243,7 +252,8 @@ const BarChart = ({
           {/* Y-axis - with sans-serif font */}
           <AxisLeft
             scale={yScale}
-            numTicks={5}
+            tickValues={tickValues}
+            tickFormat={(value) => `${Math.round(value as number)}`}
             tickLabelProps={() => ({
               fill: '#333',
               fontSize: 10,
