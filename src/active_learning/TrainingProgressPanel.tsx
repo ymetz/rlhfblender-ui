@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
 import {
   Box,
   Paper,
@@ -18,6 +19,7 @@ import GridUncertaintyMap from './GridMap';
 import FeedbackWaterfallChart from './FeedbackWaterfallChart';
 import TrainingProgressSummary from './TrainingProgressBox';
 import { useActiveLearningState, FeedbackHistoryEntry } from '../ActiveLearningContext';
+import { useAppState } from '../AppStateContext';
 
 type TrainingSummaryProps = {
   isTraining: boolean;
@@ -34,6 +36,93 @@ interface TrainingProgressPanelProps {
   trainingSummary: TrainingSummaryProps;
 }
 
+type TrajectoryEpisode = {
+  episode: number;
+  points: number[][];
+};
+
+type TrajectoryBundle = {
+  episodes: TrajectoryEpisode[];
+  episode_count: number;
+  point_count: number;
+} | null;
+
+type DifferenceStatsPayload = {
+  grid: {
+    min: number;
+    max: number;
+    mean: number;
+    median: number;
+    std: number;
+    fraction_decrease: number;
+  };
+  current_mean_uncertainty: number;
+  previous_mean_uncertainty: number;
+};
+
+type UncertaintyDifferencePayload = {
+  current_checkpoint: number;
+  previous_checkpoint: number;
+  difference_image: string | null;
+  projection_bounds?: {
+    x_min: number;
+    x_max: number;
+    y_min: number;
+    y_max: number;
+  };
+  difference_range?: {
+    min: number;
+    max: number;
+  };
+  difference_stats: DifferenceStatsPayload;
+  grid: {
+    coordinates: number[][];
+    difference: number[];
+    current_uncertainty: number[];
+    previous_uncertainty: number[];
+  };
+  trajectories: {
+    current: TrajectoryBundle;
+    previous: TrajectoryBundle;
+  };
+};
+
+const trimTrajectoryEpisode = (trajectory: TrajectoryEpisode | null): TrajectoryEpisode | null => {
+  if (!trajectory) return null;
+  const points = Array.isArray(trajectory.points) ? trajectory.points : [];
+  const trimmedPoints = points.length > 1 ? points.slice(0, -1) : points;
+  return trimmedPoints.length > 0 ? { ...trajectory, points: trimmedPoints } : null;
+};
+
+const buildTrajectoriesFromProjections = (
+  points: number[][],
+  episodeIndices: number[],
+): TrajectoryEpisode[] => {
+  if (!points || !episodeIndices || points.length === 0 || episodeIndices.length === 0) {
+    return [];
+  }
+
+  const limit = Math.min(points.length, episodeIndices.length);
+  const episodeMap = new Map<number, number[][]>();
+
+  for (let i = 0; i < limit; i += 1) {
+    const point = points[i];
+    const episode = episodeIndices[i];
+
+    if (!Array.isArray(point) || point.length < 2) continue;
+    if (typeof episode !== 'number' || Number.isNaN(episode)) continue;
+
+    const list = episodeMap.get(episode) || [];
+    list.push([Number(point[0]), Number(point[1])]);
+    episodeMap.set(episode, list);
+  }
+
+  return Array.from(episodeMap.entries())
+    .map(([episode, pts]) => trimTrajectoryEpisode({ episode, points: pts }))
+    .filter((item): item is TrajectoryEpisode => item !== null)
+    .sort((a, b) => a.episode - b.episode);
+};
+
 const DEFAULT_UNCERTAINTY_EFFECT: Record<string, number> = {
   Rating: -0.02,
   Comparison: -0.08,
@@ -47,6 +136,118 @@ const MAX_SYNTHETIC_UNCERTAINTY = 0.98;
 
 const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, trainingSummary }) => {
   const activeLearningState = useActiveLearningState();
+  const appState = useAppState();
+
+  const [uncertaintyDifference, setUncertaintyDifference] = useState<UncertaintyDifferencePayload | null>(null);
+  const [isDifferenceLoading, setIsDifferenceLoading] = useState(false);
+  const [differenceError, setDifferenceError] = useState<string | null>(null);
+
+  const benchmarkId = appState.selectedExperiment?.id ?? null;
+
+  const checkpointInfo = useMemo(() => {
+    const rawList = appState.selectedExperiment?.checkpoint_list ?? [];
+    const numericCheckpoints = rawList
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+
+    if (numericCheckpoints.length === 0) {
+      return { current: null as number | null, previous: null as number | null };
+    }
+
+    const uniqueSorted = Array.from(new Set(numericCheckpoints)).sort((a, b) => a - b);
+    const selected = Number(appState.selectedCheckpoint);
+
+    if (Number.isFinite(selected) && uniqueSorted.includes(selected)) {
+      const selectedIndex = uniqueSorted.indexOf(selected);
+      return {
+        current: selected,
+        previous: selectedIndex > 0 ? uniqueSorted[selectedIndex - 1] : null,
+      };
+    }
+
+    const last = uniqueSorted[uniqueSorted.length - 1];
+    const prev = uniqueSorted.length > 1 ? uniqueSorted[uniqueSorted.length - 2] : null;
+    return { current: last, previous: prev };
+  }, [appState.selectedCheckpoint, appState.selectedExperiment?.checkpoint_list]);
+
+  const currentCheckpoint = checkpointInfo.current;
+  const previousCheckpoint = checkpointInfo.previous;
+  useEffect(() => {
+    if (!benchmarkId || currentCheckpoint === null) {
+      setUncertaintyDifference(null);
+      setDifferenceError(null);
+      setIsDifferenceLoading(false);
+      return;
+    }
+
+    if (previousCheckpoint === null) {
+      setUncertaintyDifference(null);
+      setDifferenceError('At least two checkpoints are required to visualise uncertainty changes.');
+      setIsDifferenceLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+
+    setIsDifferenceLoading(true);
+    setDifferenceError(null);
+
+    const requestPayload = {
+      benchmark_id: benchmarkId,
+      current_checkpoint_step: currentCheckpoint,
+      previous_checkpoint_step: previousCheckpoint,
+      projection_method: activeLearningState.embeddingMethod || 'PCA',
+    };
+
+    axios
+      .post<UncertaintyDifferencePayload>('/projection/load_uncertainty_difference', requestPayload)
+      .then((response) => {
+        if (isCancelled) return;
+        setUncertaintyDifference(response.data);
+      })
+      .catch((error) => {
+        if (isCancelled) return;
+        console.error('Failed to load uncertainty difference data', error);
+        const detail = error?.response?.data?.detail;
+        setDifferenceError(typeof detail === 'string' ? detail : 'Failed to load uncertainty difference data.');
+        setUncertaintyDifference(null);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsDifferenceLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [benchmarkId, currentCheckpoint, previousCheckpoint, activeLearningState.embeddingMethod]);
+
+  const previousTrajectories = useMemo<TrajectoryEpisode[]>(() => {
+    if (uncertaintyDifference?.trajectories?.previous?.episodes?.length) {
+      return uncertaintyDifference.trajectories.previous.episodes
+        .map((trajectory) => trimTrajectoryEpisode(trajectory))
+        .filter((item): item is TrajectoryEpisode => item !== null);
+    }
+    return [];
+  }, [uncertaintyDifference]);
+
+  const currentTrajectories = useMemo<TrajectoryEpisode[]>(() => {
+    if (uncertaintyDifference?.trajectories?.current?.episodes?.length) {
+      return uncertaintyDifference.trajectories.current.episodes
+        .map((trajectory) => trimTrajectoryEpisode(trajectory))
+        .filter((item): item is TrajectoryEpisode => item !== null);
+    }
+    const trajectories = buildTrajectoriesFromProjections(
+      activeLearningState.projectionStates || [],
+      activeLearningState.episodeIndices || [],
+    );
+    return trajectories;
+  }, [uncertaintyDifference, activeLearningState.projectionStates, activeLearningState.episodeIndices]);
+
+  const gridDifferenceData = uncertaintyDifference?.grid;
+  const differenceRange = uncertaintyDifference?.difference_range;
+  const differenceStats = uncertaintyDifference?.difference_stats;
 
   const baselineUncertainty = activeLearningState.progressUncertainties.length > 0
     ? activeLearningState.progressUncertainties[activeLearningState.progressUncertainties.length - 1]
@@ -405,13 +606,19 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
           >
             <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
               <GridUncertaintyMap
-                gridPredictionImage={activeLearningState.grid_prediction_image}
-                gridUncertaintyImage={activeLearningState.grid_uncertainty_image}
-                datapointCoordinates={activeLearningState.projectionStates || []}
-                gridCoordinates={undefined}
-                gridUncertainties={undefined}
-                imageOpacity={0.5}
-                title="Uncertainty Decrease Map"
+                differenceImage={uncertaintyDifference?.difference_image ?? null}
+                differenceRange={differenceRange}
+                differenceStats={differenceStats}
+                gridCoordinates={gridDifferenceData?.coordinates ?? []}
+                gridDifferences={gridDifferenceData?.difference ?? []}
+                gridCurrentValues={gridDifferenceData?.current_uncertainty ?? []}
+                gridPreviousValues={gridDifferenceData?.previous_uncertainty ?? []}
+                projectionBounds={uncertaintyDifference?.projection_bounds}
+                currentTrajectories={currentTrajectories}
+                previousTrajectories={previousTrajectories}
+                loading={isDifferenceLoading}
+                error={differenceError}
+                title="Uncertainty Change Map"
               />
             </Box>
           </Paper>
