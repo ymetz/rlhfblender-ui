@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Box, Paper, Button, CircularProgress, IconButton, Typography, Tooltip, Dialog, DialogContent } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, IconButton, Typography, Tooltip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
 import { ChevronRight, AirplaneTicket } from '@mui/icons-material';
 import axios from 'axios';
 // Import components
@@ -24,6 +24,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   const [isTraining, setIsTraining] = React.useState(false);
   const [progressModalOpen, setProgressModalOpen] = useState(false);
   const [pendingProgressSummary, setPendingProgressSummary] = useState(false);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [trainingStatus, setTrainingStatus] = React.useState({
     phaseStatus: '',
     message: '',
@@ -210,7 +211,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
     }
   }, [activeLearningState.lastDataUpdateTimestamp, pendingProgressSummary]);
 
-  const handleContinue = async () => {
+  const handleContinueConfirmed = async () => {
     setWaiting(true);
 
     // Trigger onboarding step completion for next-phase
@@ -307,6 +308,19 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   const handleProgressModalClose = useCallback(() => {
     setProgressModalOpen(false);
   }, []);
+
+  const handleNextPhaseClick = useCallback(() => {
+    setConfirmDialogOpen(true);
+  }, []);
+
+  const handleConfirmDialogClose = useCallback(() => {
+    setConfirmDialogOpen(false);
+  }, []);
+
+  const handleConfirmDialogProceed = () => {
+    setConfirmDialogOpen(false);
+    void handleContinueConfirmed();
+  };
 
 
   return (
@@ -466,7 +480,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
               <Button
                 variant="contained"
                 color="primary"
-                onClick={handleContinue}
+                onClick={handleNextPhaseClick}
               >
                 {(() => {
                   const checkpoints = appState.selectedExperiment.checkpoint_list || [];
@@ -479,6 +493,26 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           </Paper>
         </Box>
       </Box>
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={handleConfirmDialogClose}
+        aria-labelledby="next-phase-confirmation-title"
+      >
+        <DialogTitle id="next-phase-confirmation-title">Confirm Next Phase</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to go to the next phase?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleConfirmDialogClose} variant="outlined">
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmDialogProceed} variant="contained" color="primary">
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={progressModalOpen}
         onClose={handleProgressModalClose}
