@@ -29,7 +29,7 @@ export const useActiveLearningOnboarding = () => {
 
   const startOnboardingIfFirstTime = useCallback(() => {
     // Check if user has seen onboarding before and if conditions are met
-    const hasSeenOnboarding = false; //localStorage.getItem('activelearning-onboarding-completed');
+    const hasSeenOnboarding = localStorage.getItem('activelearning-onboarding-completed');
     
     // Don't start if onboarding is already active
     if (!hasSeenOnboarding && isOnboardingReady() && !onboarding.isActive) {
