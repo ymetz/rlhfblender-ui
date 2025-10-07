@@ -729,7 +729,7 @@ const StateSequenceProjection = (props) => {
                 };
                 lastUserTrajectorySignatureRef.current = computeUserTrajectorySignature(
                     activeLearningState.userGeneratedTrajectories || []
-                );
+                ) + `|phase:${activeLearningState.currentPhase}`;
 
                 setIsLoading(false);
             })
@@ -800,12 +800,14 @@ const StateSequenceProjection = (props) => {
             maxUncertaintySegments,
             userGeneratedTrajectories: activeLearningState.userGeneratedTrajectories || [],
             gridPredictionImage: activeLearningState.grid_prediction_image || null,
+            currentPhase: activeLearningState.currentPhase,
         });
     }, [
         props,
         activeLearningDispatch,
         activeLearningState.grid_prediction_image,
         activeLearningState.userGeneratedTrajectories,
+        activeLearningState.currentPhase,
         handleUserTrajectorySelection,
         maxUncertaintySegments,
     ]);
@@ -817,7 +819,7 @@ const StateSequenceProjection = (props) => {
 
         const signature = computeUserTrajectorySignature(
             activeLearningState.userGeneratedTrajectories || []
-        );
+        ) + `|phase:${activeLearningState.currentPhase}`;
 
         if (signature === lastUserTrajectorySignatureRef.current) {
             return;

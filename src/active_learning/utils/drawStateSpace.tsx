@@ -47,6 +47,7 @@ export interface DrawStateSpaceArgs {
     maxUncertaintySegments: number;
     userGeneratedTrajectories: UserDemoTrajectory[];
     gridPredictionImage: string | null;
+    currentPhase: number;
 }
 
 
@@ -103,6 +104,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         maxUncertaintySegments,
         userGeneratedTrajectories,
         gridPredictionImage,
+        currentPhase = 0,
     } = args;
 
 
@@ -124,7 +126,9 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         }
 
         let processedData = data.map((k, i) => [...k, episodeIndices[i] || 0]);
-        const userTrajectories = userGeneratedTrajectories || [];
+        const userTrajectories = (userGeneratedTrajectories || []).filter(
+            (trajectory) => trajectory.phase === currentPhase
+        );
 
         // Create quad tree for fast point lookup
         const quadTree = d3.quadtree(

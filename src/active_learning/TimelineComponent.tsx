@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useState, useEffect } from "react";
 import { Box, Typography, IconButton } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { Line, Bar, LinePath, AreaClosed } from "@visx/shape";
@@ -17,8 +17,11 @@ import { getEpisodeColor } from "./utils/trajectoryColors";
 type TimelineComponentProps = {
   selectedEpisode: number;
   selectedStep: number | null;
+  stepForCorrection?: number | null;
   onClose: () => void;
-  onStepSelect?: (step: number) => void;
+  onStepHover?: (step: number) => void;
+  onCorrectionStepSelect?: (step: number) => void;
+  interactionLocked?: boolean;
   width?: number;
   height?: number;
   margin?: { top: number; right: number; bottom: number; left: number };
@@ -51,8 +54,11 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
   ({
     selectedEpisode,
     selectedStep,
+    stepForCorrection,
     onClose,
-    onStepSelect,
+    onStepHover,
+    onCorrectionStepSelect,
+    interactionLocked = false,
     width = 600,
     height = 200,
     margin = { top: 16, right: 10, bottom: 30, left: 48 },
@@ -75,6 +81,18 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
     } = useActiveLearningState();
 
     const episodeColor = getEpisodeColor(selectedEpisode, trajectoryColors, true);
+
+    const [hoverStep, setHoverStep] = useState<number | null>(null);
+
+    useEffect(() => {
+      setHoverStep(null);
+    }, [selectedEpisode]);
+
+    useEffect(() => {
+      if (interactionLocked) {
+        setHoverStep(null);
+      }
+    }, [interactionLocked]);
 
     // episode data
     const episodeData = useMemo(() => {
@@ -181,29 +199,48 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
       (
         event: React.TouchEvent<SVGRectElement> | React.MouseEvent<SVGRectElement>
       ) => {
+        if (interactionLocked) return;
         const { x } = localPoint(event) || { x: -1 };
         if (x === -1) return;
         const x0 = stepScale.invert(x);
         const idx = Math.max(0, Math.min(Math.round(x0), rewards.length - 1));
+        setHoverStep(idx);
+        onStepHover?.(idx);
         showTooltip({
           tooltipData: { value: rewards[idx], index: idx, uncertainty: uncertainties[idx] },
           tooltipLeft: stepScale(idx),
           tooltipTop: rewardScale(rewards[idx]),
         });
-        onStepSelect?.(idx);
       },
-      [stepScale, rewards, uncertainties, showTooltip, rewardScale, onStepSelect]
+      [interactionLocked, stepScale, rewards, uncertainties, showTooltip, rewardScale, onStepHover]
     );
 
     const handleClick = useCallback(
       (event: React.MouseEvent<SVGRectElement>) => {
+        if (interactionLocked) return;
         const { x } = localPoint(event) || { x: -1 };
         if (x === -1) return;
         const idx = Math.max(0, Math.min(Math.round(stepScale.invert(x)), rewards.length - 1));
-        onStepSelect?.(idx);
+        setHoverStep(idx);
+        onCorrectionStepSelect?.(idx);
       },
-      [stepScale, rewards.length, onStepSelect]
+      [interactionLocked, stepScale, rewards.length, onCorrectionStepSelect]
     );
+
+    const highlightedStep = hoverStep !== null ? hoverStep : selectedStep;
+    const correctionCandidate =
+      typeof stepForCorrection === 'number' && Number.isFinite(stepForCorrection)
+        ? stepForCorrection
+        : null;
+    const hasCorrectionStep =
+      correctionCandidate !== null &&
+      correctionCandidate >= 0 &&
+      correctionCandidate < rewards.length;
+    const correctionIndicatorX = hasCorrectionStep && correctionCandidate !== null
+      ? stepScale(correctionCandidate)
+      : null;
+    const correctionIndicatorBaseY = innerHeight + m.top + 6;
+    const correctionIndicatorTipY = innerHeight + m.top - 2;
 
     return (
       <Box
@@ -372,18 +409,29 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
               />
 
               {/* crosshair */}
-              {selectedStep !== null &&
-                selectedStep >= 0 &&
-                selectedStep < rewards.length && (
+              {highlightedStep !== null &&
+                highlightedStep >= 0 &&
+                highlightedStep < rewards.length && (
                   <Line
-                    from={{ x: stepScale(selectedStep), y: m.top }}
-                    to={{ x: stepScale(selectedStep), y: innerHeight + m.top }}
+                    from={{ x: stepScale(highlightedStep), y: m.top }}
+                    to={{ x: stepScale(highlightedStep), y: innerHeight + m.top }}
                     stroke={theme.palette.info.dark}
                     strokeWidth={3}
                     strokeDasharray="5,5"
                     pointerEvents="none"
                   />
                 )}
+
+              {/* correction indicator */}
+              {hasCorrectionStep && correctionIndicatorX !== null && (
+                <polygon
+                  points={`${correctionIndicatorX - 6},${correctionIndicatorBaseY} ${correctionIndicatorX + 6},${correctionIndicatorBaseY} ${correctionIndicatorX},${correctionIndicatorTipY}`}
+                  fill={theme.palette.info.main}
+                  stroke={alpha(theme.palette.background.paper, 0.9)}
+                  strokeWidth={1}
+                  pointerEvents="none"
+                />
+              )}
             </Group>
 
             {/* interaction layer */}
@@ -395,9 +443,17 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
               fill="transparent"
               onTouchStart={handleTooltip}
               onTouchMove={handleTooltip}
+              onTouchEnd={() => {
+                hideTooltip();
+                setHoverStep(null);
+              }}
               onMouseMove={handleTooltip}
               onClick={handleClick}
-              onMouseLeave={() => hideTooltip()}
+              onMouseLeave={() => {
+                hideTooltip();
+                setHoverStep(null);
+              }}
+              style={{ cursor: interactionLocked ? 'default' : 'pointer' }}
             />
           </svg>
 

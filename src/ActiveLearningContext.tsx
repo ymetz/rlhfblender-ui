@@ -22,6 +22,7 @@ export interface UserDemoTrajectory {
   projectionFile?: string;
   totalReward?: number;
   source?: string;
+  phase?: number;
 }
 
 export interface ActiveLearningState {

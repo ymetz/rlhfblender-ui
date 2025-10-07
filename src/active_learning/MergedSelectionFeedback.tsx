@@ -161,6 +161,8 @@ const MergedSelectionFeedback = () => {
   const [savingDemo, setSavingDemo] = useState(false);
   const [currentPlaying, setCurrentPlaying] = useState<number | null>(null);
   const [selectedStep, setSelectedStep] = useState(0);
+  const [correctionStep, setCorrectionStep] = useState<number | null>(null);
+  const [isCorrectionStepManual, setIsCorrectionStepManual] = useState(false);
   const [showCorrectionInterface, setShowCorrectionInterface] = useState(false);
   const [videoProgress, setVideoProgress] = useState<Map<number, number>>(() => new Map());
   const [userDemoVideoStatus, setUserDemoVideoStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -322,6 +324,8 @@ const MergedSelectionFeedback = () => {
     setUseWebRTCCorrection(false);
     setCoordinateFrameImage(null);
     setSelectedStep(0);
+    setCorrectionStep(null);
+    setIsCorrectionStepManual(false);
     setShowCorrectionInterface(false);
     lastUpdateStepRef.current = -1; // Reset sync tracking
   }, [selectionResetKey]);
@@ -357,23 +361,27 @@ const MergedSelectionFeedback = () => {
   );
 
   useEffect(() => {
+    let derivedStep: number | null = null;
+
     if (selectionData.type === 'state' && currentStateData && currentStep !== null) {
-      setSelectedStep(currentStep);
+      derivedStep = currentStep;
     } else if (selectionData.type === 'user_demo') {
       const pointIndex = (selectionData as any).data?.pointIndex;
       if (typeof pointIndex === 'number' && Number.isFinite(pointIndex)) {
-        setSelectedStep(pointIndex);
-      } else {
-        setSelectedStep(0);
+        derivedStep = pointIndex;
       }
     } else if (selectionData.type === 'trajectory' && selection.length === 2) {
       const stateSelection: any = (selection as any).find((item: any) => item.type === 'state');
-      if (stateSelection && stateSelection.data?.step !== undefined) setSelectedStep(stateSelection.data.step);
-      else setSelectedStep(0);
-    } else {
-      setSelectedStep(0);
+      if (stateSelection && stateSelection.data?.step !== undefined) derivedStep = stateSelection.data.step;
     }
-  }, [selectionData.type, currentStateData, currentStep, selection]);
+
+    const safeStep = derivedStep ?? 0;
+    setSelectedStep(safeStep);
+
+    if (!isCorrectionStepManual) {
+      setCorrectionStep(derivedStep);
+    }
+  }, [selectionData.type, currentStateData, currentStep, selection, isCorrectionStepManual]);
 
   useEffect(() => {
     if (selectionData.type !== 'user_demo') {
@@ -965,6 +973,7 @@ const MergedSelectionFeedback = () => {
           projectionFile: artifacts.projection_file ?? null,
           totalReward: artifacts.total_reward,
           source,
+          phase: activeLearningState.currentPhase,
         };
         activeLearningDispatch({ type: 'ADD_USER_GENERATED_TRAJECTORY', payload: trajectory });
 
@@ -1432,6 +1441,17 @@ const MergedSelectionFeedback = () => {
         else { episodeIdx = stateData.episode; episode = allEpisodes[episodeIdx]; episodeLength = getEpisodeLength(episodeIdx); }
         if (!episode) return <Typography color="error">Episode {episodeIdx} not found</Typography>;
 
+        const maxEpisodeStep = Math.max(0, episodeLength - 1);
+        const clampStep = (step: number) => Math.max(0, Math.min(step, maxEpisodeStep));
+        const isFiniteStep = (stepValue: number | null): stepValue is number =>
+          typeof stepValue === 'number' && Number.isFinite(stepValue);
+        const effectiveCorrectionStep = isFiniteStep(correctionStep)
+          ? clampStep(correctionStep)
+          : null;
+        const correctionStepDisplay = effectiveCorrectionStep !== null
+          ? effectiveCorrectionStep
+          : '–';
+
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" sx={{ mb: 2 }}>{title}</Typography>
@@ -1457,9 +1477,25 @@ const MergedSelectionFeedback = () => {
                     </Box>
                   )}
                 </Stack>
-                <Button variant="outlined" size="small" onClick={() => setShowCorrectionInterface(!showCorrectionInterface)}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => {
+                    setShowCorrectionInterface((prev) => {
+                      const next = !prev;
+                      if (next) {
+                        setIsCorrectionStepManual(true);
+                      } else {
+                        setIsCorrectionStepManual(false);
+                      }
+                      return next;
+                    });
+                  }}
+                >
                   <ModeEdit />
-                  {showCorrectionInterface ? 'Show Rating' : 'Correct at Step'}
+                  {showCorrectionInterface
+                    ? 'Back to Selection'
+                    : `Correct at Step ${correctionStepDisplay}`}
                 </Button>
               </Box>
 
@@ -1467,30 +1503,74 @@ const MergedSelectionFeedback = () => {
                 <TimelineComponent
                   selectedEpisode={episodeIdx}
                   selectedStep={selectedStep}
+                  stepForCorrection={effectiveCorrectionStep}
+                  interactionLocked={showCorrectionInterface}
                   onClose={() => { /* inline usage: no-op */ }}
-                  onStepSelect={showCorrectionInterface ? undefined : ((newStep) => {
-                    const clamped = Math.max(0, Math.min(newStep, Math.max(0, episodeLength - 1)));
-                    setSelectedStep(clamped);
-                    const updatedSelection = [{
-                      type: "state",
-                      data: {
-                        episode: episodeIdx,
-                        step: clamped,
-                        coords: currentStateData?.coords || [0, 0],
-                        x: currentStateData?.x || 0,
-                        y: currentStateData?.y || 0,
-                        index: (currentStateData?.index || 0) + (clamped - selectedStep)
-                      }
-                    }];
-                    activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection });
-                  })}
+                  onStepHover={(newStep) => {
+                    if (showCorrectionInterface) return;
+                    const clamped = clampStep(newStep);
+                    if (clamped !== selectedStep) {
+                      setSelectedStep(clamped);
+                    }
+                    if (selectionData.type === 'state') {
+                      const baseStep = typeof currentStateData?.step === 'number'
+                        ? currentStateData.step
+                        : clamped;
+                      const baseIndex = typeof currentStateData?.index === 'number'
+                        ? currentStateData.index
+                        : baseStep;
+                      const updatedSelection = [{
+                        type: 'state',
+                        data: {
+                          episode: episodeIdx,
+                          step: clamped,
+                          coords: currentStateData?.coords || [0, 0],
+                          x: currentStateData?.x || 0,
+                          y: currentStateData?.y || 0,
+                          index: baseIndex + (clamped - baseStep),
+                        },
+                      }];
+                      activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection });
+                    }
+                  }}
+                  onCorrectionStepSelect={(newStep) => {
+                    const clamped = clampStep(newStep);
+                    setCorrectionStep(clamped);
+                    setIsCorrectionStepManual(true);
+                    if (clamped !== selectedStep) {
+                      setSelectedStep(clamped);
+                    }
+                    if (selectionData.type === 'state') {
+                      const baseStep = typeof currentStateData?.step === 'number'
+                        ? currentStateData.step
+                        : clamped;
+                      const baseIndex = typeof currentStateData?.index === 'number'
+                        ? currentStateData.index
+                        : baseStep;
+                      const updatedSelection = [{
+                        type: 'state',
+                        data: {
+                          episode: episodeIdx,
+                          step: clamped,
+                          coords: currentStateData?.coords || [0, 0],
+                          x: currentStateData?.x || 0,
+                          y: currentStateData?.y || 0,
+                          index: baseIndex + (clamped - baseStep),
+                        },
+                      }];
+                      activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection });
+                    }
+                  }}
                   width={Math.max(280, timelineWidth)}
                   height={140}
                   variant="inline"
                   showClose={false}
                 />
-                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, textAlign: 'center', color: 'text.secondary' }}>
-                  Step: {selectedStep} / {Math.max(0, episodeLength - 1)}
+                <Typography
+                  variant="caption"
+                  sx={{ display: 'block', mt: 0.5, textAlign: 'center', color: 'text.secondary' }}
+                >
+                  Video step: {selectedStep} / {maxEpisodeStep}
                 </Typography>
               </Box>
             </Box>
@@ -1499,7 +1579,7 @@ const MergedSelectionFeedback = () => {
             {showCorrectionInterface ? (
               !useWebRTCCorrection ? (
                 <Box sx={{ ...sectionCardSx, display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Correct behavior at Step {selectedStep}</Typography>
+                  <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Correct behavior at Step {correctionStepDisplay}</Typography>
                   <Button variant="contained" size="medium" onClick={() => setUseWebRTCCorrection(true)} disabled={loading}>Start Correction Demo</Button>
                 </Box>
               ) : (
@@ -1515,20 +1595,26 @@ const MergedSelectionFeedback = () => {
                     environmentId={appState.selectedExperiment.env_id}
                     checkpoint={Number(appState.selectedCheckpoint)}
                     episodeNum={episode.episode_num}
-                    step={selectedStep}
+                    step={effectiveCorrectionStep ?? selectedStep}
                     isSubmitting={savingDemo}
                     onSubmit={async () => {
                       const trajectory = await saveDemoAndIntegrate(`${appState.sessionId}_correction`, 'correction', {
                         episode: episode.episode_num,
-                        step: selectedStep,
+                        step: effectiveCorrectionStep ?? selectedStep,
                       });
                       const fb: Feedback = {
                         feedback_type: FeedbackType.Corrective,
-                        targets: [{ target_id: `state_${episode.episode_num}_${selectedStep}`, reference: null, origin: 'online', timestamp: Date.now(), step: selectedStep }],
+                        targets: [{
+                          target_id: `state_${episode.episode_num}_${effectiveCorrectionStep ?? selectedStep}`,
+                          reference: null,
+                          origin: 'online',
+                          timestamp: Date.now(),
+                          step: effectiveCorrectionStep ?? selectedStep,
+                        }],
                         granularity: 'state',
                         timestamp: Date.now(),
                         session_id: appState.sessionId,
-                        correction: `Demo correction from episode ${episode.episode_num}, step ${selectedStep}`,
+                        correction: `Demo correction from episode ${episode.episode_num}, step ${effectiveCorrectionStep ?? selectedStep}`,
                         correction_path: trajectory?.demoFile ?? null,
                       } as any;
                       submitFeedback(fb);

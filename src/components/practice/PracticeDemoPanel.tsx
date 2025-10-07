@@ -184,6 +184,7 @@ const PracticeDemoPanel: React.FC = () => {
           projectionFile: artifacts.projection_file ?? null,
           totalReward: artifacts.total_reward,
           source: 'practice',
+          phase: activeLearningState?.currentPhase ?? 0,
         };
 
         activeLearningDispatch({ type: 'ADD_USER_GENERATED_TRAJECTORY', payload: trajectory });
