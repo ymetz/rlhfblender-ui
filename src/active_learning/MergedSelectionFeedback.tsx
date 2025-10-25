@@ -31,7 +31,7 @@ import {
   FeedbackHistoryEntry,
 } from '../ActiveLearningContext';
 import * as d3 from 'd3';
-import { IDfromEpisode } from '../id';
+import { EpisodeFromID, IDfromEpisode } from '../id';
 import { useGetter } from '../getter-context';
 import { Episode, FeedbackType, Feedback } from '../types';
 import { getEpisodeColor as getEpisodeColorFromUtil } from './utils/trajectoryColors';
@@ -1606,7 +1606,7 @@ const MergedSelectionFeedback = () => {
                         feedback_type: FeedbackType.Corrective,
                         targets: [{
                           target_id: `state_${episode.episode_num}_${effectiveCorrectionStep ?? selectedStep}`,
-                          reference: null,
+                          reference: episode,
                           origin: 'online',
                           timestamp: Date.now(),
                           step: effectiveCorrectionStep ?? selectedStep,

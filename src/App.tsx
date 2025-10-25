@@ -1,6 +1,6 @@
 // App.tsx
 
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { Box, IconButton, Chip, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -44,6 +44,7 @@ const App: React.FC = () => {
   const dispatch = useAppDispatch();
   const configState = useSetupConfigState();
   const configDispatch = useSetupConfigDispatch();
+  const lastResetParamsRef = useRef<{ experimentId: number; checkpoint: number | null } | null>(null);
 
   useEffect(() => {
     const initializeData = () => {
@@ -228,7 +229,7 @@ const App: React.FC = () => {
   );
 
   // Fetch action labels
-  const getActionLabels = async (envId: string) => {
+  const getActionLabels = useCallback(async (envId: string) => {
     try {
       const response = await axios.post("/data/get_action_label_urls", {
         envId,
@@ -237,9 +238,9 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Error fetching action labels:", error);
     }
-  };
+  }, [dispatch]);
 
-  const generateUiConfigSequence = async (episodes: any[]) => {
+  const generateUiConfigSequence = useCallback(async (episodes: any[]) => {
     const selectedUiConfigs = configState.activeBackendConfig.selectedUiConfigs;
     let uiConfigSequence: SequenceElement[] = [];
 
@@ -270,10 +271,38 @@ const App: React.FC = () => {
       type: "SET_UI_CONFIG_SEQUENCE",
       payload: uiConfigSequence,
     });
-  };
+  }, [
+    configState.activeBackendConfig.selectedUiConfigs,
+    configState.allUIConfigs,
+    configState.activeUIConfig.id,
+    configState.activeBackendConfig.uiConfigMode,
+    configDispatch,
+  ]);
+
+  const getEpisodeIDsChronologically = useCallback(async () => {
+    try {
+      // Fetch episodes
+      const response = await axios.get("/data/get_all_episodes");
+      const episodes = response.data;
+
+      // Update state with the fetched episodes
+      await Promise.all([
+        dispatch({
+          type: "SET_EPISODE_IDS_CHRONOLOGICALLY",
+          payload: episodes,
+        }),
+        dispatch({ type: "SET_CURRENT_STEP", payload: 0 }),
+      ]);
+
+      return episodes;
+    } catch (error) {
+      console.error("Error fetching episodes:", error);
+      throw error; // Re-throw the error so the caller can handle it
+    }
+  }, [dispatch]);
 
   const resetSampler = useCallback(async () => {
-    if (state.selectedExperiment.id === -1) {
+    if (state.selectedExperiment.id === -1 || state.selectedCheckpoint === -1) {
       return;
     }
 
@@ -316,10 +345,27 @@ const App: React.FC = () => {
 
       // Fetch action labels
       await getActionLabels(resetResponse.data.environment_id);
+
+      const checkpointValue = Number.isFinite(state.selectedCheckpoint)
+        ? state.selectedCheckpoint
+        : null;
+      lastResetParamsRef.current = {
+        experimentId: state.selectedExperiment.id,
+        checkpoint: checkpointValue,
+      };
     } catch (error) {
       console.error("Error in resetSampler:", error);
     }
-  });
+  }, [
+    state.selectedExperiment.id,
+    state.selectedCheckpoint,
+    state.feedbackInterfaceReset,
+    configState.activeBackendConfig.samplingStrategy,
+    dispatch,
+    generateUiConfigSequence,
+    getEpisodeIDsChronologically,
+    getActionLabels,
+  ]);
 
   const stepSampler = async () => {
     // Step sampler with current sessionID, but we set new episode data and clear feedback
@@ -363,6 +409,24 @@ const App: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const experimentId = state.selectedExperiment?.id ?? -1;
+    if (experimentId === -1) {
+      return;
+    }
+
+    const checkpointValue = Number.isFinite(state.selectedCheckpoint)
+      ? state.selectedCheckpoint
+      : null;
+
+    const last = lastResetParamsRef.current;
+    if (last && last.experimentId === experimentId && last.checkpoint === checkpointValue) {
+      return;
+    }
+
+    void resetSampler();
+  }, [state.selectedExperiment.id, state.selectedCheckpoint, resetSampler]);
+
   const handleExperimentEndClose = async () => {
     if (state.app_mode === "study") {
       try {
@@ -372,29 +436,6 @@ const App: React.FC = () => {
       } catch (error) {
         console.error("Error stopping experiment:", error);
       }
-    }
-  };
-
-  // Fetch episodes
-  const getEpisodeIDsChronologically = async () => {
-    try {
-      // Fetch episodes
-      const response = await axios.get("/data/get_all_episodes");
-      const episodes = response.data;
-
-      // Update state with the fetched episodes
-      await Promise.all([
-        dispatch({
-          type: "SET_EPISODE_IDS_CHRONOLOGICALLY",
-          payload: episodes,
-        }),
-        dispatch({ type: "SET_CURRENT_STEP", payload: 0 }),
-      ]);
-
-      return episodes;
-    } catch (error) {
-      console.error("Error fetching episodes:", error);
-      throw error; // Re-throw the error so the caller can handle it
     }
   };
 
@@ -435,12 +476,24 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (state.setupComplete) {
-      resetSampler();
-      // Reset the flag after calling resetSampler
-      dispatch({ type: "SET_SETUP_COMPLETE", payload: false });
+    if (!state.setupComplete) {
+      return;
     }
-  }, [state.setupComplete, dispatch, resetSampler]);
+
+    const experimentId = state.selectedExperiment?.id ?? -1;
+    const checkpointValue = Number.isFinite(state.selectedCheckpoint)
+      ? state.selectedCheckpoint
+      : null;
+    const last = lastResetParamsRef.current;
+
+    if (experimentId !== -1) {
+      if (!last || last.experimentId !== experimentId || last.checkpoint !== checkpointValue) {
+        void resetSampler();
+      }
+    }
+
+    dispatch({ type: "SET_SETUP_COMPLETE", payload: false });
+  }, [state.setupComplete, state.selectedExperiment.id, state.selectedCheckpoint, dispatch, resetSampler]);
 
   return (
     <ThemeProvider

@@ -12,8 +12,6 @@ import { useActiveLearningState } from '../ActiveLearningContext';
 
 interface TrainingProgressSummaryProps {
   isTraining: boolean;
-  trainingLoss: number;
-  validationLoss: number;
   phaseStatus: string;
   message: string;
   uncertainty: number;
@@ -23,8 +21,6 @@ interface TrainingProgressSummaryProps {
 
 const TrainingProgressBox: React.FC<TrainingProgressSummaryProps> = ({
   isTraining,
-  trainingLoss,
-  validationLoss,
   phaseStatus,
   message,
   uncertainty,
@@ -124,32 +120,6 @@ const TrainingProgressBox: React.FC<TrainingProgressSummaryProps> = ({
               borderRadius: 3,
             }}
           />
-        )}
-
-        {(trainingLoss > 0 || validationLoss > 0) && (
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Loss Metrics
-            </Typography>
-            <Stack spacing={1}>
-              {trainingLoss > 0 && (
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2">Training Loss:</Typography>
-                  <Typography variant="body2" fontFamily="monospace">
-                    {trainingLoss.toFixed(4)}
-                  </Typography>
-                </Box>
-              )}
-              {validationLoss > 0 && (
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2">Validation Loss:</Typography>
-                  <Typography variant="body2" fontFamily="monospace">
-                    {validationLoss.toFixed(4)}
-                  </Typography>
-                </Box>
-              )}
-            </Stack>
-          </Box>
         )}
 
         <Divider sx={{ my: 1 }} />

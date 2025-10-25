@@ -23,8 +23,6 @@ import { useAppState } from '../AppStateContext';
 
 type TrainingSummaryProps = {
   isTraining: boolean;
-  trainingLoss: number;
-  validationLoss: number;
   phaseStatus: string;
   message: string;
   uncertainty: number;
@@ -503,13 +501,10 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose, 
           <Box sx={{ flex: 1, minHeight: 220 }}>
             <TrainingProgressSummary
               isTraining={trainingSummary.isTraining}
-              trainingLoss={trainingSummary.trainingLoss}
-              validationLoss={trainingSummary.validationLoss}
               phaseStatus={trainingSummary.phaseStatus}
               message={trainingSummary.message}
               uncertainty={trainingSummary.uncertainty}
               avgReward={trainingSummary.avgReward}
-              showTrainingIndicators={false}
             />
           </Box>
           <Paper

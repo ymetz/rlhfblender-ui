@@ -28,10 +28,8 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   const [trainingStatus, setTrainingStatus] = React.useState({
     phaseStatus: '',
     message: '',
-    trainingLoss: 0,
-    validationLoss: 0,
     uncertainty: 0,
-    avgReward: 0
+    avgReward: 0,
   });
 
   const activeLearningState = useActiveLearningState();
@@ -66,8 +64,6 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
       setTrainingStatus({
         phaseStatus: resultsData.phaseStatus || statusData.status,
         message: resultsData.message || statusData.message,
-        trainingLoss: resultsData.training_loss || 0,
-        validationLoss: resultsData.validation_loss || 0,
         uncertainty: resultsData.phaseUncertainty || 0,
         avgReward: resultsData.phaseReward || 0
       });
@@ -122,7 +118,8 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         }
         else {
           // For DynamicRLHF, use the current phase as the checkpoint
-          const nextCheckpoint = activeLearningState.currentPhase;
+          console.log("Adding new checkpoint for phase:", activeLearningState.currentPhase);
+          const nextCheckpoint = activeLearningState.currentPhase + 1; // Checkpoints are 1-indexed
 
           // Add the new checkpoint to the experiment's checkpoint list and update UI
           const updatedExperiment = {
@@ -275,8 +272,6 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
         setTrainingStatus({
           phaseStatus: data.phaseStatus,
           message: data.message,
-          trainingLoss: 0,
-          validationLoss: 0,
           uncertainty: data.phaseUncertainty || 0,
           avgReward: data.phaseReward || 0
         });
@@ -542,8 +537,6 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
             onClose={handleProgressModalClose}
             trainingSummary={{
               isTraining,
-              trainingLoss: trainingStatus.trainingLoss,
-              validationLoss: trainingStatus.validationLoss,
               phaseStatus: trainingStatus.phaseStatus,
               message: trainingStatus.message,
               uncertainty: trainingStatus.uncertainty,
