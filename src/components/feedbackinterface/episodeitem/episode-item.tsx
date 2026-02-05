@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -7,15 +6,10 @@ import { CSS } from "@dnd-kit/utilities";
 // MUI
 import chroma from "chroma-js";
 // Axios
-=======
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Draggable } from '@hello-pangea/dnd';
->>>>>>> origin/vis-short-projections
 import axios from "axios";
 import { styled } from "@mui/system";
 import { IconButton } from "@mui/material";
 import { Check } from "@mui/icons-material";
-import chroma from "chroma-js";
 
 // Components
 import VideoPlaybackContainer from "./video-playback-container";
@@ -43,8 +37,8 @@ const EpisodeItemContainer = styled("div")<EpisodeItemContainerProps>(
   ({ theme, isDragging, horizontalRanking, hasFeedback, isBestOfK }) => ({
     backgroundColor: isDragging
       ? chroma
-          .mix(theme.palette.background.l1, theme.palette.primary.main, 0.05)
-          .hex()
+        .mix(theme.palette.background.l1, theme.palette.primary.main, 0.05)
+        .hex()
       : theme.palette.background.l1,
     flex: 1,
     borderRadius: "10px",
@@ -117,69 +111,9 @@ type StepDetails = {
   action_space: object;
 };
 
-<<<<<<< HEAD
-const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(
-  ({
-    episodeID,
-    containerId,
-    scheduleFeedback,
-    selectBest,
-    isSelectedAsBest,
-    sessionId,
-    evalFeedback,
-    updateEvalFeedback,
-    setDemoModalOpen,
-    actionLabels = [],
-    isBestOfK = false,
-    onMouseEnter,
-    onMouseLeave,
-    isHovered,
-  }) => {
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging,
-    } = useSortable({
-      id: episodeID,
-      data: { containerId },
-      disabled: isBestOfK,
-    });
-
-    const videoRef = useRef<HTMLVideoElement>(document.createElement("video"));
-    const [videoURL, setVideoURL] = useState("");
-    const [playing, setPlaying] = useState(false);
-    const [videoDuration, setVideoDuration] = useState(0);
-    const [videoSliderValue, setVideoSliderValue] = useState(0);
-    const [evaluativeSliderValue, setEvaluativeSliderValue] = useState(
-      evalFeedback || 5,
-    );
-    const [mouseOnVideo, setMouseOnVideo] = useState(false);
-    const [rewards, setRewards] = useState<number[]>([]);
-    const [uncertainty, setUncertainty] = useState<number[]>([]);
-    const [actions, setActions] = useState<number[]>([]);
-    const [highlightModelOpen, setHighlightModelOpen] = useState(false);
-    const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
-    const [selectedStep, setSelectedStep] = useState(0);
-    const [givenFeedbackMarkers, setGivenFeedbackMarkers] = useState<any[]>([]);
-    const [proposedFeedbackMarkers, setProposedFeedbackMarkers] = useState<
-      any[]
-    >([]);
-    const [stepDetails, setStepDetails] = useState<StepDetails>({
-      action_distribution: [],
-      action: 0,
-      reward: 0,
-      info: {},
-      action_space: {},
-    });
-    const UIConfig = useSetupConfigState().activeUIConfig;
-    const { hasFeedback } = useRatingInfo();
-=======
-const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
+const EpisodeItem: React.FC<EpisodeItemProps> = ({
   episodeID,
-  index,
+  containerId,
   scheduleFeedback,
   selectBest,
   isSelectedAsBest,
@@ -190,9 +124,24 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
   actionLabels = [],
   isBestOfK = false,
 }) => {
-  // States that should NOT trigger video player re-renders
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: episodeID,
+    data: { containerId },
+    disabled: isBestOfK,
+  });
+
+  const videoRef = useRef<HTMLVideoElement>(document.createElement("video"));
   const [videoURL, setVideoURL] = useState("");
-  const [evaluativeSliderValue, setEvaluativeSliderValue] = useState(evalFeedback || 5);
+  const [evaluativeSliderValue, setEvaluativeSliderValue] = useState(
+    evalFeedback || 5,
+  );
   const [rewards, setRewards] = useState<number[]>([]);
   const [uncertainty, setUncertainty] = useState<number[]>([]);
   const [actions, setActions] = useState<number[]>([]);
@@ -200,7 +149,9 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
   const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
   const [selectedStep, setSelectedStep] = useState(0);
   const [givenFeedbackMarkers, setGivenFeedbackMarkers] = useState<any[]>([]);
-  const [proposedFeedbackMarkers, setProposedFeedbackMarkers] = useState<any[]>([]);
+  const [proposedFeedbackMarkers, setProposedFeedbackMarkers] = useState<
+    any[]
+  >([]);
   const [stepDetails, setStepDetails] = useState<StepDetails>({
     action_distribution: [],
     action: 0,
@@ -208,7 +159,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
     info: {},
     action_space: {},
   });
->>>>>>> origin/vis-short-projections
 
   // Hooks
   const UIConfig = useSetupConfigState().activeUIConfig;
@@ -341,25 +291,33 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
     scheduleFeedback(feedback);
   }, [episodeID, scheduleFeedback, sessionId, updateEvalFeedback]);
 
-  // Create a ref for the video element that will be shared between components
-  const videoRef = useRef<HTMLVideoElement>(document.createElement("video"));
+  const dragHandleProps = isBestOfK ? {} : { ...attributes, ...listeners };
 
-  // Render the component content - extracted as a separate variable to improve readability
   const EpisodeContent = (
     <EpisodeItemContainer
       horizontalRanking={UIConfig.uiComponents.horizontalRanking}
-      isDragging={false}
+      isDragging={isBestOfK ? false : isDragging}
       hasFeedback={false}
       isBestOfK={isBestOfK}
     >
       {!isBestOfK && (
         <DragHandle
           horizontalRanking={UIConfig.uiComponents.horizontalRanking}
+          {...dragHandleProps}
         />
       )}
 
+      {isBestOfK && (
+        <SelectButton
+          className={isSelectedAsBest ? "selected" : ""}
+          onClick={() => selectBest(episodeID)}
+        >
+          <Check />
+        </SelectButton>
+      )}
+
       {/* VideoPlaybackContainer - isolated playback state management */}
-      <VideoPlaybackContainer 
+      <VideoPlaybackContainer
         episodeID={episodeID}
         videoURL={videoURL}
         rewards={rewards}
@@ -388,47 +346,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
         />
       )}
 
-<<<<<<< HEAD
-    const dragHandleProps = isBestOfK
-      ? {}
-      : {
-          ...attributes,
-          ...listeners,
-        };
-
-    const EpisodeContent = (
-      <EpisodeItemContainer
-        horizontalRanking={UIConfig.uiComponents.horizontalRanking}
-        isDragging={isBestOfK ? false : isDragging}
-        hasFeedback={false}
-        isBestOfK={isBestOfK}
-        onMouseEnter={() => onMouseEnter(episodeID)}
-        onMouseLeave={onMouseLeave}
-        sx={
-          {
-            /*outline: isHovered ? `2px solid ${theme.palette.primary.main}` : 'none'*/
-          }
-        }
-      >
-        {!isBestOfK && (
-          <DragHandle
-            horizontalRanking={UIConfig.uiComponents.horizontalRanking}
-            {...dragHandleProps}
-          />
-        )}
-=======
-      <DemoSection
-        showDemo={UIConfig.feedbackComponents.demonstration}
-        onDemoClick={() =>
-          setDemoModalOpen({
-            open: true,
-            seed: stepDetails.info?.seed || 0,
-          })
-        }
-        hasDemoFeedback={feedbackStatus.hasDemoFeedback}
-      />
->>>>>>> origin/vis-short-projections
-
       {UIConfig.feedbackComponents.text && (
         <TextFeedback
           showTextFeedback={UIConfig.feedbackComponents.text}
@@ -439,44 +356,12 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
         />
       )}
 
-<<<<<<< HEAD
-    // Conditionally wrap with sortable drag behavior
-    if (isBestOfK) {
-      return EpisodeContent;
-    }
-
-    return (
-      <div
-        ref={setNodeRef}
-        style={{
-          transform: CSS.Transform.toString(transform),
-          transition,
-        }}
-      >
-        {EpisodeContent}
-      </div>
-    );
-  },
-);
-=======
-      {isBestOfK && UIConfig.feedbackComponents.ranking && (
-        <SelectButton
-          className={isSelectedAsBest ? "selected" : ""}
-          onClick={() => selectBest(episodeID)}
-          size="large"
-          aria-label="Select as best"
-        >
-          <Check fontSize="large" />
-        </SelectButton>
-      )}
->>>>>>> origin/vis-short-projections
-
       <Modals
         highlightModalOpen={highlightModelOpen}
         correctionModalOpen={correctionModalOpen}
         episodeId={episodeID}
         selectedStep={selectedStep}
-        videoRef={videoRef} // Now using the shared ref
+        videoRef={videoRef}
         sessionId={sessionId}
         onHighlightClose={() => setHighlightModelOpen(false)}
         onHighlightSubmit={onFeatureSelectionSubmit}
@@ -488,24 +373,22 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(({
     </EpisodeItemContainer>
   );
 
-  // Conditionally wrap with Draggable
-  return isBestOfK ? (
-    EpisodeContent
-  ) : (
-    <Draggable draggableId={episodeID} index={index}>
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-        >
-          {React.cloneElement(EpisodeContent, {
-            isDragging: snapshot.isDragging,
-          })}
-        </div>
-      )}
-    </Draggable>
+  // Conditionally wrap with sortable drag behavior
+  if (isBestOfK) {
+    return EpisodeContent;
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+    >
+      {EpisodeContent}
+    </div>
   );
-});
+};
 
 export default React.memo(EpisodeItem);

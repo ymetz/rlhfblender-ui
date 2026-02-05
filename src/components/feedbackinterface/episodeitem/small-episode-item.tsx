@@ -1,9 +1,5 @@
-<<<<<<< HEAD
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-=======
-import { Draggable } from '@hello-pangea/dnd';
->>>>>>> origin/vis-short-projections
 import Box from "@mui/material/Box";
 import { useEffect, useState, useRef } from "react";
 import { IDfromEpisode } from "../../../id";
