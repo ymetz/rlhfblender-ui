@@ -87,7 +87,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
       () =>
         scaleLinear({
           range: [innerHeight + margin.top, margin.top],
-          domain: [0, Math.max(...rewardArray) || 0],
+          domain: [Math.min(...rewardArray), Math.max(...rewardArray) || 0],
           nice: true,
         }),
       [innerHeight, margin.top, rewardArray],

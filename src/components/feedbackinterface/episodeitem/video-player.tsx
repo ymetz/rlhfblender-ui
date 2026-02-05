@@ -1,5 +1,6 @@
+// video-player.tsx
 import React, { useState } from "react";
-import { Box } from "@mui/material";
+import { Box, Skeleton } from "@mui/material";
 
 interface VideoPlayerProps {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -17,47 +18,86 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   videoURL,
   onLoadMetadata,
 }) => {
-  const [videoAspectRatio, setVideoAspectRatio] = useState(0);
-  
-  // Handle video load and calculate aspect ratio
+  const [videoLoaded, setVideoLoaded] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
+  // Constants for container dimensions
+  const CONTAINER_WIDTH = "30vw";
+  const CONTAINER_HEIGHT = "50vh";
+
+  // Handle video load
   const handleVideoLoad = (event: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = event.currentTarget;
-    if (video.videoWidth && video.videoHeight) {
-      const aspectRatio = video.videoWidth / video.videoHeight;
-      setVideoAspectRatio(aspectRatio);
-    }
+    setVideoLoaded(true);
+    setVideoError(false);
     // Call the original onLoadMetadata prop
     onLoadMetadata();
   };
 
+  // Handle video error
+  const handleVideoError = () => {
+    setVideoError(true);
+    setVideoLoaded(false);
+  };
+
   return (
-    <Box sx={{ 
-      width: "100%", 
-      height: "100%", 
-      position: "relative",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center"
-    }}>
+    <Box 
+      sx={{
+        width: CONTAINER_WIDTH,
+        height: CONTAINER_HEIGHT,
+        position: "relative",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        // Ensure the container never collapses
+        minWidth: CONTAINER_WIDTH,
+        minHeight: CONTAINER_HEIGHT,
+        backgroundColor: "background.paper",
+        overflow: "hidden",
+        // Ensure a smooth transition when content changes
+        transition: "all 0.2s ease-in-out"
+      }}
+    >
+      {/* Placeholder/skeleton while video is loading */}
+      {!videoLoaded && !videoError && (
+        <Skeleton
+          variant="rectangular"
+          width="100%"
+          height="100%"
+          animation="wave"
+          sx={{ position: "absolute", top: 0, left: 0 }}
+        />
+      )}
+
+      {/* Error message if video fails to load */}
+      {videoError && (
+        <Box
+          sx={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            color: "text.secondary",
+            backgroundColor: "background.paper",
+          }}
+        >
+          Could not load video
+        </Box>
+      )}
+
+      {/* The actual video element */}
       {videoURL && (
         <video
           ref={videoRef}
           onLoadedMetadata={handleVideoLoad}
+          onError={handleVideoError}
           loop
           style={{
-            // Landscape videos (width > height)
-            ...(videoAspectRatio > 1 ? {
-              width: "30vw", 
-              height: "auto",
-              maxHeight: "50vh" // Ensure it doesn't get too tall
-            } : 
-            // Portrait videos (height > width) or square
-            {
-              height: "50vh",
-              width: "auto",
-              maxWidth: "30vw" // Ensure it doesn't get too wide
-            }),
-            objectFit: "contain" // Maintain aspect ratio
+            maxWidth: "100%",
+            maxHeight: "100%",
+            objectFit: "contain", // Maintain aspect ratio
+            opacity: videoLoaded ? 1 : 0, // Hide until loaded
+            transition: "opacity 0.3s ease-in-out"
           }}
         >
           <source src={videoURL} type="video/mp4" />
@@ -67,4 +107,4 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   );
 };
 
-export default VideoPlayer;
+export default React.memo(VideoPlayer);

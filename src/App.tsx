@@ -1,6 +1,6 @@
 // App.tsx
 
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { Box, IconButton, Chip, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -15,6 +15,8 @@ import BackendConfigModal from "./components/modals/backend-config-modal";
 import ExperimentStartModal from "./components/modals/experiment-start-modal";
 import ExperimentEndModal from "./components/modals/experiment-end-modal";
 import FeedbackInterface from "./components/FeedbackInterface";
+import ActiveLearningInterface from "./active_learning/ActiveLearningInterface";
+import { OnboardingProvider } from "./active_learning/OnboardingSystem";
 import { GetterContext } from "./getter-context";
 
 import {
@@ -27,12 +29,14 @@ import {
   useSetupConfigState,
   useSetupConfigDispatch,
 } from "./SetupConfigContext";
+import {
+  ActiveLearningProvider
+} from "./ActiveLearningContext";
 import getDesignTokens from "./theme";
 import { EpisodeFromID } from "./id";
 import { BackendConfig, UIConfig, SequenceElement, Feedback, FeedbackType } from "./types";
 import { getConfigSequence } from "./components/modals/backend-config-sequence-generator";
 import { ShortcutsProvider } from "./ShortCutProvider";
-import { ShortcutsInfoBox } from "./components/shortcut-info-box";
 import StudyCodeModal from "./components/modals/study-code-modal";
 
 const App: React.FC = () => {
@@ -40,17 +44,28 @@ const App: React.FC = () => {
   const dispatch = useAppDispatch();
   const configState = useSetupConfigState();
   const configDispatch = useSetupConfigDispatch();
+  const lastResetParamsRef = useRef<{ experimentId: number; checkpoint: number | null } | null>(null);
 
   useEffect(() => {
     const initializeData = () => {
       const url = new URL(window.location.href);
+      const study_mode = url.searchParams.get("study_mode") || "";
       const study_code = url.searchParams.get("study") || "";
-      if (study_code !== "") {
-        dispatch({ type: "SET_STUDY_CODE", payload: study_code });
-        //dispatch({ type: 'TOGGLE_STATUS_BAR' });
-        dispatch({ type: "SET_APP_MODE", payload: "study" });
+      if (study_mode === "active-learning") {
+        if (study_code !== "") {
+          dispatch({ type: "SET_STUDY_CODE", payload: study_code });
+          dispatch({ type: "SET_APP_MODE", payload: "study-active-learning" });
+        } else {
+        dispatch({ type: "SET_APP_MODE", payload: "active-learning" });
+        }
+        //dispatch({ type: "TOGGLE_STATUS_BAR" });
       } else {
-        dispatch({ type: "SET_APP_MODE", payload: "configure" });
+        if (study_code !== "") {
+          dispatch({ type: "SET_STUDY_CODE", payload: study_code });
+          dispatch({ type: "SET_APP_MODE", payload: "study" });
+        } else {
+          dispatch({ type: "SET_APP_MODE", payload: "configure" });
+        }
         dispatch({ type: "TOGGLE_STATUS_BAR" });
       }
 
@@ -218,7 +233,7 @@ const App: React.FC = () => {
   );
 
   // Fetch action labels
-  const getActionLabels = async (envId: string) => {
+  const getActionLabels = useCallback(async (envId: string) => {
     try {
       const response = await axios.post("/data/get_action_label_urls", {
         envId,
@@ -227,13 +242,11 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Error fetching action labels:", error);
     }
-  };
+  }, [dispatch]);
 
-  const generateUiConfigSequence = async (episodes: any[]) => {
+  const generateUiConfigSequence = useCallback(async (episodes: any[]) => {
     const selectedUiConfigs = configState.activeBackendConfig.selectedUiConfigs;
     let uiConfigSequence: SequenceElement[] = [];
-
-    console.log("Selected UI Configs:", configState.activeUIConfig.id);
 
     if (selectedUiConfigs.length === 0) {
       const relevantUiConfigs = configState.allUIConfigs.filter(
@@ -258,15 +271,42 @@ const App: React.FC = () => {
       );
     }
 
-    console.log("UI Config Sequence:", uiConfigSequence);
     await configDispatch({
       type: "SET_UI_CONFIG_SEQUENCE",
       payload: uiConfigSequence,
     });
-  };
+  }, [
+    configState.activeBackendConfig.selectedUiConfigs,
+    configState.allUIConfigs,
+    configState.activeUIConfig.id,
+    configState.activeBackendConfig.uiConfigMode,
+    configDispatch,
+  ]);
 
-  const resetSampler = async () => {
-    if (state.selectedExperiment.id === -1) {
+  const getEpisodeIDsChronologically = useCallback(async () => {
+    try {
+      // Fetch episodes
+      const response = await axios.get("/data/get_all_episodes");
+      const episodes = response.data;
+
+      // Update state with the fetched episodes
+      await Promise.all([
+        dispatch({
+          type: "SET_EPISODE_IDS_CHRONOLOGICALLY",
+          payload: episodes,
+        }),
+        dispatch({ type: "SET_CURRENT_STEP", payload: 0 }),
+      ]);
+
+      return episodes;
+    } catch (error) {
+      console.error("Error fetching episodes:", error);
+      throw error; // Re-throw the error so the caller can handle it
+    }
+  }, [dispatch]);
+
+  const resetSampler = useCallback(async () => {
+    if (state.selectedExperiment.id === -1 || state.selectedCheckpoint === -1) {
       return;
     }
 
@@ -309,36 +349,102 @@ const App: React.FC = () => {
 
       // Fetch action labels
       await getActionLabels(resetResponse.data.environment_id);
+
+      const checkpointValue = Number.isFinite(state.selectedCheckpoint)
+        ? state.selectedCheckpoint
+        : null;
+      lastResetParamsRef.current = {
+        experimentId: state.selectedExperiment.id,
+        checkpoint: checkpointValue,
+      };
     } catch (error) {
       console.error("Error in resetSampler:", error);
     }
+  }, [
+    state.selectedExperiment.id,
+    state.selectedCheckpoint,
+    state.feedbackInterfaceReset,
+    configState.activeBackendConfig.samplingStrategy,
+    dispatch,
+    generateUiConfigSequence,
+    getEpisodeIDsChronologically,
+    getActionLabels,
+  ]);
+
+  const stepSampler = async () => {
+    // Step sampler with current sessionID, but we set new episode data and clear feedback
+    // submit step feedback
+    if (state.selectedExperiment.id === -1) {
+      return;
+    }
+    
+    if (state.feedbackInterfaceReset) {
+      state.feedbackInterfaceReset();
+    }
+
+    try {
+      const stepResponse = await axios.post(
+        "/data/step_sampler?session_id=" + state.sessionId + '&experiment_id=' +
+          state.selectedExperiment.id
+      );
+
+      // Log step as meta feedback
+      const stepFeedback: Feedback = {
+        experiment_id: state.selectedExperiment.id,
+        session_id: state.sessionId,
+        feedback_type: FeedbackType.Meta,
+        granularity: "entire",
+        timestamp: Date.now(),
+        targets: [],
+        meta_action: "step",
+      }
+      axios.post("/data/give_feedback", [stepFeedback]);
+
+      // Get episodes first and store the result
+      const episodes = await getEpisodeIDsChronologically();
+
+      // Generate UI config sequence with the fetched episodes
+      await generateUiConfigSequence(episodes);
+
+      // Fetch action labels
+      //await getActionLabels(stepResponse.data.environment_id);
+    } catch (error) {
+      console.error("Error in stepSampler:", error);
+    }
   };
 
-  // Fetch episodes
-  const getEpisodeIDsChronologically = async () => {
-    try {
-      // Fetch episodes
-      const response = await axios.get("/data/get_all_episodes");
-      const episodes = response.data;
+  useEffect(() => {
+    const experimentId = state.selectedExperiment?.id ?? -1;
+    if (experimentId === -1) {
+      return;
+    }
 
-      // Update state with the fetched episodes
-      await Promise.all([
-        dispatch({
-          type: "SET_EPISODE_IDS_CHRONOLOGICALLY",
-          payload: episodes,
-        }),
-        dispatch({ type: "SET_CURRENT_STEP", payload: 0 }),
-      ]);
+    const checkpointValue = Number.isFinite(state.selectedCheckpoint)
+      ? state.selectedCheckpoint
+      : null;
 
-      return episodes;
-    } catch (error) {
-      console.error("Error fetching episodes:", error);
-      throw error; // Re-throw the error so the caller can handle it
+    const last = lastResetParamsRef.current;
+    if (last && last.experimentId === experimentId && last.checkpoint === checkpointValue) {
+      return;
+    }
+
+    void resetSampler();
+  }, [state.selectedExperiment.id, state.selectedCheckpoint, resetSampler]);
+
+  const handleExperimentEndClose = async () => {
+    if (state.app_mode === "study") {
+      try {
+        await axios.post("/data/stop_experiment", {
+          study_code: state.studyCode,
+        });
+      } catch (error) {
+        console.error("Error stopping experiment:", error);
+      }
     }
   };
 
   const handleExperimentStartClose = async () => {
-    if (state.app_mode === "study") {
+    if (state.app_mode === "study" || state.app_mode === "study-active-learning") {
       try {
         const res = await axios.post("/load_setup", {
           study_code: state.studyCode,
@@ -351,6 +457,10 @@ const App: React.FC = () => {
         await dispatch({
           type: "SET_SELECTED_EXPERIMENT",
           payload: res.data.experiment,
+        });
+        await dispatch({
+          type: "SET_SELECTED_CHECKPOINT",
+          payload: res.data.checkpoint,
         });
         await configDispatch({
           type: "SET_ACTIVE_UI_CONFIG",
@@ -370,12 +480,24 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (state.setupComplete) {
-      resetSampler();
-      // Reset the flag after calling resetSampler
-      dispatch({ type: "SET_SETUP_COMPLETE", payload: false });
+    if (!state.setupComplete) {
+      return;
     }
-  }, [state.setupComplete, dispatch]);
+
+    const experimentId = state.selectedExperiment?.id ?? -1;
+    const checkpointValue = Number.isFinite(state.selectedCheckpoint)
+      ? state.selectedCheckpoint
+      : null;
+    const last = lastResetParamsRef.current;
+
+    if (experimentId !== -1) {
+      if (!last || last.experimentId !== experimentId || last.checkpoint !== checkpointValue) {
+        void resetSampler();
+      }
+    }
+
+    dispatch({ type: "SET_SETUP_COMPLETE", payload: false });
+  }, [state.setupComplete, state.selectedExperiment.id, state.selectedCheckpoint, dispatch, resetSampler]);
 
   return (
     <ThemeProvider
@@ -433,21 +555,34 @@ const App: React.FC = () => {
                       ).palette.text.primary,
                     }}
                   >
-                    RLHF-Blender
+                    Active Feedback Generation for RL
                   </Typography>
                   <IconButton
                     onClick={() =>
                       dispatch({ type: "SET_START_MODAL_OPEN", payload: true })
                     }
-                    sx={{ marginTop: "0.2vh", float: "right" }}
+                    sx={{ marginTop: "0.2vh", marginRight: "20px", float: "right" }}
                   >
                     <HelpIcon />
                   </IconButton>
+                
                 </>
               )}
             </Box>
           </Box>
-          {state.selectedProject.id >= 0 ? <FeedbackInterface /> : null}
+          {state.app_mode === "active-learning" || state.app_mode === "study-active-learning" ? (
+            <ActiveLearningProvider>
+              <OnboardingProvider>
+                <>
+                  <ActiveLearningInterface stepSampler={stepSampler} />
+                  <ExperimentStartModal onClose={handleExperimentStartClose} />
+                  <ExperimentEndModal open={state.endModalOpen} />
+                </>
+              </OnboardingProvider>
+            </ActiveLearningProvider>
+          ) : (
+            state.selectedProject?.id >= 0 ? <FeedbackInterface /> : null
+          )}
           <ConfigModal
             config={configState.activeUIConfig}
             open={state.uiConfigModalOpen}
@@ -459,9 +594,7 @@ const App: React.FC = () => {
             open={state.backendConfigModalOpen}
             onClose={closeBackendConfigModal}
           />
-          <ExperimentStartModal onClose={handleExperimentStartClose} />
-          <ExperimentEndModal open={state.endModalOpen} />
-          <ShortcutsInfoBox />
+          {/*<ShortcutsInfoBox />*/}
           <StudyCodeModal
             open={state.showStudyCode}
             onClose={() => dispatch({ type: "TOGGLE_STUDY_CODE" })}

@@ -3,8 +3,12 @@ import SmallEpisodeItem from "./feedbackinterface/episodeitem/small-episode-item
 import Box from "@mui/material/Box";
 import { Episode } from "../types";
 import { IDfromEpisode } from "../id";
+<<<<<<< HEAD
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
+=======
+import { Droppable } from '@hello-pangea/dnd';
+>>>>>>> origin/vis-short-projections
 import React from "react";
 
 interface AlternativeScrollableEpisodeListProps {

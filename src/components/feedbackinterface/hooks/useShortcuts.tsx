@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useShortcuts } from "../../../ShortCutProvider";
 
 
 type FeedbackShortcutProps = {
-  episodeIDs: (string | number)[];
+  episodeIDs: (string)[];
   feedbackMode: "ranking" | "bestOfK" | "annotation";
   onEvalFeedback: (episodeId: string, rating: number) => void;
   onBestOfKSelection: (episodeId: string) => void;
@@ -41,41 +41,10 @@ export const useFeedbackShortcuts = (props: FeedbackShortcutProps) => {
     };
   }, [props.onEvalFeedback, props.onBestOfKSelection, props.onDemoRequest, props.onFeatureAnnotation]);
 
-  // Memoize getTargetEpisodeId
-  const getTargetEpisodeId = useCallback(() => {
-    if (props.episodeIDs.length === 1) {
-      return props.episodeIDs[0];
-    }
-    return hoveredEpisodeId || lastInteractedEpisodeId;
-  }, [props.episodeIDs, hoveredEpisodeId, lastInteractedEpisodeId]);
-  const handleEpisodeHover = useCallback((episodeId: string | number) => {
-    setHoveredEpisodeId(episodeId);
-    if (episodeId) {
-      setLastInteractedEpisodeId(episodeId);
-    }
-  }, []);
 
   // Register shortcuts
   useEffect(() => {
     const shortcutIds: string[] = [];
-
-    if (props.uiConfigFeedbackComponents?.rating) {
-      // Register number key shortcuts for ratings
-      for (let i = 1; i <= 9; i++) {
-        const shortcutId = `rating-${i}`;
-        registerShortcut(shortcutId, {
-          key: String(i),
-          description: `Rate ${i}/9`,
-          action: () => {
-            const targetId = getTargetEpisodeId();
-            if (targetId) {
-              callbacksRef.current.onEvalFeedback(targetId, i);
-            }
-          },
-        });
-        shortcutIds.push(shortcutId);
-      }
-    }
 
     if (props.uiConfigFeedbackComponents?.ranking && props.feedbackMode === "bestOfK") {
       ["left", "right"].forEach((direction, index) => {
@@ -102,14 +71,8 @@ export const useFeedbackShortcuts = (props: FeedbackShortcutProps) => {
     unregisterShortcut,
     props.feedbackMode,
     props.episodeIDs,
-    getTargetEpisodeId,
     props.uiConfigFeedbackComponents,
   ]);
-
-  return {
-    handleEpisodeHover,
-    hoveredEpisodeId,
-  };
 };
 
 export default useFeedbackShortcuts;

@@ -1,0 +1,277 @@
+import { useEffect, useRef, useState } from 'react';
+
+interface Coordinate {
+  x: number;
+  y: number;
+}
+
+interface UseWebRTCProps {
+  serverUrl?: string;
+  sessionId: string;
+  environmentId: string;
+  experimentId: string;
+  coordinate?: Coordinate | null;
+  checkpoint?: number;
+  episodeNum?: number; // Episode number for saved state loading
+  step?: number; // Step number for saved state loading
+  forceRelay?: boolean; // optionally force TURN-only
+}
+
+
+export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,  environmentId, experimentId, coordinate = null, checkpoint = undefined, episodeNum = undefined, step = undefined, forceRelay = false }: UseWebRTCProps) {
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dcRef = useRef<RTCDataChannel | null>(null);
+  const dcIntervalRef = useRef<number | null>(null);
+
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [logs, setLogs] = useState({
+    dataChannel: '',
+    iceConnection: '',
+    iceGathering: '',
+    signaling: '',
+    offerSDP: '',
+    answerSDP: '',
+  });
+
+  const appendLog = (type: string, message: string) => {
+    setLogs((prev) => ({
+      ...prev,
+      [type]: (prev[type] || '') + message + '\n',
+    }));
+  };
+
+
+  const normalizeIceServers = (servers?: any[]): RTCIceServer[] | undefined => {
+    if (!servers || !Array.isArray(servers)) return undefined;
+    return servers.map((s: any) => ({
+      urls: Array.isArray(s.urls) ? s.urls : [s.urls],
+      username: s.username,
+      credential: s.credential
+    }));
+  };
+
+  const createPeerConnection = async (iceServers?: RTCIceServer[]) => {
+    // Use provided iceServers or fallback to basic STUN
+    const iceConfig: RTCConfiguration = {
+      iceServers: iceServers || [{ urls: ['stun:stun.l.google.com:19302'] }],
+      iceTransportPolicy: forceRelay ? 'relay' : 'all',
+      // iceCandidatePoolSize: 0 // can be tuned
+    };
+
+    pcRef.current = new RTCPeerConnection(iceConfig); 
+    const pc = pcRef.current;
+
+    pc.addEventListener('icegatheringstatechange', () => {
+      appendLog('iceGathering', ` -> ${pc.iceGatheringState}`);
+    });
+    appendLog('iceGathering', pc.iceGatheringState);
+
+    pc.addEventListener('iceconnectionstatechange', () => {
+      // console.log('ICE connection state:', pc.iceConnectionState);
+      appendLog('iceConnection', ` -> ${pc.iceConnectionState}`);
+    });
+
+    pc.addEventListener('signalingstatechange', () => {
+      appendLog('signaling', ` -> ${pc.signalingState}`);
+    });
+    appendLog('signaling', pc.signalingState);
+
+    pc.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (stream) {
+        setRemoteStream(stream);
+      }
+    };
+
+    pc.addEventListener('connectionstatechange', () => {
+      if (pc.connectionState === 'connected') {
+        console.log('WebRTC connected');
+      }
+    });
+
+    return pc;
+  };
+
+  const fetchIceServers = async (): Promise<RTCIceServer[] | undefined> => {
+    try {
+      const res = await fetch('/demo_generation/ice_servers', { method: 'GET' });
+      if (!res.ok) throw new Error(`Failed to fetch ICE servers: ${res.status}`);
+      const data = await res.json();
+      const servers = normalizeIceServers(data?.iceServers || []);
+      console.debug('Using ICE servers:', servers);
+      return servers;
+    } catch (e) {
+      console.warn('Falling back to default STUN due to error fetching ICE servers:', e);
+      return undefined;
+    }
+  };
+
+  const start = async ({ useDataChannel }) => {
+    const servers = await fetchIceServers();
+    const pc = await createPeerConnection(servers);
+    // As a safety, ensure configuration is applied (some browsers allow updating)
+    try {
+      if (servers && servers.length) pc.setConfiguration({ iceServers: servers, iceTransportPolicy: forceRelay ? 'relay' : 'all' });
+    } catch {}
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
+
+    if (useDataChannel) {
+      const dc = pc.createDataChannel('chat');
+      dcRef.current = dc;
+
+      dc.onopen = () => {
+        appendLog('dataChannel', '- open');
+        
+        // Send a test ping to confirm channel is working
+        try {
+          dc.send('ping test_connection');
+        } catch (error) {
+          console.error('Error sending ping test:', error);
+        }
+      };
+
+      dc.onclose = () => {
+        appendLog('dataChannel', '- close');
+        if (dcIntervalRef.current) clearInterval(dcIntervalRef.current);
+      };
+
+      dc.onmessage = (evt) => {
+        let messageStr = '';
+        if (typeof evt.data === 'string') {
+          messageStr = evt.data;
+        } else if (evt.data instanceof ArrayBuffer) {
+          messageStr = new TextDecoder().decode(evt.data);
+        } else {
+          messageStr = String(evt.data);
+        }
+        
+        appendLog('dataChannel', '< ' + messageStr);
+      };
+
+      dc.onerror = (error) => {
+        console.error('>>> Data channel error:', error);
+        appendLog('dataChannel', '! error: ' + error);
+      };
+    }
+
+    await negotiate();
+  };
+
+  const negotiate = async () => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    
+    await new Promise<void>((resolve) => {
+      if (pc.iceGatheringState === 'complete') {
+        resolve();
+      } else {
+        const checkState = () => {
+          if (pc.iceGatheringState === 'complete') {
+            pc.removeEventListener('icegatheringstatechange', checkState);
+            resolve();
+          }
+        };
+        pc.addEventListener('icegatheringstatechange', checkState);
+      }
+    });
+
+    const finalOffer = pc.localDescription;
+    if (!finalOffer) return;
+    setLogs((prev) => ({ ...prev, offerSDP: finalOffer.sdp }));
+
+    const requestBody = { 
+      sdp: finalOffer.sdp, 
+      type: finalOffer.type, 
+      session_id: sessionId,
+      environment_id: environmentId,
+      experiment_id: experimentId,
+      ...(coordinate && { 
+        coordinate: [coordinate.x, coordinate.y]
+      }),
+      ...(checkpoint !== undefined && episodeNum !== undefined && step !== undefined && { 
+        checkpoint: checkpoint,
+        episode_num: episodeNum,
+        step: step
+      })
+    };
+    
+    const res = await fetch(serverUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    });
+
+    const answer = await res.json();
+    setLogs((prev) => ({ ...prev, answerSDP: answer.sdp }));
+    // If backend also returns iceServers, normalize and apply for parity
+    try {
+      const srv = normalizeIceServers(answer?.iceServers);
+      if (srv && srv.length) pc.setConfiguration({ iceServers: srv, iceTransportPolicy: forceRelay ? 'relay' : 'all' });
+    } catch {}
+    
+    await pc.setRemoteDescription(answer);
+  };
+
+  const sendControlMessage = (message: any) => {
+    const dc = dcRef.current;
+    if (dc && dc.readyState === 'open') {
+      try {
+        const messageStr = JSON.stringify(message);
+        dc.send(messageStr);
+      } catch (error) {
+        console.error('Error sending control message:', error);
+      }
+    }
+  };
+
+  const sendKeyDown = (key: string) => {
+    sendControlMessage({ type: 'keydown', key });
+  };
+
+  const sendKeyUp = (key: string) => {
+    sendControlMessage({ type: 'keyup', key });
+  };
+
+  const sendAction = (action: any) => {
+    sendControlMessage({ type: 'action', action });
+  };
+
+  const stop = () => {
+    if (dcRef.current) {
+      try {
+        dcRef.current.close();
+      } catch (error) {
+        console.warn('Error closing data channel:', error);
+      }
+      dcRef.current = null;
+    }
+
+    if (dcIntervalRef.current) {
+      clearInterval(dcIntervalRef.current);
+      dcIntervalRef.current = null;
+    }
+
+    const pc = pcRef.current;
+    if (pc) {
+      try {
+        if (pc.getTransceivers) {
+          pc.getTransceivers().forEach((t) => t.stop && t.stop());
+        }
+
+        pc.getSenders().forEach((s) => s.track?.stop());
+        pc.close();
+      } catch (error) {
+        console.warn('Error closing RTCPeerConnection:', error);
+      }
+      pcRef.current = null;
+    }
+
+    setRemoteStream(null);
+  };
+
+  return { start, stop, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction };
+}

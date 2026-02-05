@@ -1,29 +1,34 @@
 import React, { useState } from "react";
 import { useAppState, useAppDispatch } from "../../AppStateContext";
 import { useSetupConfigState } from "../../SetupConfigContext";
+import { useOptionalActiveLearningDispatch } from "../../ActiveLearningContext";
+import PracticeDemoPanel from "../practice/PracticeDemoPanel";
 
 // MUI Components
 import {
-  Dialog,
-  DialogContent,
-  Tabs,
-  Tab,
+  Alert,
+  Box,
+  Button,
   Card,
   CardContent,
-  Typography,
-  Button,
-  Box,
-  Paper,
+  Container,
+  Dialog,
+  DialogContent,
+  Grid,
   List,
   ListItem,
+  ListItemIcon,
   ListItemText,
-  Grid,
-  Container,
+  Paper,
+  Tab,
+  Tabs,
+  Typography,
 } from "@mui/material";
 
-// Optional: Import icons if you want to add them to the navigation buttons
-import NavigateNextIcon from "@mui/icons-material/NavigateNext";
+// Icons
 import CheckIcon from "@mui/icons-material/Check";
+import NavigateNextIcon from "@mui/icons-material/NavigateNext";
+import PrivacyTipOutlinedIcon from "@mui/icons-material/PrivacyTipOutlined";
 
 type ExperimentStartModalProps = {
   onClose: () => void;
@@ -32,13 +37,18 @@ type ExperimentStartModalProps = {
 const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   const state = useAppState();
   const dispatch = useAppDispatch();
+  const activeLearningDispatch = useOptionalActiveLearningDispatch();
   const setupConfigState = useSetupConfigState();
   const { activeUIConfig } = setupConfigState;
   const [activeTab, setActiveTab] = useState(0);
+  const [ssvSlide, setSsvSlide] = useState(0);
 
   const { startModalOpen, startModalContent } = state;
 
   const handleClose = () => {
+    if (activeLearningDispatch) {
+      activeLearningDispatch({ type: 'REMOVE_USER_GENERATED_TRAJECTORIES_BY_SOURCE', payload: 'practice' });
+    }
     dispatch({ type: "SET_START_MODAL_OPEN", payload: false });
     setActiveTab(0);
     onClose();
@@ -48,8 +58,17 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
     setActiveTab(newValue);
   };
 
+  const navigationItems = [
+    "Introduction",
+    "User Interface",
+    "Feedback Options",
+    "Privacy Policy",
+    "Your Task",
+    "Practice Controls",
+  ];
+
   const handleNext = () => {
-    setActiveTab((prev) => Math.min(prev + 1, 2));
+    setActiveTab((prev) => Math.min(prev + 1, navigationItems.length - 1));
   };
 
   const feedbackTypes = Object.entries(activeUIConfig.feedbackComponents ?? {})
@@ -58,17 +77,16 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
       key,
       description: {
         rating:
-          "Rate episodes by using the slider. This feedback is always given for entire episodes.",
-        ranking:
-          "Drag & Drop Episodes to rank them. You can also rank multiple episodes equally.",
+          "Select a single trajectory from the projection and rate it using the slider (0-10). Videos of the episode will be displayed for review.",
+        comparison:
+          "Select multiple trajectories to compare them by activating the multi-selection mode. Choose the best performing episode from the available options.",
         correction:
-          "Select a specific step. You can open the correction window by clicking.",
-        featureSelection:
-          "Open the feature selection window by clicking the pen in the rendering window. You can select relevant features via brushing.",
+          "Select a single state to correct from this position. ",
         demonstration:
-          "Demonstrate a sequence of steps by selecting an action and wait for the next step",
-        text: "Provide textual feedback for the given segment. Hover over the info icon for suggestions.",
-      }[key],
+          "Select an empty coordinate in the projection to start a demonstration for an unknown state. Demonstrate behavior via keyboard controls",
+        clusterRating:
+          "Select a cluster of states and rate the overall performance of that cluster.",
+        }[key],
     }));
 
   return (
@@ -97,7 +115,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
         }}
       >
         <List>
-          {["Introduction", "Feedback Options", "Privacy Policy"].map(
+          {navigationItems.map(
             (text, index) => (
               <ListItem
                 button
@@ -124,12 +142,12 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
         <Box sx={{ borderBottom: 1, borderColor: "divider", px: 3, pt: 2 }}>
           <Typography variant="h5" component="h2" sx={{ mb: 2 }}>
-            RLHF-Blender: Instructions
+            Study Instructions
           </Typography>
           <Tabs value={activeTab} onChange={handleTabChange}>
-            <Tab label="Introduction" />
-            <Tab label="Feedback Options" />
-            <Tab label="Privacy Policy" />
+            {navigationItems.map((label) => (
+              <Tab key={label} label={label} />
+            ))}
           </Tabs>
         </Box>
 
@@ -137,38 +155,126 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
           {/* Introduction Tab */}
           {activeTab === 0 && (
             <Box>
-              <Typography paragraph>
-                Welcome to the experiment! Please watch the following video to
-                get an introduction to the interface:
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                🎯 Getting Started: Please read the following instructions carefully.
               </Typography>
-              {/* Reduced video size using Container */}
-              <Container maxWidth="md" sx={{ mb: 4 }}>
-                <Box sx={{ position: "relative", paddingTop: "56.25%" }}>
-                  <iframe
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                    }}
-                    src="https://www.youtube.com/embed/u5Ey8KojoiY?si=O3KxwcHiSe_P8tTs"
-                    title="YouTube video player"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                  />
-                </Box>
-              </Container>
+              <Typography paragraph>
+                This interactive tool allows users to provide feedback for reinforcement learning agent behavior.
+                The following instructions will give you a high-level overview of the study's goal and precedure.
+              </Typography>
+
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                🧩 Basics of RLHF
+              </Typography>
+              <Typography paragraph>
+                Your task will be to provide feedback to help the agent learn the desired behavior. Let's start by giving a very brief overview of the underlying concept of Reinforcement Learning from Human Feedback (RLHF).
+              </Typography>
+
+                <Box sx={{ p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <img
+                  src="/files/RLHF_Summary.png"
+                  alt="RLHF Summary"
+                  style={{ width: "100%", height: "auto", objectFit: "contain" }}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  As the human annotator, you observe the agent's behavior and provide feedback. This feedback is used to train a reward model, which in turn guides the agent's learning process. The updated agent
+                  is then recorded and provided back to you in an iterative training process.
+                </Typography>
+              </Box>
+
               {startModalContent}
             </Box>
           )}
 
-          {/* Feedback Options Tab */}
+          {/* User Interface Introduction*/}
           {activeTab === 1 && (
+            <Box>
+              <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                🗺️ State Sequence Projection (Left Panel)
+              </Typography>
+              <Typography paragraph>
+                The main visualization shows a 2D projection of agent state sequences from multiple episodes. 
+                Each trajectory represents an episode, with different colors indicating different episodes or similarity groups.
+              </Typography>
+              {/* SSV Carousel */}
+              <Box
+                sx={{
+                  backgroundColor: 'rgba(0,0,0,0.05)',
+                  p: 2,
+                  borderRadius: 1,
+                  mb: 2,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                }}
+              >
+                <Box sx={{ width: '100%', maxWidth: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img
+                    src={["/files/SSV_Explanation_1.png", "/files/SSV_Explanation_2.png", "/files/SSV_Explanation_3.png", "/files/SSV_Explanation_4.png", "/files/SSV_Explanation_5.png", "/files/SSV_Explanation_6.png"][ssvSlide]}
+                    alt={`SSV Explanation ${ssvSlide + 1}`}
+                    style={{ width: '100%', height: 'auto', objectFit: 'contain' }}
+                  />
+                </Box>
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    {
+                      [
+                        '1. The State Sequence View can be used to navigate through recorded behavior of the robot. The 2D coordinates correspond to positions of the robot arm. We use a dimensionality reduction technqiue (PCA) to generate 2D coordinates from mutli-dimensional inputs.',
+                        '2. You can dynamically select and view episodes, either by clicking on a line or selecting an episode from the episode list.',
+                        '3. The view has a consistent color scale, encoding both the predicted reward of the underlying reward modeland uncertainty.',
+                        '4. You select single states wthin a sequence, and also use the time-line to switch between states.',
+                        '5. By clicking on the dashed outlines, you can select an entire cluster of states.',
+                        '6. Depending on your selection, different feedback options will be available in the feedback panel on the right.',
+                      ][ssvSlide]
+                    }
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, mt: 1, width: '100%' }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => setSsvSlide((prev) => (prev + 5) % 6)}
+                  >
+                    Prev
+                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    {[0,1,2,3,4,5].map((i) => (
+                      <Box
+                        key={i}
+                        onClick={() => setSsvSlide(i)}
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          cursor: 'pointer',
+                          backgroundColor: i === ssvSlide ? 'primary.main' : 'grey.400',
+                        }}
+                      />
+                    ))}
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => setSsvSlide((prev) => (prev + 1) % 6)}
+                  >
+                    Next
+                  </Button>
+                </Box>
+              </Box>
+            </Box>
+          )}          
+
+          {/* Feedback Options Tab */}
+          {activeTab === 2 && (
             <Box>
               <Typography variant="h6" gutterBottom>
                 Available Feedback Options
               </Typography>
+              <Typography paragraph color="text.secondary">
+                Based on what you select in the state sequence projection, different feedback options become available. 
+                The feedback panel on the right will automatically adapt to show the appropriate interface for your selection.
+              </Typography>
+
               {/* Centered container with reduced width */}
               <Container maxWidth="lg">
                 <Grid container spacing={3} justifyContent="center">
@@ -224,20 +330,98 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
           )}
 
           {/* Privacy Policy Tab */}
-          {activeTab === 2 && (
-            <Box>
-              <Typography variant="h6" gutterBottom>
+          {activeTab === 3 && (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: 3 }}>
+              <Typography variant="h6">
                 Data Protection and Privacy
               </Typography>
-              <Typography paragraph color="text.secondary">
-                By clicking "Agree and Continue" you agree to participate in
-                this study. With your participation in this study, you agree
-                that your data will be used for research purposes only. Your
-                data will be stored anonymously and will not be passed on to
-                third parties. You can withdraw your consent at any time by
-                contacting the study supervisor.
+              <Typography color="text.secondary">
+                By clicking "Agree and Continue" you consent to participate in this research study. Your inputs are
+                stored without personal identifiers and never shared outside the study team. You may withdraw at any
+                point by notifying the study supervisor.
+              </Typography>
+
+              <Paper variant="outlined" sx={{ p: 2, backgroundColor: (theme) => theme.palette.action.hover }}>
+                <Typography variant="subtitle1" gutterBottom>
+                  What we collect to run the study
+                </Typography>
+                <List dense disablePadding>
+                  <ListItem disableGutters sx={{ alignItems: "flex-start" }}>
+                    <ListItemIcon sx={{ minWidth: 32, pt: 0.5 }}>
+                      <PrivacyTipOutlinedIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Screen recordings of the interface during your session"
+                      secondary="Used to review participant interactions and troubleshoot potential issues."
+                    />
+                  </ListItem>
+                  <ListItem disableGutters sx={{ alignItems: "flex-start" }}>
+                    <ListItemIcon sx={{ minWidth: 32, pt: 0.5 }}>
+                      <PrivacyTipOutlinedIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Feedback inputs and interaction events"
+                      secondary="Ratings, selections, and timeline interactions captured to evaluate feedback quality."
+                    />
+                  </ListItem>
+                  <ListItem disableGutters sx={{ alignItems: "flex-start" }}>
+                    <ListItemIcon sx={{ minWidth: 32, pt: 0.5 }}>
+                      <PrivacyTipOutlinedIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="System logs and timestamps"
+                      secondary="Technical diagnostics (e.g., latency, errors) recorded to keep the system stable."
+                    />
+                  </ListItem>
+                  <ListItem disableGutters sx={{ alignItems: "flex-start" }}>
+                    <ListItemIcon sx={{ minWidth: 32, pt: 0.5 }}>
+                      <PrivacyTipOutlinedIcon fontSize="small" color="primary" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary="Session audio when explicit consent is given"
+                      secondary="Think-aloud protocols are only recorded in moderated sessions—not in browser-only studies."
+                    />
+                  </ListItem>
+                </List>
+              </Paper>
+
+              <Alert severity="info" variant="outlined">
+                We erase raw recordings on request and publish only aggregated, anonymized results. Contact the study
+                supervisor if you need clarification or data deletion after participation.
+              </Alert>
+            </Box>
+          )}
+
+          {/* Your Task Tab */}
+          {activeTab === 4 && (
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Your Task
+              </Typography>
+              <Typography paragraph>
+                Your task is to teach the robot the correct behavior using the feedback tools presented in this interface. Provide feedback to guide learning so the agent improves over time.
+              </Typography>
+              <Typography paragraph>
+                The specific goal is to sweep the wooden square into the goal area, which is marked by a blue circle.
+              </Typography>
+              <Box sx={{ backgroundColor: 'rgba(0,0,0,0.05)', p: 2, borderRadius: 1, mb: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <video controls style={{ width: '100%', maxWidth: 600 }}>
+                <source src="/files/goal_video.mp4" type="video/mp4" />
+                  Your browser does not support the video tag.
+                </video>
+                <Typography variant="body2" color="text.secondary">
+                  Demonstration of the desired outcome: sweeping the wooden square into the blue goal area.
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary">
+                You are free to choose whatever feedback you think. is most helpful to teach the desired behavior and is most time-efficient for you.
               </Typography>
             </Box>
+          )}
+
+          {/* Practice Controls Tab */}
+          {activeTab === navigationItems.length - 1 && (
+            <PracticeDemoPanel />
           )}
         </DialogContent>
 
@@ -252,7 +436,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
             gap: 2,
           }}
         >
-          {activeTab !== 2 && (
+          {activeTab !== navigationItems.length - 1 && (
             <Button
               variant="contained"
               endIcon={<NavigateNextIcon />}
@@ -261,7 +445,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               Next
             </Button>
           )}
-          {activeTab === 2 && (
+          {activeTab === navigationItems.length - 1 && (
             <Button
               variant="contained"
               color="primary"

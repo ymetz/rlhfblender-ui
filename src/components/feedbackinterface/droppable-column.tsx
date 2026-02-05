@@ -1,10 +1,14 @@
 import React, { useContext } from "react";
+<<<<<<< HEAD
 import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
   horizontalListSortingStrategy,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+=======
+import { Droppable } from '@hello-pangea/dnd';
+>>>>>>> origin/vis-short-projections
 import EpisodeItem from "./episodeitem/episode-item";
 import Box from "@mui/material/Box";
 import { Feedback } from "../../types";
@@ -25,9 +29,6 @@ type DroppableColumnProps = {
   updateEvalFeedback: (episodeId: string, rating: number) => void;
   setDemoModalOpen: ({ open, seed }: { open: boolean; seed: number }) => void;
   actionLabels: any[];
-  onMouseEnter: (episodeId: string) => void;
-  onMouseLeave: () => void;
-  isHovered: boolean;
 };
 
 const DroppableColumn: React.FC<DroppableColumnProps> = ({
@@ -42,9 +43,6 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
   updateEvalFeedback,
   setDemoModalOpen,
   actionLabels,
-  onMouseEnter,
-  onMouseLeave,
-  isHovered,
 }) => {
   const UIConfig = useSetupConfigState().activeUIConfig;
   const horizontalRanking = UIConfig.uiComponents.horizontalRanking;
@@ -123,6 +121,7 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
               flexDirection: horizontalRanking ? "column" : "row",
               margin: 1,
 
+<<<<<<< HEAD
               // Here I have to put flex 1 because I want to fill out the white with the grey
               flex: 1,
               marginLeft: horizontalRanking ? "none" : 0,
@@ -154,6 +153,38 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
           </Box>
         </SortableContext>
       </>
+=======
+                // Here I have to put flex 1 because I want to fill out the white with the grey
+                flex: 1,
+                marginLeft: horizontalRanking ? "none" : 0,
+                marginTop: horizontalRanking ? 0 : "none",
+                borderRadius: horizontalRanking ? "0 0 5px 5px" : "0 5px 5px 0",
+                minHeight: horizontalRanking ? "none" : "4vh", // To match chip if collapsed,
+                minWidth: horizontalRanking ? "4vh" : "none", // To match chip if collapsed,
+                border: `1px solid ${theme.palette.divider}`,
+              }}
+            >
+              {episodeIDs.map((episodeID: string, index: number) => (
+                <EpisodeItem
+                  key={episodeID}
+                  episodeID={episodeID}
+                  index={index}
+                  scheduleFeedback={scheduleFeedback}
+                  selectBest={() => {}}
+                  isSelectedAsBest={false}
+                  sessionId={sessionId}
+                  evalFeedback={evalFeedback[episodeID]}
+                  updateEvalFeedback={updateEvalFeedback}
+                  setDemoModalOpen={setDemoModalOpen}
+                  actionLabels={actionLabels}
+                />
+              ))}
+              {provided.placeholder}
+            </Box>
+          </>
+        )}
+      </Droppable>
+>>>>>>> origin/vis-short-projections
     </Box>
   );
 };

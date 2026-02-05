@@ -93,7 +93,7 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
           onChange={onSliderChange}
           onCorrectionClick={onCorrectionClick}
           useCorrectiveFeedback={useCorrectiveFeedback}
-          showTooltip={() => false}
+          showTooltip={() => { }}
           hideTooltip={() => { }}
         />
       </div>

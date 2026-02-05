@@ -4,15 +4,17 @@ import React, { createContext, useReducer, useContext, ReactNode } from "react";
 import { AppState, Feedback, Episode } from "./types";
 
 type AppAction =
+  | { type: "SET_UI_TYPE"; payload: string }
   | { type: "SET_PROJECTS"; payload: any[] }
   | { type: "SET_EXPERIMENTS"; payload: any[] }
   | { type: "SET_SELECTED_PROJECT"; payload: any }
   | { type: "SET_SELECTED_EXPERIMENT"; payload: any }
+  | { type: "SET_SELECTED_CHECKPOINT"; payload: number }
   | { type: "SET_UI_CONFIG_MODAL_OPEN"; payload: boolean }
   | { type: "SET_BACKEND_CONFIG_MODAL_OPEN"; payload: boolean }
   | { type: "SET_SESSION_ID"; payload: string }
   | { type: "SCHEDULE_FEEDBACK"; payload: Feedback }
-  | { type: "SET_APP_MODE"; payload: "study" | "configure" }
+  | { type: "SET_APP_MODE"; payload: "study" | "configure" | "active-learning" | "study-active-learning" }
   | { type: "SET_START_MODAL_OPEN"; payload: boolean }
   | { type: "TOGGLE_STATUS_BAR" }
   | { type: "SET_UNCERTAINTY_CACHE"; payload: any }
@@ -46,7 +48,8 @@ const initialState: AppState = {
   actionLabels: [],
   highlightedEpisodes: [],
   selectedProject: { id: -1, project_name: "", project_experiments: [] },
-  selectedExperiment: { id: -1, exp_name: "", env_id: "" },
+  selectedExperiment: { id: -1, exp_name: "", env_id: "", env_config: "",  framework: "", checkpoint_list: []},
+  selectedCheckpoint: -1,
   sliderValue: 0,
   uiConfigModalOpen: false,
   backendConfigModalOpen: false,
@@ -81,6 +84,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, selectedProject: action.payload };
     case "SET_SELECTED_EXPERIMENT":
       return { ...state, selectedExperiment: action.payload };
+    case "SET_SELECTED_CHECKPOINT":
+      return { ...state, selectedCheckpoint: action.payload };
     case "SET_UI_CONFIG_MODAL_OPEN":
       return { ...state, uiConfigModalOpen: action.payload };
     case "SET_BACKEND_CONFIG_MODAL_OPEN":

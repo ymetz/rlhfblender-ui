@@ -10,7 +10,7 @@ type Episode = {
 
 type Target = {
   target_id: string;
-  reference: Episode;
+  reference: Episode | null;
   timestamp: number;
   origin: string;
   step?: number;
@@ -28,6 +28,7 @@ enum FeedbackType {
   Comparative = "comparative",
   Corrective = "corrective",
   Demonstrative = "demonstrative",
+  ClusterRating = "clusterRating",
   FeatureSelection = "featureSelection",
   Text = "text",
   Meta = "meta",
@@ -54,6 +55,9 @@ type Experiment = {
   id: number;
   exp_name: string;
   env_id: string;
+  framework: string;
+  env_config: string;
+  checkpoint_list: string[];
 };
 
 type UIConfig = {
@@ -99,7 +103,7 @@ type GymSpaceInfo = {
   high?: number | number[];
 };
 
-type AppMode = "study" | "configure";
+type AppMode = "study" | "configure" | "active-learning" | "study-active-learning";
 
 type AppState = {
   // Drag and drop
@@ -120,6 +124,7 @@ type AppState = {
   filtered_experiments: Experiment[];
   selectedProject: Project;
   selectedExperiment: Experiment;
+  selectedCheckpoint: number | string; // Allow string for compatibility with dynamic RLHF
   sliderValue: number;
   rankeableEpisodeIDs: string[];
   episodeIDsChronologically: Episode[];
@@ -149,6 +154,16 @@ type SetupConfigState = {
 };
 type AppProps = {};
 
+type ActiveLearningState = {
+  currentPhase: number,
+  progressRewards: number[],
+  progressUncertainties: number[],
+  selection: Episode[],
+  selectedEpisode: Episode | null,
+  projectionStates: number[][], //2d array of projection states
+  projectionStateValues: number[], // for each projection state, the value of the state for color coding
+}
+
 export type {
   AppState,
   AppProps,
@@ -162,5 +177,6 @@ export type {
   GymSpaceInfo,
   SetupConfigState,
   SequenceElement,
+  ActiveLearningState,
 };
 export { FeedbackType };

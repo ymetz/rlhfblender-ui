@@ -335,7 +335,7 @@ const FeedbackInterface: React.FC = () => {
     console.log("Feature annotation for episode", episodeId);
   }, []);
 
-  const { handleEpisodeHover, hoveredEpisodeId } = useFeedbackShortcuts({
+  useFeedbackShortcuts({
     episodeIDs: rankeableEpisodeIDs,
     feedbackMode,
     onEvalFeedback: updateEvalFeedback,
@@ -343,8 +343,6 @@ const FeedbackInterface: React.FC = () => {
     onDemoRequest: handleDemoRequest,
     onFeatureAnnotation: handleFeatureAnnotation,
     uiConfigFeedbackComponents: activeUIConfig.feedbackComponents,
-    scheduleFeedback,
-    sessionId,
   });
 
   return (
@@ -407,9 +405,6 @@ const FeedbackInterface: React.FC = () => {
                       evalFeedback={evalFeedback}
                       updateEvalFeedback={updateEvalFeedback}
                       setDemoModalOpen={setDemoModalOpen}
-                      onMouseEnter={handleEpisodeHover}
-                      onMouseLeave={() => handleEpisodeHover(null)}
-                      isHovered={hoveredEpisodeId === columnId}
                     />
                   );
                 })}
@@ -437,9 +432,6 @@ const FeedbackInterface: React.FC = () => {
               evalFeedback={evalFeedback}
               updateEvalFeedback={updateEvalFeedback}
               setDemoModalOpen={setDemoModalOpen}
-              onMouseEnter={handleEpisodeHover}
-              onMouseLeave={() => handleEpisodeHover(null)}
-              isHovered={hoveredEpisodeId === selectedColumn}
             />
           </Box>
         )}
