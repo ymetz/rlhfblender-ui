@@ -16,6 +16,9 @@ interface BestOfKColumnProps {
   evalFeedback: { [episodeId: string]: number };
   updateEvalFeedback: (episodeId: string, rating: number) => void;
   setDemoModalOpen: ({ open, seed }: { open: boolean; seed: number }) => void;
+  onMouseEnter: (episodeId: string) => void;
+  onMouseLeave: () => void;
+  isHovered: boolean;
 }
 
 const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
@@ -28,6 +31,9 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
   evalFeedback,
   updateEvalFeedback,
   setDemoModalOpen,
+  onMouseEnter,
+  onMouseLeave,
+  isHovered,
 }) => {
   const theme = useTheme();
   const UIConfig = useSetupConfigState().activeUIConfig;
@@ -81,6 +87,9 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
             setDemoModalOpen={setDemoModalOpen}
             actionLabels={actionLabels}
             isBestOfK={true}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+            isHovered={isHovered}
           />
         </Box>
       ))}

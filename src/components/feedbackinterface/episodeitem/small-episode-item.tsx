@@ -13,12 +13,16 @@ interface SmallEpisodeItemProps {
   isRankeable: boolean;
   episodeID: Episode;
   draggableIndex: number;
+  color?: string;
+  getThumbnail?: (episodeID: string) => Promise<string | undefined>;
 }
 
 const SmallEpisodeItem: React.FC<SmallEpisodeItemProps> = ({
   isRankeable,
   episodeID,
   draggableIndex,
+  color,
+  getThumbnail: getThumbnailOverride,
 }) => {
   const draggableId = isRankeable
     ? `${IDfromEpisode(episodeID)}_duplicate`
@@ -43,7 +47,7 @@ const SmallEpisodeItem: React.FC<SmallEpisodeItemProps> = ({
   const [enlarged, setEnlarged] = useState(false);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const getThumbnail = useGetter().getThumbnailURL;
+  const getThumbnail = getThumbnailOverride ?? useGetter().getThumbnailURL;
   const getVideoURL = useGetter().getVideoURL;
 
   const handleMouseEnter = () => {

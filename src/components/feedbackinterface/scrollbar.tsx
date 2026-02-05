@@ -293,6 +293,7 @@ const Scrollbar: React.FC<React.ComponentPropsWithoutRef<"div">> = ({
         ref.removeEventListener("scroll", handleThumbPosition);
       };
     }
+    return undefined;
   }, [handleThumbPosition, horizontalRanking]);
 
   // Listen for mouse events to handle scrolling by dragging the thumb

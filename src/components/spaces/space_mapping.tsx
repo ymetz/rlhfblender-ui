@@ -33,7 +33,7 @@ export default function Space(props: SpaceProps) {
 
   const ConfiguredSpace = SpaceMapping[label as keyof typeof SpaceMapping];
 
-  return <ConfiguredSpace {...props.spaceProps} />;
+  return <ConfiguredSpace {...(props.spaceProps as any)} />;
 }
 
 export function AvailableSpaces() {

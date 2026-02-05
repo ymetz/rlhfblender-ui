@@ -32,7 +32,7 @@ export interface ActiveLearningState {
   progressRewards: number[];
   progressUncertainties: number[];
   shouldLoadNewData: boolean;
-  selection: {type: string, data: any[] | any}[];
+  selection: { type: string; data: any }[];
   selectedEpisode: Episode | null;
   projectionStates: number[][];
   projectionStateValues: number[];
@@ -106,7 +106,7 @@ type ActiveLearningAction =
   | { type: "SET_PROGRESS_TRAINING_STEPS"; payload: number[] }
   | { type: "SET_PROGRESS_REWARDS"; payload: number[] }
   | { type: "SET_PROGRESS_UNCERTAINTIES"; payload: number[] }
-  | { type: "SET_SELECTION"; payload: {type: string, data: any[]}[]}
+  | { type: "SET_SELECTION"; payload: { type: string; data: any }[] }
   | { type: "SET_SELECTED_EPISODE"; payload: Episode | null }
   | { type: "SET_PROJECTION_STATES"; payload: number[][] }
   | { type: "SET_PROJECTION_STATE_VALUES"; payload: number[] }

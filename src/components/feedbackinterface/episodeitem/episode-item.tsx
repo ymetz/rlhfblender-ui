@@ -101,6 +101,9 @@ interface EpisodeItemProps {
   setDemoModalOpen: ({ open, seed }: { open: boolean; seed: number }) => void;
   actionLabels?: any[];
   isBestOfK?: boolean;
+  onMouseEnter: (episodeId: string) => void;
+  onMouseLeave: () => void;
+  isHovered: boolean;
 }
 
 type StepDetails = {
@@ -120,10 +123,13 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   sessionId,
   evalFeedback,
   updateEvalFeedback,
-  setDemoModalOpen,
-  actionLabels = [],
-  isBestOfK = false,
-}) => {
+    setDemoModalOpen,
+    actionLabels = [],
+    isBestOfK = false,
+    onMouseEnter,
+    onMouseLeave,
+    isHovered,
+  }) => {
   const {
     attributes,
     listeners,
@@ -235,6 +241,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
         setUncertainty(uncertaintyData ? uncertaintyData : []);
       });
     }
+    return undefined;
   }, [
     episodeID,
     getUncertainty,

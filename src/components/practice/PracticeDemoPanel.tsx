@@ -187,7 +187,9 @@ const PracticeDemoPanel: React.FC = () => {
           phase: activeLearningState?.currentPhase ?? 0,
         };
 
-        activeLearningDispatch({ type: 'ADD_USER_GENERATED_TRAJECTORY', payload: trajectory });
+        if (activeLearningDispatch) {
+          activeLearningDispatch({ type: 'ADD_USER_GENERATED_TRAJECTORY', payload: trajectory });
+        }
       } else {
       }
     } catch (error) {

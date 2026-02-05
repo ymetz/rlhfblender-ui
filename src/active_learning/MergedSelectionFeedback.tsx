@@ -4,7 +4,6 @@ import {
   Typography,
   Card,
   CardContent,
-  Grid,
   IconButton,
   Paper,
   Button,
@@ -14,6 +13,7 @@ import {
   CircularProgress,
   Stack,
 } from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
 import { alpha } from '@mui/material/styles';
 import {
   Image as ImageIcon,
@@ -183,13 +183,8 @@ const MergedSelectionFeedback = () => {
   const allEpisodes = useMemo(() => {
     const episodes = appState.episodeIDsChronologically || [];
     const selectedCheckpoint = appState.selectedCheckpoint;
-
-    if (selectedCheckpoint === undefined || selectedCheckpoint === null || selectedCheckpoint < 0) {
-      return [];
-    }
-
     const checkpointStep = Number(selectedCheckpoint);
-    if (Number.isNaN(checkpointStep)) {
+    if (!Number.isFinite(checkpointStep) || checkpointStep < 0) {
       return [];
     }
 
@@ -498,7 +493,12 @@ const MergedSelectionFeedback = () => {
           if (allEpisodes[episodeIdx]) {
             const episode = allEpisodes[episodeIdx];
             const episodeID = IDfromEpisode(episode);
-            try { const url = await getVideoURL(episodeID); newVideoURLMap.set(episodeID, url); }
+            try {
+              const url = await getVideoURL(episodeID);
+              if (url) {
+                newVideoURLMap.set(episodeID, url);
+              }
+            }
             catch (error) { }
           }
         } else if (selectionData.type === 'multi_trajectory') {
@@ -508,7 +508,12 @@ const MergedSelectionFeedback = () => {
             if (typeof episodeIdx === 'number' && allEpisodes[episodeIdx]) {
               const episode = allEpisodes[episodeIdx];
               const episodeID = IDfromEpisode(episode);
-              try { const url = await getVideoURL(episodeID); newVideoURLMap.set(episodeID, url); }
+              try {
+                const url = await getVideoURL(episodeID);
+                if (url) {
+                  newVideoURLMap.set(episodeID, url);
+                }
+              }
               catch (error) { }
             }
           }
@@ -930,7 +935,9 @@ const MergedSelectionFeedback = () => {
     const fb: Feedback = {
       feedback_type: FeedbackType.Comparative,
       targets,
-      preferences: targets.map((target) => target.target_id === chosenId ? 1 : 0),
+      preferences: targets.map((target: { target_id: string }) =>
+        target.target_id === chosenId ? 1 : 0,
+      ),
       granularity: 'episode',
       timestamp: Date.now(),
       session_id: appState.sessionId,

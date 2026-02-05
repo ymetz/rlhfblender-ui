@@ -24,16 +24,19 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   const dcIntervalRef = useRef<number | null>(null);
 
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const [logs, setLogs] = useState({
+  const initialLogs = {
     dataChannel: '',
     iceConnection: '',
     iceGathering: '',
     signaling: '',
     offerSDP: '',
     answerSDP: '',
-  });
+  } as const;
+  type LogType = keyof typeof initialLogs;
 
-  const appendLog = (type: string, message: string) => {
+  const [logs, setLogs] = useState<Record<LogType, string>>(initialLogs);
+
+  const appendLog = (type: LogType, message: string) => {
     setLogs((prev) => ({
       ...prev,
       [type]: (prev[type] || '') + message + '\n',
@@ -106,7 +109,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     }
   };
 
-  const start = async ({ useDataChannel }) => {
+  const start = async ({ useDataChannel }: { useDataChannel: boolean }) => {
     const servers = await fetchIceServers();
     const pc = await createPeerConnection(servers);
     // As a safety, ensure configuration is applied (some browsers allow updating)

@@ -6,7 +6,7 @@ const { createProxyMiddleware } = require("http-proxy-middleware");
 const app = express();
 
 // Frontend
-app.use(express.static("build"));
+app.use(express.static("dist"));
 // Proxy requests to the backend
 app.use(
   "/",

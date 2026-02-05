@@ -326,6 +326,7 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
                 data={rewards}
                 x={(_, i) => stepScale(i)}
                 y={(d) => rewardScale(d)}
+                yScale={rewardScale}
                 y0={() => rewardBaselineY}
                 curve={curveMonotoneX}
                 fill={rewardFill}
@@ -374,6 +375,7 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
                 data={uncertainties}
                 x={(_, i) => stepScale(i)}
                 y={(d) => uncertaintyScale(d)}
+                yScale={uncertaintyScale}
                 y0={() => uncertaintyBaselineY}
                 curve={curveMonotoneX}
                 fill={uncertFill}

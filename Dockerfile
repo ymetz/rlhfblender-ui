@@ -11,7 +11,7 @@ COPY . .
 # Install dependencies
 RUN npm install
 
-RUN npm run build --production
+RUN npm run build
 
 # Set user to node
 USER node

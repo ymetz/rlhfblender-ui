@@ -21,10 +21,10 @@ export interface DrawStateSpaceArgs {
     segments?: any[];
     props?: any;
     activeLearningDispatch: Dispatch<any>;
-    embeddingRef: RefObject<HTMLDivElement>;
+    embeddingRef: RefObject<HTMLDivElement | null>;
     selectedStateRef: MutableRefObject<SelectedState | null>;
     selectedTrajectoryRef: MutableRefObject<number | null>;
-    selectedCoordinateRef: MutableRefObject<SelectedCoordinate>;
+    selectedCoordinateRef: MutableRefObject<SelectedCoordinate | null>;
     selectedClusterRef: MutableRefObject<SelectedCluster | null>;
     selectedUserTrajectoryIdRef: MutableRefObject<string | null>;
     multiSelectModeRef: MutableRefObject<boolean>;
@@ -191,12 +191,22 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
             yDomain = [gridData.bounds.y_min, gridData.bounds.y_max];
         } else {
             // Fallback to data-driven extents with modest padding
-            const xExtent = d3.extent(processedData.map((d) => d[0]));
-            const yExtent = d3.extent(processedData.map((d) => d[1]));
-            const xPadding = (xExtent[1] - xExtent[0]) * 0.1; // 10% padding
-            const yPadding = (yExtent[1] - yExtent[0]) * 0.1; // 10% padding
-            xDomain = [xExtent[0] - xPadding, xExtent[1] + xPadding];
-            yDomain = [yExtent[0] - yPadding, yExtent[1] + yPadding];
+            const xExtent = d3.extent(processedData.map((d) => d[0])) as [
+                number | undefined,
+                number | undefined
+            ];
+            const yExtent = d3.extent(processedData.map((d) => d[1])) as [
+                number | undefined,
+                number | undefined
+            ];
+            const x0 = xExtent[0] ?? 0;
+            const x1 = xExtent[1] ?? x0 + 1;
+            const y0 = yExtent[0] ?? 0;
+            const y1 = yExtent[1] ?? y0 + 1;
+            const xPadding = (x1 - x0) * 0.1; // 10% padding
+            const yPadding = (y1 - y0) * 0.1; // 10% padding
+            xDomain = [x0 - xPadding, x1 + xPadding];
+            yDomain = [y0 - yPadding, y1 + yPadding];
         }
 
         const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
@@ -239,9 +249,12 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 });
                 
                 // Trigger a redraw now that the image is available, using current transform
-                if (context && view.node()) {
-                    const currentTransform = d3.zoomTransform(view.node() as Element);
-                    zoomed({ transform: currentTransform });
+                if (context) {
+                    const viewNode = view.node();
+                    if (viewNode) {
+                        const currentTransform = d3.zoomTransform(viewNode as Element);
+                        zoomed({ transform: currentTransform });
+                    }
                 }
             };
 
@@ -270,7 +283,11 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         }
 
         // Helper function to calculate image bounds matching the projection space
-        function calculateImageBounds(xScale, yScale, bounds) {
+        function calculateImageBounds(
+            xScale: d3.ScaleLinear<number, number>,
+            yScale: d3.ScaleLinear<number, number>,
+            bounds: any,
+        ) {
             // If we have grid data with bounds, use them exactly (no additional padding)
             // Backend already applies consistent 15% margin in global bounds computation
             if (bounds) {
@@ -292,7 +309,13 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         }
 
         // Helper function to draw image to canvas with transform
-        function drawImageToCanvas(ctx, imageKey, transform, width, height) {
+        function drawImageToCanvas(
+            ctx: CanvasRenderingContext2D | null,
+            imageKey: string,
+            transform: d3.ZoomTransform,
+            width: number,
+            height: number,
+        ) {
             if (!ctx) return;
 
             const imgData = canvasImageCache.get(imageKey);
@@ -519,8 +542,11 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     }
 
                     // Force a redraw to show the highlighted trajectory and state
-                    const currentTransform = d3.zoomTransform(view.node());
-                    zoomed({ transform: currentTransform });
+                    const viewNode = view.node();
+                    if (viewNode) {
+                        const currentTransform = d3.zoomTransform(viewNode as Element);
+                        zoomed({ transform: currentTransform });
+                    }
                 }
             } else {
                 // Skip coordinate selection in multi-select mode
@@ -593,8 +619,11 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 setSelectedTrajectory(null);
 
                 // Force a redraw to update the visualization
-                const currentTransform = d3.zoomTransform(view.node());
-                zoomed({ transform: currentTransform });
+                const viewNode = view.node();
+                if (viewNode) {
+                    const currentTransform = d3.zoomTransform(viewNode as Element);
+                    zoomed({ transform: currentTransform });
+                }
             }
         });
 
@@ -610,8 +639,8 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
             });
 
         // Create label data map
-        const label_data_map = new Map();
-        const start_label_data = [0].concat(done_idx.slice(0, -1).map((d) => d + 1));
+        const label_data_map = new Map<number, string[]>();
+        const start_label_data = [0].concat(done_idx.slice(0, -1).map((d: number) => d + 1));
 
         for (let i = 0; i < start_label_data.length; i++) {
             label_data_map.set(start_label_data[i], ['Start']);
@@ -623,7 +652,10 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
             if (!label_data_map.has(donePosition)) {
                 label_data_map.set(donePosition, ['Done']);
             } else {
-                label_data_map.get(donePosition).push('Done');
+                const existing = label_data_map.get(donePosition);
+                if (existing) {
+                    existing.push('Done');
+                }
             }
         }
 
@@ -635,7 +667,10 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 if (!label_data_map.has(ids[j])) {
                     label_data_map.set(ids[j], [label]);
                 } else {
-                    label_data_map.get(ids[j]).push(label);
+                    const existing = label_data_map.get(ids[j]);
+                    if (existing) {
+                        existing.push(label);
+                    }
                 }
             }
         }
@@ -651,7 +686,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
             .attr('transform', (d) => `translate(${xScale(d[0])}, ${yScale(d[1])})`);
 
         // Function to create start glyph (play triangle)
-        const createStartGlyph = (container, size = 12, isHighlighted = false) => {
+        const createStartGlyph = (container: any, size = 12, isHighlighted = false) => {
             const triangle = container.append('polygon')
                 .attr('class', 'start-glyph')
                 .attr('points', `${-size/2},${-size/2} ${size/2},0 ${-size/2},${size/2}`)
@@ -668,7 +703,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         };
 
         // Function to create end glyph (square stop)
-        const createEndGlyph = (container, size = 10, isHighlighted = false) => {
+        const createEndGlyph = (container: any, size = 10, isHighlighted = false) => {
             const square = container.append('rect')
                 .attr('class', 'end-glyph')
                 .attr('x', -size/2)
@@ -689,7 +724,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
 
         // Add appropriate glyphs based on label type
         glyph_labels.each(function(d) {
-            const labels = label_data_map.get(d[2]);
+            const labels = label_data_map.get(d[2]) ?? [];
             const container = d3.select(this);
             
             // Determine which episode this glyph belongs to
@@ -724,13 +759,13 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         const maxSegments = maxUncertaintySegments;
         if (segments.length > 0 && predicted_uncertainties.length > 0) {
             // Calculate average uncertainty for each merged segment
-            const mergedSegmentsWithUncertainty = segments.map(mergedSegment => {
+            const mergedSegmentsWithUncertainty = segments.map((mergedSegment: any) => {
                 // Get uncertainty values for all points in this merged segment
-                const segmentUncertainties = [];
-                const segmentGlobalIndices = [];
+                const segmentUncertainties: number[] = [];
+                const segmentGlobalIndices: number[] = [];
                 
                 // Iterate through all inner segments within this merged segment
-                mergedSegment.segments.forEach(innerSegment => {
+                mergedSegment.segments.forEach((innerSegment: any) => {
                     // Map segment's episode and local indices to global state indices
                     for (let i = 0; i < episodeIndices.length; i++) {
                         const stateEpisodeIdx = episodeIndices[i];
@@ -765,11 +800,15 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 .sort((a, b) => b.avgUncertainty - a.avgUncertainty);
             
             // Apply minimum distance constraint to avoid overlapping segments
-            const selectedSegments = [];
+            const selectedSegments: Array<{
+                mergedSegment: any;
+                avgUncertainty: number;
+                globalIndices: number[];
+            }> = [];
             const minDistance = 0.15; // Adjust based on your data scale
             
             for (const segmentData of sortedSegments) {
-                const tooClose = selectedSegments.some(selected => {
+                const tooClose = selectedSegments.some((selected) => {
                     const dx = segmentData.mergedSegment.centroid[0] - selected.mergedSegment.centroid[0];
                     const dy = segmentData.mergedSegment.centroid[1] - selected.mergedSegment.centroid[1];
                     return Math.sqrt(dx * dx + dy * dy) < minDistance;
@@ -793,7 +832,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 const expansionFactor = 1.15; // 15% larger
                 const centroid = mergedSegment.centroid;
                 
-                const expandedHull = mergedSegment.convexHull.map(point => {
+                const expandedHull = mergedSegment.convexHull.map((point: number[]) => {
                     // Calculate vector from centroid to hull point
                     let dx = point[0] - centroid[0];
                     let dy = point[1] - centroid[1];
@@ -815,7 +854,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 });
 
                 // Map expanded hull points to screen coordinates
-                const mappedHull = expandedHull.map(p => [xScale(p[0]), yScale(p[1])]);
+                const mappedHull = expandedHull.map((p: number[]) => [xScale(p[0]), yScale(p[1])]);
                 
                 const segmentElement = segmentGroup.append('g')
                     .attr('class', 'uncertainty-segment')
@@ -860,9 +899,13 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                             .attr('stroke-width', clusterHullStyles.defaultWidth);
                         
                         // Highlight this segment's visible hull
-                        d3.select(this.parentNode).select('.uncertainty-segment-hull')
-                            .attr('stroke-width', clusterHullStyles.selectedWidth)
-                            .attr('opacity', clusterHullStyles.selectedOpacity);
+                        const parent = this.parentNode;
+                        if (parent) {
+                            d3.select(parent as unknown as Element)
+                                .select('.uncertainty-segment-hull')
+                                .attr('stroke-width', clusterHullStyles.selectedWidth)
+                                .attr('opacity', clusterHullStyles.selectedOpacity);
+                        }
                         
                         // Get all indices belonging to this merged segment (precomputed)
                         const segmentIndices = topMergedSegments[index].globalIndices || [];
@@ -886,8 +929,11 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                         });
                         
                         // Trigger immediate re-render to show cluster state highlights
-                        const currentTransform = d3.zoomTransform(view.node());
-                        zoomed({ transform: currentTransform });
+                        const viewNode = view.node();
+                        if (viewNode) {
+                            const currentTransform = d3.zoomTransform(viewNode as Element);
+                            zoomed({ transform: currentTransform });
+                        }
                     });
                 
                 // Add visible dashed hull path on top
@@ -1043,7 +1089,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                         const trajectoryColor = computedTrajectoryColors.get(episodeIdx) || getFallbackColor(episodeIdx);
                         
                         // Transform points to screen coordinates
-                        const screenPoints = pathPoints.map(p => [xScale(p[0]), yScale(p[1])]);
+                        const screenPoints = pathPoints.map((p: number[]) => [xScale(p[0]), yScale(p[1])]);
                         
                         // Use thicker stroke for selected episode
                         const strokeWidth = isHighlighted ? width * 2 : width;
@@ -1211,7 +1257,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                                 highlights.episodes.forEach((ep: number) => {
                                     const pathPoints = episodeToPaths.get(ep);
                                     if (!pathPoints || pathPoints.length === 0) return;
-                                    const screenPoints = pathPoints.map(p => [xScale(p[0]), yScale(p[1])]);
+                                    const screenPoints = pathPoints.map((p: number[]) => [xScale(p[0]), yScale(p[1])]);
                                     drawTrajectory(context, screenPoints, highlightColor, overlayWidth);
                                 });
                             }
@@ -1421,8 +1467,8 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 const pts = processedData.filter((_, i) => episodeIndices[i] === episodeToFit);
                 if (!pts || pts.length === 0) return;
 
-                const xs = pts.map(p => p[0]);
-                const ys = pts.map(p => p[1]);
+                const xs = pts.map((p: number[]) => p[0]);
+                const ys = pts.map((p: number[]) => p[1]);
                 const minX = Math.min(...xs);
                 const maxX = Math.max(...xs);
                 const minY = Math.min(...ys);
@@ -1459,7 +1505,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     (svgRoot as any).call(zoomBehaviorRef.current.transform, t);
                 }
                 // ensure layers redraw
-                view.attr('transform', t);
+                view.attr('transform', t.toString());
                 currentTransformRef.current = t;
                 if (zoomedFunctionRef.current) {
                     zoomedFunctionRef.current({ transform: t });

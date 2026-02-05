@@ -68,7 +68,7 @@ const EmbeddingContainer = styled(Box)(({ theme }) => ({
     minWidth: '400px',  // Fallback minimum width
 }));
 
-const StateSequenceProjection = (props) => {
+const StateSequenceProjection = (props: any) => {
     // Get state and dispatch from context
     const activeLearningState = useActiveLearningState();
     const activeLearningDispatch = useActiveLearningDispatch();
@@ -76,14 +76,14 @@ const StateSequenceProjection = (props) => {
     const theme = useTheme();
 
     // Refs
-    const embeddingRef = useRef(null);
+    const embeddingRef = useRef<HTMLDivElement | null>(null);
 
-    const [minMaxScale, setMinMaxScale] = useState(null);
+    const [minMaxScale, setMinMaxScale] = useState<[number, number] | null>(null);
 
     // Component state variables
     const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [selectedTrajectory, setSelectedTrajectory] = useState(null);
+    const [error, setError] = useState<string | null>(null);
+    const [selectedTrajectory, setSelectedTrajectory] = useState<number | null>(null);
     const [selectedState, setSelectedState] = useState<SelectedState | null>(null);
     const [selectedCoordinate, setSelectedCoordinate] = useState<SelectedCoordinate>({ x: null, y: null });
     const [selectedCluster, setSelectedCluster] = useState<SelectedCluster | null>(null);
@@ -92,12 +92,12 @@ const StateSequenceProjection = (props) => {
     const [selectedUserDemo, setSelectedUserDemo] = useState<UserDemoTrajectory | null>(null);
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const multiSelectModeRef = useRef(false);
-    const currentSelectionRef = useRef([]);
+    const currentSelectionRef = useRef<SelectionItem[]>([]);
     const [segmentSize, setSegmentSize] = useState(50);
     const [maxUncertaintySegments, setMaxUncertaintySegments] = useState(10);
-    const selectedTrajectoryRef = useRef(null);
+    const selectedTrajectoryRef = useRef<number | null>(null);
     const selectedStateRef = useRef<SelectedState | null>(null);
-    const selectedCoordinateRef = useRef<SelectedCoordinate>();
+    const selectedCoordinateRef = useRef<SelectedCoordinate | null>(null);
     const selectedClusterRef = useRef<SelectedCluster | null>(null);
     const zoomedFunctionRef = useRef<((event: any) => void) | null>(null);
     const currentTransformRef = useRef<d3.ZoomTransform | null>(null);
@@ -187,7 +187,7 @@ const StateSequenceProjection = (props) => {
 
     // Keep currentSelectionRef in sync with activeLearningState.selection
     useEffect(() => {
-        currentSelectionRef.current = activeLearningState.selection || [];
+        currentSelectionRef.current = (activeLearningState.selection || []) as SelectionItem[];
     }, [activeLearningState.selection]);
 
     // Clear selection when key props change (new checkpoint, benchmark, etc.)
@@ -274,10 +274,16 @@ const StateSequenceProjection = (props) => {
 
                 // Look up the actual coordinates from the projection data
                 const projectionStates = activeLearningState.projectionStates || [];
-                let actualCoords = [stateData.x || 0, stateData.y || 0]; // fallback
+                let actualCoords: [number, number] = [
+                    stateData.x || 0,
+                    stateData.y || 0,
+                ]; // fallback
 
                 if (globalIndex >= 0 && globalIndex < projectionStates.length) {
-                    actualCoords = projectionStates[globalIndex];
+                    const candidate = projectionStates[globalIndex];
+                    if (candidate && candidate.length >= 2) {
+                        actualCoords = [candidate[0], candidate[1]];
+                    }
                 }
 
                 const newSelectedState: SelectedState = {
@@ -305,8 +311,9 @@ const StateSequenceProjection = (props) => {
                         const svg = d3.select(embeddingRef.current).select('svg');
                         if (svg.node()) {
                             const view = svg.select('.view');
-                            if (view.node()) {
-                                const currentTransform = d3.zoomTransform(view.node());
+                            const viewNode = view.node();
+                            if (viewNode) {
+                                const currentTransform = d3.zoomTransform(viewNode as Element);
                                 zoomedFunctionRef.current({ transform: currentTransform });
                             }
                         }
@@ -439,20 +446,20 @@ const StateSequenceProjection = (props) => {
     // Drawing function dispatches to specific visualizations
     const drawChart = useCallback((
         mode = 'state_space',
-        data = [],
-        labels = [],
-        actionData = [],
-        doneData = [],
-        episodeIndices = [],
-        labelInfos = [],
-        predictedRewards = [],
-        predictedUncertainties = [],
-        gridData = {
+        data: number[][] = [],
+        labels: any[] = [],
+        actionData: any[] = [],
+        doneData: any[] = [],
+        episodeIndices: number[] = [],
+        labelInfos: any[] = [],
+        predictedRewards: any[] = [],
+        predictedUncertainties: any[] = [],
+        gridData: { prediction_image: string | null; uncertainty_image: string | null; bounds: any } = {
             prediction_image: null,
             uncertainty_image: null,
             bounds: null,
         },
-        segments = []
+        segments: any[] = []
     ) => {
 
         switch (mode) {
@@ -471,8 +478,9 @@ const StateSequenceProjection = (props) => {
             const svg = d3.select(embeddingRef.current).select('svg');
             if (svg.node()) {
                 const view = svg.select('.view');
-                if (view.node()) {
-                    const currentTransform = d3.zoomTransform(view.node() as Element);
+                const viewNode = view.node();
+                if (viewNode) {
+                    const currentTransform = d3.zoomTransform(viewNode as Element);
                     currentTransformRef.current = currentTransform;
                 }
             }
@@ -556,8 +564,8 @@ const StateSequenceProjection = (props) => {
                 const grid_uncertainty_data = gridUncertaintyRes.data;
 
                 console.log("Loaded projection data:", grid_data.x_range, grid_data.y_range);
-                const xs = data.projection.map(p => p[0]);
-                const ys = data.projection.map(p => p[1]);
+                const xs = data.projection.map((p: number[]) => p[0]);
+                const ys = data.projection.map((p: number[]) => p[1]);
 
                 // get min/max
                 const minX = Math.min(...xs);
@@ -578,8 +586,12 @@ const StateSequenceProjection = (props) => {
                 activeLearningDispatch({ type: 'SET_GRID_PREDICTION_IMAGE', payload: grid_data.image });
                 activeLearningDispatch({ type: 'SET_GRID_UNCERTAINTY_IMAGE', payload: grid_uncertainty_data.image });
 
-                const selected_points = props.infos ? props.infos.map(i => i['selected']) : [];
-                const highlighted_points = props.infos ? props.infos.map(i => i['highlighted']) : [];
+                const selected_points = props.infos
+                    ? props.infos.map((i: any) => i['selected'])
+                    : [];
+                const highlighted_points = props.infos
+                    ? props.infos.map((i: any) => i['highlighted'])
+                    : [];
 
                 // Update global state - projection data
                 activeLearningDispatch({ type: 'SET_EMBEDDING_LABELS', payload: data.labels });
@@ -602,7 +614,7 @@ const StateSequenceProjection = (props) => {
                     const preds = grid_data.original_predictions || [];
                     const uncs = grid_data.original_uncertainties || [];
                     const statsMap = new Map<number, { avgReward: number | null; avgUncertainty: number | null; count: number }>();
-                    const uniqueEpisodes = Array.from(new Set(epiIdx));
+                    const uniqueEpisodes = Array.from(new Set(epiIdx)) as number[];
                     uniqueEpisodes.forEach((ep: number) => {
                         const idxs: number[] = [];
                         for (let i = 0; i < epiIdx.length; i++) {
@@ -662,10 +674,10 @@ const StateSequenceProjection = (props) => {
                 }*/
 
                 // Process segments with the loaded data
-                let processedSegments = [];
+                let processedSegments: any[] = [];
                 if (data.projection && data.episode_indices) {
                     const episodeToPaths = new Map();
-                    data.episode_indices.forEach((episodeIdx, i) => {
+                    data.episode_indices.forEach((episodeIdx: number, i: number) => {
                         if (!episodeToPaths.has(episodeIdx)) {
                             episodeToPaths.set(episodeIdx, []);
                         }
@@ -753,19 +765,19 @@ const StateSequenceProjection = (props) => {
     }, [appState.sessionId, activeLearningState.projectionStates, activeLearningState.shouldLoadNewData, isLoading, loadData]);
 
     const drawStateSpace = useCallback((
-        data = [],
-        labels = [],
-        doneData = [],
-        labelInfos = [],
-        episodeIndices = [],
-        gridData = {
+        data: number[][] = [],
+        labels: any[] = [],
+        doneData: any[] = [],
+        labelInfos: any[] = [],
+        episodeIndices: number[] = [],
+        gridData: { prediction_image: string | null; uncertainty_image: string | null; bounds: any } = {
             prediction_image: null,
             uncertainty_image: null,
             bounds: null,
         },
-        predicted_rewards = [],
-        predicted_uncertainties = [],
-        segments = []
+        predicted_rewards: any[] = [],
+        predicted_uncertainties: any[] = [],
+        segments: any[] = []
     ) => {
         drawStateSpaceVisualization({
             data,

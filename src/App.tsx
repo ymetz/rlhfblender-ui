@@ -350,8 +350,9 @@ const App: React.FC = () => {
       // Fetch action labels
       await getActionLabels(resetResponse.data.environment_id);
 
-      const checkpointValue = Number.isFinite(state.selectedCheckpoint)
-        ? state.selectedCheckpoint
+      const checkpointNumber = Number(state.selectedCheckpoint);
+      const checkpointValue = Number.isFinite(checkpointNumber)
+        ? checkpointNumber
         : null;
       lastResetParamsRef.current = {
         experimentId: state.selectedExperiment.id,

@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { useSetupConfigState } from "../../SetupConfigContext";
 import Typography from "@mui/material/Typography";
 
-const instructionStrings = {
+const instructionStrings: Record<string, string> = {
   rating: "Rate the example via the slider",
   ranking: "Select the best example by clicking on the checkmark",
   correction: "Select a step to correct and double-click on the timeline",

@@ -12,11 +12,16 @@ import { AxisLeft, AxisBottom, AxisRight } from '@visx/axis';
 import { ParentSize } from '@visx/responsive';
 
   
+type ChartDatum = { step: number; reward: number; uncertainty: number };
+
 // Accessors - with safety checks
-const getStep = d => (d && d.step !== undefined) ? d.step : 0;
-const getReward = d => (d && d.reward !== undefined) ? d.reward : 0;
-const getUncertainty = d => (d && d.uncertainty !== undefined) ? d.uncertainty : 0;
-const bisectData = bisector(d => getStep(d)).left;
+const getStep = (d?: Partial<ChartDatum> | null) =>
+  d && d.step !== undefined ? d.step : 0;
+const getReward = (d?: Partial<ChartDatum> | null) =>
+  d && d.reward !== undefined ? d.reward : 0;
+const getUncertainty = (d?: Partial<ChartDatum> | null) =>
+  d && d.uncertainty !== undefined ? d.uncertainty : 0;
+const bisectData = bisector((d: ChartDatum) => getStep(d)).left;
 
 // Colors
 const backgroundColor = '#ffffff';
@@ -44,24 +49,25 @@ const expandDomain = (
     return [0, 1];
   }
   if (min === max) {
-    const pad = Math.abs(min || 1) * paddingRatio || 1;
-    return [min - pad, max + pad];
+    const safeMin = min ?? 0;
+    const safeMax = max ?? 0;
+    const pad = Math.abs(safeMin || 1) * paddingRatio || 1;
+    return [safeMin - pad, safeMax + pad];
   }
   return [min as number, max as number];
 };
 
-const Chart = withTooltip(
-  ({
-    data,
-    title,
-    width,
-    height,
-    showTooltip,
-    hideTooltip,
-    tooltipData,
-    tooltipLeft = 0,
-    tooltipTop = 0,
-  }) => {
+const Chart = withTooltip(({
+  data,
+  title,
+  width,
+  height,
+  showTooltip,
+  hideTooltip,
+  tooltipData,
+  tooltipLeft = 0,
+  tooltipTop = 0,
+}: any) => {
     const margin = { top: 24, right: 60, bottom: 40, left: 60 };
 
     const innerWidth = Math.max(0, width - margin.left - margin.right);
@@ -81,7 +87,7 @@ const Chart = withTooltip(
     const rewardScale = scaleLinear({ range: [innerHeight, 0], domain: rewardDomain, nice: true });
     const uncertaintyScale = scaleLinear({ range: [innerHeight, 0], domain: uncertaintyDomain, nice: true });
 
-    const handleTooltip = (event) => {
+    const handleTooltip = (event: any) => {
       const { x } = localPoint(event) || { x: 0 };
       const x0 = xScale.invert(x - margin.left);
       const index = bisectData(data, x0);
@@ -161,7 +167,7 @@ const Chart = withTooltip(
                 numTicks={Math.max(2, Math.min(6, data.length))}
               />
 
-              <LinePath
+              <LinePath<ChartDatum>
                 data={data}
                 x={(d) => xScale(getStep(d))}
                 y={(d) => rewardScale(getReward(d))}
@@ -170,7 +176,7 @@ const Chart = withTooltip(
                 curve={curveMonotoneX}
               />
 
-              <LinePath
+              <LinePath<ChartDatum>
                 data={data}
                 x={(d) => xScale(getStep(d))}
                 y={(d) => uncertaintyScale(getUncertainty(d))}
@@ -303,11 +309,22 @@ const Chart = withTooltip(
         </div>
       </>
     );
-  }
-);
+  }) as React.FC<any>;
+
+type ImprovedProgressChartProps = {
+  steps?: number[];
+  rewards?: number[];
+  uncertainties?: number[];
+  title?: string;
+};
 
 // Main component that follows the pattern from reference code
-const ImprovedProgressChart = ({ steps, rewards, uncertainties, title }) => {
+const ImprovedProgressChart = ({
+  steps = [],
+  rewards = [],
+  uncertainties = [],
+  title,
+}: ImprovedProgressChartProps) => {
   const minLength = Math.min(steps?.length ?? 0, rewards?.length ?? 0, uncertainties?.length ?? 0);
   const chartData =
     minLength > 0

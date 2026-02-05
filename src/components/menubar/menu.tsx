@@ -85,10 +85,13 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
 
       // Filter checkpoints related to the selected experiment
     const experimentCheckpoints = selectedExperiment.checkpoint_list || [];
-    setAvailableCheckpoints(experimentCheckpoints.map((checkpoint) => ({
-      id: checkpoint.toString(),
-      name: checkpoint !== -1 ? `Checkpoint ${checkpoint}` : "Random",
-    })));
+    setAvailableCheckpoints(experimentCheckpoints.map((checkpoint) => {
+      const checkpointNumber = Number(checkpoint);
+      return {
+        id: checkpointNumber.toString(),
+        name: checkpointNumber !== -1 ? `Checkpoint ${checkpointNumber}` : "Random",
+      };
+    }));
 
     dispatch({ type: "SET_SELECTED_EXPERIMENT", payload: selectedExperiment });
   };

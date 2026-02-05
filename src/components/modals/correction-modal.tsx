@@ -3,11 +3,11 @@ import * as React from "react";
 import {
   Button,
   Dialog,
-  Grid,
   DialogActions,
   DialogContent,
   DialogTitle,
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { useTheme } from "@mui/material/styles";
 // Custom Components
 import { CustomInput } from "../../custom_env_inputs/custom_input_mapping";
@@ -134,7 +134,7 @@ export default function CorrectionModal(props: CorrectionModalProps) {
           {stepDetails && (
             <Grid item xs>
               <CustomInput
-                space={stepDetails.action_space}
+                space={stepDetails.action_space as any}
                 custom_input={props.custom_input}
                 inputProps={props.inputProps}
                 action={stepDetails.action}

@@ -4,12 +4,12 @@ import * as React from "react";
 import {
   Button,
   Dialog,
-  Grid,
   DialogActions,
   DialogContent,
   DialogTitle,
   Typography,
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { useTheme } from "@mui/material/styles";
 
 // Custom Components

@@ -73,6 +73,15 @@ export const useFeedbackShortcuts = (props: FeedbackShortcutProps) => {
     props.episodeIDs,
     props.uiConfigFeedbackComponents,
   ]);
+
+  const handleEpisodeHover = (episodeId: string | null) => {
+    setHoveredEpisodeId(episodeId);
+    if (episodeId !== null) {
+      setLastInteractedEpisodeId(episodeId);
+    }
+  };
+
+  return { handleEpisodeHover, hoveredEpisodeId, lastInteractedEpisodeId };
 };
 
 export default useFeedbackShortcuts;

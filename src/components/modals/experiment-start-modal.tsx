@@ -14,9 +14,9 @@ import {
   Container,
   Dialog,
   DialogContent,
-  Grid,
   List,
   ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
   Paper,
@@ -24,6 +24,7 @@ import {
   Tabs,
   Typography,
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 
 // Icons
 import CheckIcon from "@mui/icons-material/Check";
@@ -54,7 +55,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
     onClose();
   };
 
-  const handleTabChange = (event, newValue) => {
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
   };
 
@@ -115,26 +116,23 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
         }}
       >
         <List>
-          {navigationItems.map(
-            (text, index) => (
-              <ListItem
-                button
-                key={text}
-                selected={activeTab === index}
-                onClick={() => setActiveTab(index)}
-                sx={{
-                  "&.Mui-selected": {
+          {navigationItems.map((text, index) => (
+            <ListItemButton
+              key={text}
+              selected={activeTab === index}
+              onClick={() => setActiveTab(index)}
+              sx={{
+                "&.Mui-selected": {
+                  backgroundColor: "primary.light",
+                  "&:hover": {
                     backgroundColor: "primary.light",
-                    "&:hover": {
-                      backgroundColor: "primary.light",
-                    },
                   },
-                }}
-              >
-                <ListItemText primary={text} />
-              </ListItem>
-            ),
-          )}
+                },
+              }}
+            >
+              <ListItemText primary={text} />
+            </ListItemButton>
+          ))}
         </List>
       </Paper>
 

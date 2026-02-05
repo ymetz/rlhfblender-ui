@@ -4,7 +4,7 @@ import StateSequenceProjection from './StateSequenceProjection';
 import { useAppState } from '../AppStateContext';
 
 // Wrapper component to connect StateSequenceProjection to the new context
-const ProjectionComponent = (props) => {
+const ProjectionComponent = (props: Record<string, unknown>) => {
     const activeLearningState = useActiveLearningState();
     const appState = useAppState();
 

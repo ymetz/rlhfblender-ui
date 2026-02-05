@@ -44,8 +44,8 @@ const tooltipStyles = {
 };
 
 // Keys for the *actual* stacked segments - reversed order to put current on top
-const keys = ['rest', 'current'] as const; // 'rest' first so 'current' appears on top
-type StackKey = typeof keys[number]; // Type for our keys: 'current' | 'rest'
+type StackKey = 'rest' | 'current';
+const keys: StackKey[] = ['rest', 'current']; // 'rest' first so 'current' appears on top
 
 const categoryColors: Record<string, string> = {
   'Rating': '#64b5f6',      // Muted Blue
