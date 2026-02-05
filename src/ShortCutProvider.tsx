@@ -15,15 +15,15 @@ type Shortcut = {
 
 // Create the shortcuts context
 const ShortcutsContext = createContext({
-  shortcuts: {},
-  registerShortcut: (id: string, shortcut: Shortcut) => {},
-  unregisterShortcut: (id: string) => {},
-  handleKeyPress: (e: KeyboardEvent) => {},
+  shortcuts: {} as Record<string, Shortcut>,
+  registerShortcut: (id: string, shortcut: Shortcut) => { },
+  unregisterShortcut: (id: string) => { },
+  handleKeyPress: (e: KeyboardEvent) => { },
   mousePosition: { x: 0, y: 0 },
 });
 
 // Provider component
-export const ShortcutsProvider = ({ children }) => {
+export const ShortcutsProvider = ({ children }: { children: React.ReactNode }) => {
   const [shortcuts, setShortcuts] = useState<Record<string, Shortcut>>({});
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 

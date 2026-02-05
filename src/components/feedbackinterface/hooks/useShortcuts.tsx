@@ -1,48 +1,54 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useShortcuts } from "../../../ShortCutProvider";
 
-export const useFeedbackShortcuts = ({
-  episodeIDs,
-  feedbackMode,
-  onEvalFeedback,
-  onBestOfKSelection,
-  onDemoRequest,
-  onFeatureAnnotation,
-  uiConfigFeedbackComponents,
-  scheduleFeedback,
-  sessionId,
-}) => {
+
+type FeedbackShortcutProps = {
+  episodeIDs: (string | number)[];
+  feedbackMode: "ranking" | "bestOfK" | "annotation";
+  onEvalFeedback: (episodeId: string, rating: number) => void;
+  onBestOfKSelection: (episodeId: string) => void;
+  onDemoRequest?: (episodeId: string) => void;
+  onFeatureAnnotation?: (episodeId: string, feature: string) => void;
+  uiConfigFeedbackComponents: {
+    rating?: boolean;
+    ranking?: boolean;
+    annotation?: boolean;
+  };
+  scheduleFeedback?: boolean;
+  sessionId?: string;
+};
+
+export const useFeedbackShortcuts = (props: FeedbackShortcutProps) => {
   const { registerShortcut, unregisterShortcut } = useShortcuts();
-  const [hoveredEpisodeId, setHoveredEpisodeId] = useState(null);
-  const [lastInteractedEpisodeId, setLastInteractedEpisodeId] = useState(null);
+  const [hoveredEpisodeId, setHoveredEpisodeId] = useState<string | number | null>(null);
+  const [lastInteractedEpisodeId, setLastInteractedEpisodeId] = useState<string | number | null>(null);
 
   // Use refs to store callback functions
   const callbacksRef = useRef({
-    onEvalFeedback,
-    onBestOfKSelection,
-    onDemoRequest,
-    onFeatureAnnotation,
+    onEvalFeedback: props.onEvalFeedback,
+    onBestOfKSelection: props.onBestOfKSelection,
+    onDemoRequest: props.onDemoRequest,
+    onFeatureAnnotation: props.onFeatureAnnotation,
   });
 
   // Update refs when callbacks change
   useEffect(() => {
     callbacksRef.current = {
-      onEvalFeedback,
-      onBestOfKSelection,
-      onDemoRequest,
-      onFeatureAnnotation,
+      onEvalFeedback: props.onEvalFeedback,
+      onBestOfKSelection: props.onBestOfKSelection,
+      onDemoRequest: props.onDemoRequest,
+      onFeatureAnnotation: props.onFeatureAnnotation,
     };
-  }, [onEvalFeedback, onBestOfKSelection, onDemoRequest, onFeatureAnnotation]);
+  }, [props.onEvalFeedback, props.onBestOfKSelection, props.onDemoRequest, props.onFeatureAnnotation]);
 
   // Memoize getTargetEpisodeId
   const getTargetEpisodeId = useCallback(() => {
-    if (episodeIDs.length === 1) {
-      return episodeIDs[0];
+    if (props.episodeIDs.length === 1) {
+      return props.episodeIDs[0];
     }
     return hoveredEpisodeId || lastInteractedEpisodeId;
-  }, [episodeIDs, hoveredEpisodeId, lastInteractedEpisodeId]);
-
-  const handleEpisodeHover = useCallback((episodeId) => {
+  }, [props.episodeIDs, hoveredEpisodeId, lastInteractedEpisodeId]);
+  const handleEpisodeHover = useCallback((episodeId: string | number) => {
     setHoveredEpisodeId(episodeId);
     if (episodeId) {
       setLastInteractedEpisodeId(episodeId);
@@ -53,7 +59,7 @@ export const useFeedbackShortcuts = ({
   useEffect(() => {
     const shortcutIds: string[] = [];
 
-    if (uiConfigFeedbackComponents?.rating) {
+    if (props.uiConfigFeedbackComponents?.rating) {
       // Register number key shortcuts for ratings
       for (let i = 1; i <= 9; i++) {
         const shortcutId = `rating-${i}`;
@@ -71,15 +77,15 @@ export const useFeedbackShortcuts = ({
       }
     }
 
-    if (uiConfigFeedbackComponents?.ranking && feedbackMode === "bestOfK") {
+    if (props.uiConfigFeedbackComponents?.ranking && props.feedbackMode === "bestOfK") {
       ["left", "right"].forEach((direction, index) => {
         const shortcutId = `select-${direction}`;
         registerShortcut(shortcutId, {
           key: direction === "left" ? "ArrowLeft" : "ArrowRight",
           description: `Select ${direction} episode`,
           action: () => {
-            if (episodeIDs.length === 2) {
-              callbacksRef.current.onBestOfKSelection(episodeIDs[index]);
+            if (props.episodeIDs.length === 2) {
+              callbacksRef.current.onBestOfKSelection(props.episodeIDs[index]);
             }
           },
         });
@@ -94,10 +100,10 @@ export const useFeedbackShortcuts = ({
   }, [
     registerShortcut,
     unregisterShortcut,
-    feedbackMode,
-    episodeIDs,
+    props.feedbackMode,
+    props.episodeIDs,
     getTargetEpisodeId,
-    uiConfigFeedbackComponents,
+    props.uiConfigFeedbackComponents,
   ]);
 
   return {

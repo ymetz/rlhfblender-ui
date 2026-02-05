@@ -10,7 +10,6 @@ import Chip from "@mui/material/Chip";
 import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
-import { MuiFileInput } from "mui-file-input";
 import {
   Box,
   FormControl,
@@ -45,6 +44,13 @@ export default function BackendConfigModal(props: ConfigModalProps) {
     setFilePath(newValue);
   };
 
+  const handleFileInputChange = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0] ?? null;
+    handleChange(file);
+  };
+
   const upload = () => {
     if (filePath === null) {
       return;
@@ -60,7 +66,7 @@ export default function BackendConfigModal(props: ConfigModalProps) {
   const formChangeHandler = (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
-    const overwrite_config = Object.assign({}, new_config);
+    const overwrite_config: any = Object.assign({}, new_config);
     const value = event.target.value;
     // @ts-ignore
     overwrite_config[event.target?.id] = value;
@@ -68,7 +74,7 @@ export default function BackendConfigModal(props: ConfigModalProps) {
   };
 
   const formDropdownHandler = (event: SelectChangeEvent<string>) => {
-    const overwrite_config = Object.assign({}, new_config);
+    const overwrite_config: any = Object.assign({}, new_config);
     const value = event.target.value as string;
     overwrite_config[event.target.name] = value;
     setNewConfig(overwrite_config);
@@ -111,12 +117,23 @@ export default function BackendConfigModal(props: ConfigModalProps) {
             Upload a config file to copy the settings from an existing
             experiment.
           </DialogContentText>
-          <Stack direction={"row"}>
-            <MuiFileInput
-              value={filePath}
-              onChange={handleChange}
-              sx={{ width: "80%", marginRight: "10px" }}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TextField
+              fullWidth
+              margin="dense"
+              value={filePath?.name ?? ""}
+              placeholder="No file selected"
+              InputProps={{ readOnly: true }}
             />
+            <Button component="label" variant="outlined">
+              Choose File
+              <input
+                hidden
+                type="file"
+                accept="application/json"
+                onChange={handleFileInputChange}
+              />
+            </Button>
             <Button
               variant="outlined"
               startIcon={<UploadIcon />}

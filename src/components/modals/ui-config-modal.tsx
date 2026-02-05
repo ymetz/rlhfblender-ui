@@ -12,7 +12,6 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import Checkbox from "@mui/material/Checkbox";
-import { MuiFileInput } from "mui-file-input";
 import { FormControl, InputLabel, MenuItem, Stack } from "@mui/material";
 import UploadIcon from "@mui/icons-material/Upload";
 
@@ -40,6 +39,13 @@ export default function ConfigModal(props: ConfigModalProps) {
 
   const handleChange = (newValue: File | null) => {
     setFilePath(newValue);
+  };
+
+  const handleFileInputChange = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0] ?? null;
+    handleChange(file);
   };
 
   const upload = () => {
@@ -105,12 +111,23 @@ export default function ConfigModal(props: ConfigModalProps) {
             Upload a config file to copy the settings from an existing
             experiment.
           </DialogContentText>
-          <Stack direction={"row"}>
-            <MuiFileInput
-              value={filePath}
-              onChange={handleChange}
-              sx={{ width: "80%", marginRight: "10px" }}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TextField
+              fullWidth
+              margin="dense"
+              value={filePath?.name ?? ""}
+              placeholder="No file selected"
+              InputProps={{ readOnly: true }}
             />
+            <Button component="label" variant="outlined">
+              Choose File
+              <input
+                hidden
+                type="file"
+                accept="application/json"
+                onChange={handleFileInputChange}
+              />
+            </Button>
             <Button
               variant="outlined"
               startIcon={<UploadIcon />}

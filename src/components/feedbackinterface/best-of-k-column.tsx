@@ -60,7 +60,7 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
         backgroundColor: theme.palette.background.l1,
       }}
     >
-      {episodeIDs.map((episodeID, index) => (
+      {episodeIDs.map((episodeID) => (
         <Box
           key={episodeID}
           sx={{
@@ -77,7 +77,7 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
         >
           <EpisodeItem
             episodeID={episodeID}
-            index={index}
+            containerId="best-of-k"
             scheduleFeedback={scheduleFeedback}
             selectBest={onSelectBest}
             isSelectedAsBest={isSelectedAsBest(episodeID)}

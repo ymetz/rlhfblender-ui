@@ -4,7 +4,7 @@ import { Keyboard } from "@mui/icons-material";
 import { ExpandMore, ExpandLess } from "@mui/icons-material";
 import { Box, Button, Paper, Typography, useTheme } from "@mui/material";
 
-const ShortcutItem = ({ id, shortcut }) => {
+const ShortcutItem = ({ id: string, shortcut }: { id: string; shortcut: { key: string; description: string } }) => {
   const theme = useTheme();
 
   return (
@@ -43,7 +43,7 @@ const ShortcutItem = ({ id, shortcut }) => {
 
 export const ShortcutsInfoBox = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const { shortcuts } = useShortcuts();
+  const { shortcuts } = useShortcuts<{ [id: string]: { key: string; description: string } }>();
   const theme = useTheme();
 
   const shortcutEntries = Object.entries(shortcuts);

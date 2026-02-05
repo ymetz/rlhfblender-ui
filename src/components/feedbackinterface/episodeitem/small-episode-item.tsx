@@ -1,4 +1,5 @@
-import { Draggable } from "react-beautiful-dnd";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import Box from "@mui/material/Box";
 import { useEffect, useState, useRef } from "react";
 import { IDfromEpisode } from "../../../id";
@@ -19,13 +20,28 @@ const SmallEpisodeItem: React.FC<SmallEpisodeItemProps> = ({
   episodeID,
   draggableIndex,
 }) => {
+  const draggableId = isRankeable
+    ? `${IDfromEpisode(episodeID)}_duplicate`
+    : IDfromEpisode(episodeID);
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({
+    id: draggableId,
+    data: { containerId: "scrollable-episode-list" },
+    disabled: isRankeable,
+  });
   const videoRef = useRef<HTMLVideoElement>(document.createElement("video"));
   const [thumbnailURL, setThumbnailURL] = useState("");
   const [videoURL, setVideoURL] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
-  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getThumbnail = useGetter().getThumbnailURL;
   const getVideoURL = useGetter().getVideoURL;
@@ -38,7 +54,9 @@ const SmallEpisodeItem: React.FC<SmallEpisodeItemProps> = ({
   };
 
   const handleMouseLeave = () => {
-    clearTimeout(hoverTimeout.current);
+    if (hoverTimeout.current) {
+      clearTimeout(hoverTimeout.current);
+    }
     setHovered(false);
     setEnlarged(false);
   };
@@ -59,76 +77,65 @@ const SmallEpisodeItem: React.FC<SmallEpisodeItemProps> = ({
     });
   }, [dialogOpen, episodeID, getVideoURL]);
 
-  let draggableID = IDfromEpisode(episodeID);
-  if (isRankeable) {
-    draggableID += "_duplicate";
-  }
-
   return (
-    <Draggable
-      draggableId={draggableID}
-      index={draggableIndex}
-      // If this item is already rankeable, then we should not be able to
-      // drag it into the ranking panel again.
-      isDragDisabled={isRankeable}
+    <Box
+      key={draggableIndex}
+      ref={setNodeRef}
+      onDoubleClick={() => {
+        setDialogOpen(true);
+      }}
+      {...attributes}
+      {...listeners}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      sx={{
+        alignItems: "center",
+        m: 1,
+        opacity: hovered ? 1.0 : 0.5,
+        transform: enlarged ? "scale(1.5)" : "scale(1)", // Apply enlargement effect
+        transition: "transform 0.3s, opacity 0.3s",
+      }}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
     >
-      {(provided) => (
-        <Box
-          key={draggableIndex}
-          ref={provided.innerRef}
-          onDoubleClick={() => {
-            setDialogOpen(true);
+      {enlarged ? (
+        <video
+          ref={videoRef}
+          src={videoURL}
+          style={{
+            minWidth: 0,
+            maxWidth: "3vw",
           }}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          sx={{
-            alignItems: "center",
-            m: 1,
-            opacity: hovered ? 1.0 : 0.5,
-            transform: enlarged ? "scale(1.5)" : "scale(1)", // Apply enlargement effect
-            transition: "transform 0.3s, opacity 0.3s",
+          muted
+          loop
+          autoPlay
+        />
+      ) : (
+        <img
+          src={thumbnailURL}
+          alt="thumbnail"
+          style={{
+            minWidth: 0,
+            maxWidth: "3vw",
           }}
-        >
-          {enlarged ? (
-            <video
-              ref={videoRef}
-              src={videoURL}
-              style={{
-                minWidth: 0,
-                maxWidth: "3vw",
-              }}
-              muted
-              loop
-              autoPlay
-            />
-          ) : (
-            <img
-              src={thumbnailURL}
-              alt="thumbnail"
-              style={{
-                minWidth: 0,
-                maxWidth: "3vw",
-              }}
-            />
-          )}
-          {isRankeable && (
-            <Tooltip title="This episode is already in the ranking section">
-              <Lock
-                sx={{
-                  position: "absolute",
-                  top: 0,
-                  right: 0,
-                  color: "white",
-                  opacity: 1.0,
-                }}
-              />
-            </Tooltip>
-          )}
-        </Box>
+        />
       )}
-    </Draggable>
+      {isRankeable && (
+        <Tooltip title="This episode is already in the ranking section">
+          <Lock
+            sx={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              color: "white",
+              opacity: 1.0,
+            }}
+          />
+        </Tooltip>
+      )}
+    </Box>
   );
 };
 

@@ -132,6 +132,7 @@ const App: React.FC = () => {
       } catch (error) {
         console.error("Error fetching video URL:", error);
       }
+      return undefined;
     },
     [dispatch, state.videoURLCache],
   );
@@ -155,6 +156,7 @@ const App: React.FC = () => {
       } catch (error) {
         console.error("Error fetching thumbnail URL:", error);
       }
+      return undefined;
     },
     [state.thumbnailURLCache, dispatch],
   );
@@ -177,6 +179,7 @@ const App: React.FC = () => {
       } catch (error) {
         console.error("Error fetching rewards:", error);
       }
+      return undefined;
     },
     [state.rewardsCache, dispatch],
   );
@@ -199,6 +202,7 @@ const App: React.FC = () => {
       } catch (error) {
         console.error("Error fetching uncertainty:", error);
       }
+      return undefined;
     },
     [state.uncertaintyCache, dispatch],
   );
@@ -274,9 +278,9 @@ const App: React.FC = () => {
     try {
       const resetResponse = await axios.post(
         "/data/reset_sampler?experiment_id=" +
-          state.selectedExperiment.id +
-          "&sampling_strategy=" +
-          configState.activeBackendConfig.samplingStrategy,
+        state.selectedExperiment.id +
+        "&sampling_strategy=" +
+        configState.activeBackendConfig.samplingStrategy,
       );
 
       await dispatch({

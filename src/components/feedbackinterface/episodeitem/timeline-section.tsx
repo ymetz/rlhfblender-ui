@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Tooltip } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import ParentSize from "@visx/responsive/lib/components/ParentSize";
+import { useParentSize } from '@visx/responsive';
 import TimelineChart from "./timeline-chart";
 import CorrIcon from "../../../icons/corr-icon";
 
@@ -35,6 +35,8 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
   useCorrectiveFeedback,
 }) => {
   const theme = useTheme();
+
+  const { parentRef, width, height } = useParentSize({ debounceTime: 150 });
 
   return (
     <Box
@@ -76,25 +78,25 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
           </Tooltip>
         )}
       </Box>
-      <ParentSize>
-        {(parent) => (
-          <TimelineChart
-            rewards={rewards}
-            uncertainty={uncertainty}
-            actions={actions}
-            actionLabels={actionLabels}
-            width={parent.width - 20}
-            height={100}
-            videoDuration={videoDuration}
-            tooltipLeft={videoSliderValue}
-            givenFeedbackMarkers={givenFeedbackMarkers}
-            proposedFeedbackMarkers={proposedFeedbackMarkers}
-            onChange={onSliderChange}
-            onCorrectionClick={onCorrectionClick}
-            useCorrectiveFeedback={useCorrectiveFeedback}
-          />
-        )}
-      </ParentSize>
+      <div ref={parentRef}>
+        <TimelineChart
+          rewards={rewards}
+          uncertainty={uncertainty}
+          actions={actions}
+          actionLabels={actionLabels}
+          width={width - 20}
+          height={100}
+          videoDuration={videoDuration}
+          tooltipLeft={videoSliderValue}
+          givenFeedbackMarkers={givenFeedbackMarkers}
+          proposedFeedbackMarkers={proposedFeedbackMarkers}
+          onChange={onSliderChange}
+          onCorrectionClick={onCorrectionClick}
+          useCorrectiveFeedback={useCorrectiveFeedback}
+          showTooltip={() => false}
+          hideTooltip={() => { }}
+        />
+      </div>
     </Box>
   );
 };

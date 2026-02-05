@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
 
-import { Draggable } from "react-beautiful-dnd";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 // MUI
 import chroma from "chroma-js";
@@ -91,7 +92,7 @@ const SelectButton = styled(IconButton)(({ theme }) => ({
 
 interface EpisodeItemProps {
   episodeID: string;
-  index: number;
+  containerId: string;
   scheduleFeedback: (pendingFeedback: Feedback) => void;
   selectBest: (episodeId: string) => void;
   isSelectedAsBest?: boolean;
@@ -117,7 +118,7 @@ type StepDetails = {
 const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(
   ({
     episodeID,
-    index,
+    containerId,
     scheduleFeedback,
     selectBest,
     isSelectedAsBest,
@@ -131,6 +132,19 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(
     onMouseLeave,
     isHovered,
   }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({
+      id: episodeID,
+      data: { containerId },
+      disabled: isBestOfK,
+    });
+
     const videoRef = useRef<HTMLVideoElement>(document.createElement("video"));
     const [videoURL, setVideoURL] = useState("");
     const [playing, setPlaying] = useState(false);
@@ -349,10 +363,17 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(
       return "";
     };
 
+    const dragHandleProps = isBestOfK
+      ? {}
+      : {
+          ...attributes,
+          ...listeners,
+        };
+
     const EpisodeContent = (
       <EpisodeItemContainer
         horizontalRanking={UIConfig.uiComponents.horizontalRanking}
-        isDragging={false}
+        isDragging={isBestOfK ? false : isDragging}
         hasFeedback={false}
         isBestOfK={isBestOfK}
         onMouseEnter={() => onMouseEnter(episodeID)}
@@ -366,6 +387,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(
         {!isBestOfK && (
           <DragHandle
             horizontalRanking={UIConfig.uiComponents.horizontalRanking}
+            {...dragHandleProps}
           />
         )}
 
@@ -456,23 +478,21 @@ const EpisodeItem: React.FC<EpisodeItemProps> = React.memo(
       </EpisodeItemContainer>
     );
 
-    // Conditionally wrap with Draggable
-    return isBestOfK ? (
-      EpisodeContent
-    ) : (
-      <Draggable draggableId={episodeID} index={index}>
-        {(provided, snapshot) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
-          >
-            {React.cloneElement(EpisodeContent, {
-              isDragging: snapshot.isDragging,
-            })}
-          </div>
-        )}
-      </Draggable>
+    // Conditionally wrap with sortable drag behavior
+    if (isBestOfK) {
+      return EpisodeContent;
+    }
+
+    return (
+      <div
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+        }}
+      >
+        {EpisodeContent}
+      </div>
     );
   },
 );

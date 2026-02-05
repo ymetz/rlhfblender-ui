@@ -134,6 +134,7 @@ const AlternativeScrollbar = ({
         ref.removeEventListener("scroll", handleThumbPosition);
       };
     }
+    return undefined;
   }, []);
 
   // Listen for mouse events to handle scrolling by dragging the thumb

@@ -6,7 +6,14 @@ import React, {
   useEffect,
   useRef,
 } from "react";
-import { DragDropContext, DropResult } from "react-beautiful-dnd";
+import {
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import { arrayMove } from "@dnd-kit/sortable";
 import { Box } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { RatingInfoContext } from "../rating-info-context";
@@ -27,7 +34,7 @@ import DemoModal from "./modals/demo-modal";
 import { useFeedbackShortcuts } from "./feedbackinterface/hooks/useShortcuts";
 
 // Add new type for feedback mode
-type FeedbackMode = "ranking" | "bestOfK";
+type FeedbackMode = "ranking" | "bestOfK" | "annotation";
 
 const FeedbackInterface: React.FC = () => {
   const state = useAppState();
@@ -127,28 +134,72 @@ const FeedbackInterface: React.FC = () => {
     }
   }, [episodeIDsChronologically, sampleEpisodes, uiConfigSequence]);
 
+  const sensors = useSensors(useSensor(PointerSensor));
+
+  const findContainerForId = useCallback(
+    (id: string) => {
+      if (id === "scrollable-episode-list") {
+        return "scrollable-episode-list";
+      }
+
+      for (const rankId of columnOrder) {
+        if (ranks[rankId]?.episodeItemIDs.includes(id)) {
+          return rankId;
+        }
+      }
+
+      return undefined;
+    },
+    [columnOrder, ranks],
+  );
+
   // Define onDragEnd function
-  const onDragEnd = (dropResult: DropResult) => {
-    const { destination, source, draggableId } = dropResult;
+  const onDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
 
-    // If there is no destination, return
-    if (!destination) {
+    if (!over) {
       return;
     }
 
-    // If the destination is the same as the source, return
-    if (
-      destination.droppableId === source.droppableId &&
-      destination.index === source.index
-    ) {
+    const rawActiveId = String(active.id);
+    const activeId = rawActiveId.endsWith("_duplicate")
+      ? rawActiveId.replace(/_duplicate$/, "")
+      : rawActiveId;
+
+    const overId = String(over.id);
+
+    const srcContainer =
+      active.data.current?.sortable?.containerId ??
+      active.data.current?.containerId ??
+      findContainerForId(activeId);
+    const destContainer =
+      over.data.current?.sortable?.containerId ??
+      over.data.current?.containerId ??
+      findContainerForId(overId) ??
+      overId;
+
+    if (!srcContainer || !destContainer) {
       return;
     }
 
-    const destDroppableId = destination.droppableId;
-    const destDroppable = ranks[destDroppableId];
+    if (destContainer === "scrollable-episode-list") {
+      return;
+    }
 
-    const srcDroppableId = source.droppableId;
-    const srcDroppable = ranks[srcDroppableId];
+    if (srcContainer === destContainer && activeId === overId) {
+      return;
+    }
+
+    const destItems = Array.from(ranks[destContainer].episodeItemIDs);
+    const destIndex =
+      over.data.current?.sortable?.index ?? destItems.length;
+
+    const newRankeableEpisodeIDs: string[] = Array.from(rankeableEpisodeIDs);
+    if (srcContainer === "scrollable-episode-list") {
+      if (!newRankeableEpisodeIDs.includes(activeId)) {
+        newRankeableEpisodeIDs.push(activeId);
+      }
+    }
 
     let newState: {
       rankeableEpisodeIDs: string[];
@@ -162,23 +213,15 @@ const FeedbackInterface: React.FC = () => {
       columnOrder: string[];
     };
 
-    const newRankeableEpisodeIDs: string[] = Array.from(rankeableEpisodeIDs);
-    if (srcDroppableId === "scrollable-episode-list") {
-      // This is a new episode, so we need to add it to rankeableEpisodeIDs.
-      newRankeableEpisodeIDs.push(draggableId);
-    }
+    if (srcContainer === destContainer) {
+      const oldIndex = destItems.indexOf(activeId);
+      if (oldIndex === -1) {
+        return;
+      }
 
-    if (
-      srcDroppable === destDroppable ||
-      srcDroppableId === "scrollable-episode-list"
-    ) {
-      // Reordering within the same rank.
-      const newEpisodeItemIDs = Array.from(destDroppable.episodeItemIDs);
-      newEpisodeItemIDs.splice(source.index, 1);
-      newEpisodeItemIDs.splice(destination.index, 0, draggableId);
-
+      const newEpisodeItemIDs = arrayMove(destItems, oldIndex, destIndex);
       const newRank = {
-        ...destDroppable,
+        ...ranks[destContainer],
         episodeItemIDs: newEpisodeItemIDs,
       };
 
@@ -186,36 +229,38 @@ const FeedbackInterface: React.FC = () => {
         rankeableEpisodeIDs: newRankeableEpisodeIDs,
         ranks: {
           ...ranks,
-          [destDroppableId]: newRank,
+          [destContainer]: newRank,
         },
         columnOrder: columnOrder,
       };
     } else {
-      // Moving an episode from one rank to another.
-      // Insert into destination rank.
-      const newDestDraggableIDs = Array.from(destDroppable.episodeItemIDs);
-      newDestDraggableIDs.splice(destination.index, 0, draggableId);
+      const newDestDraggableIDs = Array.from(destItems);
+      newDestDraggableIDs.splice(destIndex, 0, activeId);
 
-      // Remove from source rank.
-      const newSrcDraggableIDs = Array.from(srcDroppable.episodeItemIDs);
-      newSrcDraggableIDs.splice(source.index, 1);
-
-      const newDestRank = {
-        ...destDroppable,
-        episodeItemIDs: newDestDraggableIDs,
+      const destKey = destContainer as keyof typeof ranks;
+      const newRanks: typeof ranks = {
+        ...ranks,
+        [destKey]: {
+          ...ranks[destKey],
+          episodeItemIDs: newDestDraggableIDs,
+        },
       };
 
-      const newSrcRank = {
-        ...srcDroppable,
-        episodeItemIDs: newSrcDraggableIDs,
-      };
+      if (srcContainer !== "scrollable-episode-list") {
+        const srcItems = Array.from(ranks[srcContainer].episodeItemIDs);
+        const srcIndex = srcItems.indexOf(activeId);
+        if (srcIndex !== -1) {
+          srcItems.splice(srcIndex, 1);
+        }
+        const srcKey = srcContainer as keyof typeof ranks;
+        newRanks[srcKey] = {
+          ...ranks[srcKey],
+          episodeItemIDs: srcItems,
+        };
+      }
 
       newState = {
-        ranks: {
-          ...ranks,
-          [destDroppableId]: newDestRank,
-          [srcDroppableId]: newSrcRank,
-        },
+        ranks: newRanks,
         rankeableEpisodeIDs: newRankeableEpisodeIDs,
         columnOrder: columnOrder,
       };
@@ -323,7 +368,7 @@ const FeedbackInterface: React.FC = () => {
         }}
       >
         {feedbackMode === "ranking" ? (
-          <DragDropContext onDragEnd={onDragEnd}>
+          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
             <Box
               id="ranking-panel"
               flexDirection={horizontalDrag ? "column" : "row"}
@@ -370,7 +415,7 @@ const FeedbackInterface: React.FC = () => {
                 })}
               </DroppableColumnContainer>
             </Box>
-          </DragDropContext>
+          </DndContext>
         ) : (
           <Box
             id="best-of-k-panel"

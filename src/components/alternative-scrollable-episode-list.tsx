@@ -1,9 +1,10 @@
 import AlternativeScrollbar from "./alt-scrollbar";
-import SmallEpisodeItem from "./small-episode-item";
+import SmallEpisodeItem from "./feedbackinterface/episodeitem/small-episode-item";
 import Box from "@mui/material/Box";
 import { Episode } from "../types";
 import { IDfromEpisode } from "../id";
-import { Droppable } from "react-beautiful-dnd";
+import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import React from "react";
 
 interface AlternativeScrollableEpisodeListProps {
@@ -29,35 +30,36 @@ const AlternativeScrollableEpisodeList: React.FC<
     "#b9fbc0",
   ];
   let draggableIndex = 0;
+  const { setNodeRef } = useDroppable({
+    id: "scrollable-episode-list",
+    disabled: true,
+  });
+  const itemIds = episodeIDs.map((episodeID) => {
+    const id = IDfromEpisode(episodeID);
+    return rankeableEpisodeIDs.includes(id) ? `${id}_duplicate` : id;
+  });
   return (
-    <Droppable
-      droppableId={"scrollable-episode-list"}
-      direction="horizontal"
-      isDropDisabled={true}
+    <SortableContext
+      items={itemIds}
+      strategy={horizontalListSortingStrategy}
     >
-      {(provided) => (
-        <Box
-          id="scrollable-episode-list"
-          ref={provided.innerRef}
-          {...provided.droppableProps}
-        >
-          <AlternativeScrollbar>
-            {episodeIDs.map((episodeID, index) => (
-              <SmallEpisodeItem
-                key={index}
-                color={colors[index % colors.length]}
-                isRankeable={rankeableEpisodeIDs.includes(
-                  IDfromEpisode(episodeID),
-                )}
-                episodeID={episodeID}
-                draggableIndex={draggableIndex++}
-                getThumbnail={getThumbnail}
-              />
-            ))}
-          </AlternativeScrollbar>
-        </Box>
-      )}
-    </Droppable>
+      <Box id="scrollable-episode-list" ref={setNodeRef}>
+        <AlternativeScrollbar>
+          {episodeIDs.map((episodeID, index) => (
+            <SmallEpisodeItem
+              key={index}
+              color={colors[index % colors.length]}
+              isRankeable={rankeableEpisodeIDs.includes(
+                IDfromEpisode(episodeID),
+              )}
+              episodeID={episodeID}
+              draggableIndex={draggableIndex++}
+              getThumbnail={getThumbnail}
+            />
+          ))}
+        </AlternativeScrollbar>
+      </Box>
+    </SortableContext>
   );
 };
 
