@@ -18,6 +18,8 @@ interface TimelineSectionProps {
   onCorrectionClick: (step: number) => void;
   hasCorrectiveFeedback: boolean;
   useCorrectiveFeedback: boolean;
+  interactionLocked?: boolean;
+  correctionStep?: number | null;
 }
 
 const TimelineSection: React.FC<TimelineSectionProps> = ({
@@ -33,6 +35,8 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
   onCorrectionClick,
   hasCorrectiveFeedback,
   useCorrectiveFeedback,
+  interactionLocked = false,
+  correctionStep = null,
 }) => {
   const theme = useTheme();
 
@@ -54,6 +58,7 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
           : "none",
         gridArea: "timelinechart",
         overflow: "hidden",
+        width: "100%",
       }}
     >
       <Box
@@ -78,13 +83,21 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
           </Tooltip>
         )}
       </Box>
-      <div ref={parentRef}>
+      <Box
+        ref={parentRef}
+        sx={{
+          flex: 1,
+          width: "100%",
+          minWidth: 260,
+          height: 100,
+        }}
+      >
         <TimelineChart
           rewards={rewards}
           uncertainty={uncertainty}
           actions={actions}
           actionLabels={actionLabels}
-          width={width - 20}
+          width={Math.max(260, width - 12)}
           height={100}
           videoDuration={videoDuration}
           tooltipLeft={videoSliderValue}
@@ -93,10 +106,12 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
           onChange={onSliderChange}
           onCorrectionClick={onCorrectionClick}
           useCorrectiveFeedback={useCorrectiveFeedback}
+          interactionLocked={interactionLocked}
+          stepForCorrection={correctionStep}
           showTooltip={() => { }}
           hideTooltip={() => { }}
         />
-      </div>
+      </Box>
     </Box>
   );
 };

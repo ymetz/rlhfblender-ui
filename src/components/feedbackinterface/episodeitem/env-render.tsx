@@ -19,6 +19,8 @@ interface EnvRenderProps {
   videoSliderHandler: (value: number | number[]) => void;
   playing: boolean;
   mission?: string;
+  toolControls?: React.ReactNode;
+  overlayContent?: React.ReactNode;
 }
 
 const EnvRender: React.FC<EnvRenderProps> = memo(({
@@ -32,6 +34,8 @@ const EnvRender: React.FC<EnvRenderProps> = memo(({
   videoSliderHandler,
   playing,
   mission,
+  toolControls,
+  overlayContent,
 }) => {
   const handleStep = (direction: "forward" | "backward") => {
     if (videoRef.current) {
@@ -99,7 +103,20 @@ const EnvRender: React.FC<EnvRenderProps> = memo(({
           playing={playing}
         />
 
-        {showFeatureSelection && (
+        {toolControls && (
+          <Box
+            sx={{
+              position: "absolute",
+              top: "4px",
+              right: "4px",
+              zIndex: 4,
+            }}
+          >
+            {toolControls}
+          </Box>
+        )}
+
+        {showFeatureSelection && !toolControls && (
           <IconButton
             onClick={onFeatureSelect}
             sx={{
@@ -119,6 +136,21 @@ const EnvRender: React.FC<EnvRenderProps> = memo(({
           >
             <FeatIcon />
           </IconButton>
+        )}
+
+        {overlayContent && (
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 3,
+              display: "flex",
+              flexDirection: "column",
+              backgroundColor: "rgba(0, 0, 0, 0.25)",
+            }}
+          >
+            {overlayContent}
+          </Box>
         )}
       </Box>
 

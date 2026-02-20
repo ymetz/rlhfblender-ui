@@ -13,18 +13,19 @@ import {
   Tooltip,
 } from '@mui/material';
 import { Close, Fullscreen, FullscreenExit, KeyboardArrowDown, KeyboardArrowUp } from '@mui/icons-material';
-import { useTheme } from '@mui/material/styles';
 import { useWebRTC } from './useWebRTC';
+import { isDashDrivingEnvironment } from './demoEnvironment';
+import DashIframeDemoComponent from './DashIframeDemoComponent';
 
-interface WebRTCFooterControls {
+export interface WebRTCFooterControls {
   connected: boolean;
   isSubmitting: boolean;
   onCancel: () => void;
-  onSubmit: () => void;
+  onSubmit: (payload?: Record<string, any>) => void | Promise<void>;
   reset: () => Promise<void>;
 }
 
-interface WebRTCDemoComponentProps {
+export interface WebRTCDemoComponentProps {
   sessionId: string;
   experimentId: string;
   environmentId: string;
@@ -32,7 +33,7 @@ interface WebRTCDemoComponentProps {
   checkpoint?: number;
   episodeNum?: number;
   step?: number;
-  onSubmit: () => void;
+  onSubmit: (payload?: Record<string, any>) => void | Promise<void>;
   onCancel: () => void;
   isSubmitting?: boolean;
   footerContent?: (controls: WebRTCFooterControls) => React.ReactNode;
@@ -51,7 +52,23 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   isSubmitting = false,
   footerContent,
 }) => {
-  const theme = useTheme();
+  if (isDashDrivingEnvironment(environmentId)) {
+    return (
+      <DashIframeDemoComponent
+        sessionId={sessionId}
+        experimentId={experimentId}
+        environmentId={environmentId}
+        coordinate={coordinate}
+        checkpoint={checkpoint}
+        episodeNum={episodeNum}
+        step={step}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+        isSubmitting={isSubmitting}
+        footerContent={footerContent}
+      />
+    );
+  }
 
   // State management
   const [connected, setConnected] = useState(false);

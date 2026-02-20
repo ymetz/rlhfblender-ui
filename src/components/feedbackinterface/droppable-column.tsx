@@ -23,7 +23,9 @@ type DroppableColumnProps = {
   maxRank: number;
   evalFeedback: { [episodeId: string]: number };
   updateEvalFeedback: (episodeId: string, rating: number) => void;
-  setDemoModalOpen: ({ open, seed }: { open: boolean; seed: number }) => void;
+  experimentId: number;
+  environmentId: string;
+  checkpoint?: number | string;
   actionLabels: any[];
   onMouseEnter: (episodeId: string) => void;
   onMouseLeave: () => void;
@@ -40,7 +42,9 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
   maxRank,
   evalFeedback,
   updateEvalFeedback,
-  setDemoModalOpen,
+  experimentId,
+  environmentId,
+  checkpoint,
   actionLabels,
   onMouseEnter,
   onMouseLeave,
@@ -144,7 +148,9 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
                 sessionId={sessionId}
                 evalFeedback={evalFeedback[episodeID]}
                 updateEvalFeedback={updateEvalFeedback}
-                setDemoModalOpen={setDemoModalOpen}
+                experimentId={experimentId}
+                environmentId={environmentId}
+                checkpoint={checkpoint}
                 actionLabels={actionLabels}
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}

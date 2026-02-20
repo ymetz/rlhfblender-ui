@@ -948,13 +948,15 @@ const MergedSelectionFeedback = () => {
   const saveDemoAndIntegrate = useCallback(async (
     sessionId: string,
     source: 'generated' | 'correction',
-    extraMetadata: Record<string, any> = {}
+    extraMetadata: Record<string, any> = {},
+    submitPayload?: Record<string, any>
   ): Promise<UserDemoTrajectory | null> => {
     setSavingDemo(true);
     try {
       const payload: any = {
         session_id: sessionId,
         projection_method: activeLearningState.embeddingMethod,
+        ...submitPayload,
       };
       if (appState.selectedCheckpoint !== undefined && appState.selectedCheckpoint !== null) {
         payload.checkpoint = Number(appState.selectedCheckpoint);
@@ -1012,8 +1014,8 @@ const MergedSelectionFeedback = () => {
     }
   }, [activeLearningDispatch, activeLearningState.embeddingMethod, activeLearningState.userGeneratedTrajectories.length, appState.selectedCheckpoint, waitForVideoAvailability]);
 
-  const submitDemo = async (extraMetadata: Record<string, any> = {}) => {
-    const trajectory = await saveDemoAndIntegrate(appState.sessionId, 'generated', extraMetadata);
+  const submitDemo = async (extraMetadata: Record<string, any> = {}, submitPayload?: Record<string, any>) => {
+    const trajectory = await saveDemoAndIntegrate(appState.sessionId, 'generated', extraMetadata, submitPayload);
     const demoEpisode: Episode = {
       env_name: appState.selectedExperiment.env_id,
       benchmark_type: 'generated',
@@ -1604,11 +1606,11 @@ const MergedSelectionFeedback = () => {
                     episodeNum={episode.episode_num}
                     step={effectiveCorrectionStep ?? selectedStep}
                     isSubmitting={savingDemo}
-                    onSubmit={async () => {
+                    onSubmit={async (submitPayload?: Record<string, any>) => {
                       const trajectory = await saveDemoAndIntegrate(`${appState.sessionId}_correction`, 'correction', {
                         episode: episode.episode_num,
                         step: effectiveCorrectionStep ?? selectedStep,
-                      });
+                      }, submitPayload);
                       const fb: Feedback = {
                         feedback_type: FeedbackType.Corrective,
                         targets: [{
@@ -1743,7 +1745,7 @@ const MergedSelectionFeedback = () => {
                   environmentId={appState.selectedExperiment.env_id}
                   coordinate={coordinate}
                   isSubmitting={savingDemo}
-                  onSubmit={() => submitDemo({ coordinate })}
+                  onSubmit={(submitPayload?: Record<string, any>) => submitDemo({ coordinate }, submitPayload)}
                   onCancel={() => setUseWebRTC(false)}
                 />
               )}

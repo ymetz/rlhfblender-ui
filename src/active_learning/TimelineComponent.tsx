@@ -247,18 +247,18 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
         sx={
           variant === 'overlay'
             ? {
-                position: "absolute",
-                bottom: 60,
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 1000,
-                backgroundColor: "rgba(255,255,255,0.95)",
-                border: "2px solid",
-                borderColor: episodeColor,
-                borderRadius: 2,
-                boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
-                backdropFilter: "blur(8px)",
-              }
+              position: "absolute",
+              bottom: 60,
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 1000,
+              backgroundColor: "rgba(255,255,255,0.95)",
+              border: "2px solid",
+              borderColor: episodeColor,
+              borderRadius: 2,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+              backdropFilter: "blur(8px)",
+            }
             : { width: '100%' }
         }
       >
@@ -494,7 +494,7 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
           >
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               <Box sx={{ width: 12, height: 12, bgcolor: theme.palette.success.main, opacity: 0.9 }} />
-              <Typography variant="caption">Reward</Typography>
+              <Typography variant="caption">Predicted Reward</Typography>
             </Box>
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               <Box sx={{ width: 12, height: 12, bgcolor: theme.palette.warning.main, opacity: 0.9 }} />

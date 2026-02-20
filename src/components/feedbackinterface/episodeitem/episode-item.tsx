@@ -8,16 +8,16 @@ import chroma from "chroma-js";
 // Axios
 import axios from "axios";
 import { styled } from "@mui/system";
-import { IconButton } from "@mui/material";
+import { Box, Button, IconButton } from "@mui/material";
 import { Check } from "@mui/icons-material";
 
 // Components
 import VideoPlaybackContainer from "./video-playback-container";
 import DragHandle from "./drag-handle";
 import EvaluativeFeedback from "./evaluative-feedback";
-import DemoSection from "./demo-section";
 import TextFeedback from "./text-feedback";
-import Modals from "./modals";
+import FeatureHighlightModal from "../feature-highlight-modal";
+import WebRTCDemoComponent from "../../../active_learning/WebRTCDemoComponent";
 
 // Types and Context
 import { EpisodeFromID } from "../../../id";
@@ -53,7 +53,7 @@ const EpisodeItemContainer = styled("div")<EpisodeItemContainerProps>(
     transition: "box-shadow 0.2s ease-in-out",
     gridTemplateColumns: horizontalRanking
       ? "1fr"
-      : "auto auto minmax(50%, 1fr) auto",
+      : "auto auto minmax(50%, 1fr)",
     gridTemplateRows: horizontalRanking
       ? "auto auto auto auto auto"
       : "auto auto auto",
@@ -62,11 +62,10 @@ const EpisodeItemContainer = styled("div")<EpisodeItemContainerProps>(
         "timelinechart"
         "mission"
         "evaluative"
-        "demo"
         ${isBestOfK ? '"select"' : '"drag"'}`
-      : `"drag envRender evaluative demo"
-      "drag envRender timelinechart timelinechart"
-      "drag envRender mission mission"`,
+      : `"drag envRender evaluative"
+      "drag envRender timelinechart"
+      "drag envRender mission"`,
   }),
 );
 
@@ -98,7 +97,9 @@ interface EpisodeItemProps {
   sessionId: string;
   evalFeedback: number | undefined;
   updateEvalFeedback: (episodeId: string, rating: number) => void;
-  setDemoModalOpen: ({ open, seed }: { open: boolean; seed: number }) => void;
+  experimentId: number;
+  environmentId: string;
+  checkpoint?: number | string;
   actionLabels?: any[];
   isBestOfK?: boolean;
   onMouseEnter: (episodeId: string) => void;
@@ -123,13 +124,15 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   sessionId,
   evalFeedback,
   updateEvalFeedback,
-    setDemoModalOpen,
-    actionLabels = [],
-    isBestOfK = false,
-    onMouseEnter,
-    onMouseLeave,
-    isHovered,
-  }) => {
+  experimentId,
+  environmentId,
+  checkpoint,
+  actionLabels = [],
+  isBestOfK = false,
+  onMouseEnter,
+  onMouseLeave,
+  isHovered,
+}) => {
   const {
     attributes,
     listeners,
@@ -151,9 +154,13 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   const [rewards, setRewards] = useState<number[]>([]);
   const [uncertainty, setUncertainty] = useState<number[]>([]);
   const [actions, setActions] = useState<number[]>([]);
-  const [highlightModelOpen, setHighlightModelOpen] = useState(false);
-  const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
   const [selectedStep, setSelectedStep] = useState(0);
+  const [lockedCorrectionStep, setLockedCorrectionStep] = useState<number | null>(null);
+  const [activePanel, setActivePanel] = useState<"none" | "demo" | "correction" | "feature">("none");
+  const [demoSessionId, setDemoSessionId] = useState<string | null>(null);
+  const [correctionSessionId, setCorrectionSessionId] = useState<string | null>(null);
+  const [isSubmittingDemo, setIsSubmittingDemo] = useState(false);
+  const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false);
   const [givenFeedbackMarkers, setGivenFeedbackMarkers] = useState<any[]>([]);
   const [proposedFeedbackMarkers, setProposedFeedbackMarkers] = useState<
     any[]
@@ -170,6 +177,13 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   const UIConfig = useSetupConfigState().activeUIConfig;
   const { hasFeedback } = useRatingInfo();
   const { getThumbnailURL, getVideoURL, getRewards, getUncertainty } = useGetter();
+  const canShowDemo = Boolean(UIConfig.feedbackComponents.demonstration);
+  const canShowCorrection = Boolean(UIConfig.feedbackComponents.correction);
+  const canShowFeatureSelection = Boolean(UIConfig.feedbackComponents.featureSelection);
+  const normalizedCheckpoint = useMemo(() => {
+    const numeric = Number(checkpoint);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  }, [checkpoint]);
 
   // Feedback status checks - memoized to prevent recalculation on every render
   const feedbackStatus = useMemo(() => ({
@@ -251,10 +265,14 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
 
   // Memoized callback handlers - prevents recreation on each render
   const onCorrectionModalOpenHandler = useCallback((step: number) => {
-    if (!UIConfig.feedbackComponents.correction) return;
+    if (!canShowCorrection) return;
     setSelectedStep(step);
-    setCorrectionModalOpen(true);
-  }, [UIConfig.feedbackComponents.correction]);
+    setLockedCorrectionStep(step);
+    setCorrectionSessionId(
+      `${sessionId}_correction_${episodeID}_${step}_${Date.now()}`,
+    );
+    setActivePanel("correction");
+  }, [canShowCorrection, episodeID, sessionId]);
 
   const onFeatureSelectionSubmit = useCallback((feedback: Feedback) => {
     if (sessionId !== "-") {
@@ -262,16 +280,52 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     }
   }, [scheduleFeedback, sessionId]);
 
-  const onCorrectionModalSubmit = useCallback((feedback: Feedback, step: number) => {
-    setGivenFeedbackMarkers((prev) => [
-      ...prev,
-      { x: step, y: feedback.numeric_feedback },
-    ]);
-    setCorrectionModalOpen(false);
-    if (sessionId !== "-") {
-      scheduleFeedback(feedback);
+  const onCorrectionDemoSubmit = useCallback(async (submitPayload?: Record<string, any>) => {
+    if (!correctionSessionId) return;
+    const correctionStep = lockedCorrectionStep ?? selectedStep;
+    setIsSubmittingCorrection(true);
+    try {
+      const response = await axios.post("/demo_generation/save_webrtc_demo", {
+        session_id: correctionSessionId,
+        checkpoint: normalizedCheckpoint,
+        ...submitPayload,
+      });
+      if (response.data?.success) {
+        const correctionPath =
+          response.data?.artifacts?.demo_file ?? response.data?.file_path ?? null;
+        const feedback: Feedback = {
+          feedback_type: FeedbackType.Corrective,
+          targets: [
+            {
+              target_id: `state_${episodeID}_${correctionStep}`,
+              reference: EpisodeFromID(episodeID || ""),
+              origin: "online",
+              timestamp: Date.now(),
+              step: correctionStep,
+            },
+          ],
+          granularity: "state",
+          timestamp: Date.now(),
+          session_id: sessionId,
+          correction: `WebRTC correction for episode ${episodeID}, step ${correctionStep}`,
+          correction_path: correctionPath,
+        };
+        setGivenFeedbackMarkers((prev) => [
+          ...prev,
+          { x: correctionStep, y: 1 },
+        ]);
+        if (sessionId !== "-") {
+          scheduleFeedback(feedback);
+        }
+        setLockedCorrectionStep(null);
+        setActivePanel("none");
+      }
+    } catch (error) {
+      console.error("Failed to save correction demo:", error);
+    } finally {
+      setIsSubmittingCorrection(false);
     }
-  }, [scheduleFeedback, sessionId]);
+  }, [correctionSessionId, normalizedCheckpoint, episodeID, lockedCorrectionStep, selectedStep, scheduleFeedback, sessionId]);
 
   const evaluativeFeedbackHandler = useCallback((
     _: Event | React.SyntheticEvent<Element, Event>,
@@ -299,6 +353,176 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   }, [episodeID, scheduleFeedback, sessionId, updateEvalFeedback]);
 
   const dragHandleProps = isBestOfK ? {} : { ...attributes, ...listeners };
+  const shouldShowPanels = canShowDemo || canShowCorrection || canShowFeatureSelection;
+
+  const startDemoPanel = () => {
+    if (!canShowDemo) return;
+    setDemoSessionId(`${sessionId}_demo_${episodeID}_${Date.now()}`);
+    setActivePanel("demo");
+  };
+
+  const startFeatureSelectionPanel = () => {
+    if (!canShowFeatureSelection) return;
+    setActivePanel("feature");
+  };
+
+  const closeActivePanel = () => {
+    setActivePanel("none");
+    setLockedCorrectionStep(null);
+  };
+
+  const onDemoSubmit = async (submitPayload?: Record<string, any>) => {
+    if (!demoSessionId) return;
+    setIsSubmittingDemo(true);
+    try {
+      const response = await axios.post("/demo_generation/save_webrtc_demo", {
+        session_id: demoSessionId,
+        checkpoint: normalizedCheckpoint,
+        ...submitPayload,
+      });
+      if (response.data?.success) {
+        const demoNumber = response.data?.demo_number ?? Date.now();
+        const demoPath =
+          response.data?.artifacts?.demo_file ?? response.data?.file_path ?? null;
+        const feedback: Feedback = {
+          feedback_type: FeedbackType.Demonstrative,
+          targets: [
+            {
+              target_id: `${environmentId}_generated_-1-1${demoNumber}`,
+              reference: {
+                env_name: environmentId,
+                benchmark_type: "generated",
+                benchmark_id: -1,
+                checkpoint_step: -1,
+                episode_num: demoNumber,
+              },
+              origin: "generated",
+              timestamp: Date.now(),
+            },
+          ],
+          granularity: "episode",
+          timestamp: Date.now(),
+          session_id: sessionId,
+          demonstration_path: demoPath,
+        };
+        if (sessionId !== "-") {
+          scheduleFeedback(feedback);
+        }
+        setActivePanel("none");
+      }
+    } catch (error) {
+      console.error("Failed to save demo:", error);
+    } finally {
+      setIsSubmittingDemo(false);
+    }
+  };
+
+  const overlayContent = (() => {
+    if (activePanel === "demo" && demoSessionId) {
+      return (
+        <WebRTCDemoComponent
+          sessionId={demoSessionId}
+          experimentId={String(experimentId)}
+          environmentId={environmentId}
+          checkpoint={normalizedCheckpoint}
+          isSubmitting={isSubmittingDemo}
+          onSubmit={onDemoSubmit}
+          onCancel={closeActivePanel}
+        />
+      );
+    }
+    if (activePanel === "correction" && correctionSessionId) {
+      const correctionStep = lockedCorrectionStep ?? selectedStep;
+      return (
+        <WebRTCDemoComponent
+          sessionId={correctionSessionId}
+          experimentId={String(experimentId)}
+          environmentId={environmentId}
+          checkpoint={normalizedCheckpoint}
+          episodeNum={EpisodeFromID(episodeID || "").episode_num}
+          step={correctionStep}
+          isSubmitting={isSubmittingCorrection}
+          onSubmit={onCorrectionDemoSubmit}
+          onCancel={closeActivePanel}
+        />
+      );
+    }
+    if (activePanel === "feature") {
+      return (
+        <Box
+          sx={{
+            height: "100%",
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Box sx={{ position: "relative", width: 360, height: 360, maxWidth: "100%" }}>
+            <FeatureHighlightModal
+              episodeId={episodeID}
+              getThumbnailURL={getThumbnailURL}
+              onClose={closeActivePanel}
+              onCloseSubmit={onFeatureSelectionSubmit}
+              sessionId={sessionId}
+            />
+          </Box>
+        </Box>
+      );
+    }
+    return null;
+  })();
+
+  const toolControls = shouldShowPanels ? (
+    <Box
+      sx={{
+        display: "flex",
+        gap: 0.5,
+        p: 0.5,
+        borderRadius: 1,
+        backgroundColor: "rgba(0,0,0,0.45)",
+      }}
+    >
+      {activePanel === "none" ? (
+        <>
+          {canShowDemo && (
+            <Button variant="contained" size="small" onClick={startDemoPanel}>
+              Demo
+            </Button>
+          )}
+          {canShowCorrection && (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => onCorrectionModalOpenHandler(lockedCorrectionStep ?? selectedStep)}
+              sx={{ color: "white", borderColor: "rgba(255,255,255,0.6)" }}
+            >
+              Correct @ {lockedCorrectionStep ?? selectedStep}
+            </Button>
+          )}
+          {canShowFeatureSelection && (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={startFeatureSelectionPanel}
+              sx={{ color: "white", borderColor: "rgba(255,255,255,0.6)" }}
+            >
+              Annotate
+            </Button>
+          )}
+        </>
+      ) : (
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={closeActivePanel}
+          sx={{ color: "white", borderColor: "rgba(255,255,255,0.6)" }}
+        >
+          Close
+        </Button>
+      )}
+    </Box>
+  ) : null;
 
   const EpisodeContent = (
     <EpisodeItemContainer
@@ -337,10 +561,19 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
         proposedFeedbackMarkers={proposedFeedbackMarkers}
         hasCorrectiveFeedback={feedbackStatus.hasCorrectiveFeedback}
         hasFeatureSelectionFeedback={feedbackStatus.hasFeatureSelectionFeedback}
-        showFeatureSelection={UIConfig.feedbackComponents.featureSelection}
-        onFeatureSelect={() => setHighlightModelOpen(true)}
-        useCorrectiveFeedback={UIConfig.feedbackComponents.correction}
+        showFeatureSelection={canShowFeatureSelection}
+        onFeatureSelect={startFeatureSelectionPanel}
+        useCorrectiveFeedback={canShowCorrection}
         videoRef={videoRef}
+        toolControls={toolControls}
+        overlayContent={overlayContent}
+        onPlaybackStepChange={(step) => {
+          if (lockedCorrectionStep === null && !isSubmittingCorrection) {
+            setSelectedStep(step);
+          }
+        }}
+        timelineInteractionLocked={lockedCorrectionStep !== null || isSubmittingCorrection}
+        correctionStep={lockedCorrectionStep}
       />
 
       {UIConfig.feedbackComponents.rating && (
@@ -363,20 +596,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
         />
       )}
 
-      <Modals
-        highlightModalOpen={highlightModelOpen}
-        correctionModalOpen={correctionModalOpen}
-        episodeId={episodeID}
-        selectedStep={selectedStep}
-        videoRef={videoRef}
-        sessionId={sessionId}
-        onHighlightClose={() => setHighlightModelOpen(false)}
-        onHighlightSubmit={onFeatureSelectionSubmit}
-        onCorrectionClose={() => setCorrectionModalOpen(false)}
-        onCorrectionSubmit={onCorrectionModalSubmit}
-        customInput={UIConfig?.customInput}
-        getThumbnailURL={getThumbnailURL}
-      />
     </EpisodeItemContainer>
   );
 

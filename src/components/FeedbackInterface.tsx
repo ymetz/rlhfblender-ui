@@ -30,7 +30,6 @@ import { ProgressHeader } from "./feedbackinterface/progress-header";
 import DroppableColumn from "./feedbackinterface/droppable-column";
 import BestOfKColumn from "./feedbackinterface/best-of-k-column";
 import ScrollableEpisodeList from "./feedbackinterface/scrollable-episode-list";
-import DemoModal from "./modals/demo-modal";
 import { useFeedbackShortcuts } from "./feedbackinterface/hooks/useShortcuts";
 
 // Add new type for feedback mode
@@ -47,13 +46,13 @@ const FeedbackInterface: React.FC = () => {
     episodeIDsChronologically,
     rankeableEpisodeIDs,
     selectedExperiment,
+    selectedCheckpoint,
     actionLabels,
     sessionId,
     scheduledFeedback,
   } = state;
   const { activeUIConfig, uiConfigSequence } = useSetupConfigState();
 
-  const [demoModalOpen, setDemoModalOpen] = useState({ open: false, seed: 0 });
   const [isOnSubmit, setIsOnSubmit] = useState(false);
   const [evalFeedback, setEvalFeedback] = useState({});
 
@@ -327,10 +326,6 @@ const FeedbackInterface: React.FC = () => {
 
   // Feedback shortcuts
 
-  const handleDemoRequest = useCallback(() => {
-    setDemoModalOpen({ open: true, seed: Math.random() });
-  }, []);
-
   const handleFeatureAnnotation = useCallback((episodeId: string) => {
     console.log("Feature annotation for episode", episodeId);
   }, []);
@@ -340,7 +335,7 @@ const FeedbackInterface: React.FC = () => {
     feedbackMode,
     onEvalFeedback: updateEvalFeedback,
     onBestOfKSelection: handleBestOfKSelection,
-    onDemoRequest: handleDemoRequest,
+    onDemoRequest: undefined,
     onFeatureAnnotation: handleFeatureAnnotation,
     uiConfigFeedbackComponents: activeUIConfig.feedbackComponents,
   });
@@ -404,7 +399,9 @@ const FeedbackInterface: React.FC = () => {
                       maxRank={columnOrder.length}
                       evalFeedback={evalFeedback}
                       updateEvalFeedback={updateEvalFeedback}
-                      setDemoModalOpen={setDemoModalOpen}
+                      experimentId={selectedExperiment?.id ?? 0}
+                      environmentId={selectedExperiment?.env_id ?? ""}
+                      checkpoint={selectedCheckpoint}
                       onMouseEnter={handleEpisodeHover}
                       onMouseLeave={() => handleEpisodeHover(null)}
                       isHovered={hoveredEpisodeId === columnId}
@@ -434,27 +431,15 @@ const FeedbackInterface: React.FC = () => {
               actionLabels={actionLabels}
               evalFeedback={evalFeedback}
               updateEvalFeedback={updateEvalFeedback}
-              setDemoModalOpen={setDemoModalOpen}
+              experimentId={selectedExperiment?.id ?? 0}
+              environmentId={selectedExperiment?.env_id ?? ""}
+              checkpoint={selectedCheckpoint}
               onMouseEnter={handleEpisodeHover}
               onMouseLeave={() => handleEpisodeHover(null)}
               isHovered={hoveredEpisodeId === selectedColumn}
             />
           </Box>
         )}
-        <DemoModal
-          open={demoModalOpen.open}
-          onClose={() => setDemoModalOpen({ open: false, seed: 0 })}
-          onCloseSubmit={(feedback) => {
-            scheduleFeedback(feedback);
-            setDemoModalOpen({ open: false, seed: 0 });
-          }}
-          custom_input={activeUIConfig.customInput}
-          activeExpId={selectedExperiment?.id ?? ""}
-          activeEnvId={selectedExperiment?.env_id ?? ""}
-          sessionId={sessionId}
-          inputProps={{}}
-          seed={demoModalOpen.seed}
-        />
       </Box>
     </RatingInfoContext.Provider>
   );
