@@ -6,9 +6,9 @@ function generateTemplateColumns(props: StyledDroppableColumnContainerProps) {
   if (props.horizontalRanking) {
     for (let i = 0; i < props.columnOrder.length; i++) {
       if (props.ranks[props.columnOrder[i]].episodeItemIDs.length > 0) {
-        templateString += "minmax(20%, 1fr) ";
+        templateString += "minmax(360px, 520px) ";
       } else {
-        templateString += "auto ";
+        templateString += "56px ";
       }
     }
   } else {
@@ -40,5 +40,11 @@ export const DroppableColumnContainer = styled(
   flex: 1;
   grid-template-columns: ${(props) => generateTemplateColumns(props)};
   grid-template-rows: ${(props) => generateTemplateRows(props)};
-  overflow-y: auto;
+  gap: 10px;
+  justify-content: center;
+  align-content: start;
+  width: 100%;
+  padding: 10px 12px 14px;
+  box-sizing: border-box;
+  overflow: auto;
 `;

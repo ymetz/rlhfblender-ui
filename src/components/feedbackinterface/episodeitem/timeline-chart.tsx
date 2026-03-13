@@ -7,7 +7,6 @@ import { scaleLinear } from "@visx/scale";
 import { Group } from "@visx/group";
 import {
   withTooltip,
-  Tooltip,
   TooltipWithBounds,
   defaultStyles,
 } from "@visx/tooltip";
@@ -30,8 +29,6 @@ type TimelineChartProps = {
   givenFeedbackMarkers: any[];
   proposedFeedbackMarkers: any[];
   videoDuration: number;
-  showTooltip: (tooltipData: TooltipProps) => void;
-  hideTooltip: () => void;
   tooltipData?: TooltipProps;
   tooltipTop?: number;
   tooltipLeft?: number;
@@ -55,6 +52,27 @@ function safeDomain(minValue: number, maxValue: number): [number, number] {
     return [minValue - 1, maxValue + 1];
   }
   return [minValue, maxValue];
+}
+
+function pickTicks(scale: any, desired = 3): number[] {
+  const ticks = scale.ticks(6);
+  if (ticks.length <= desired) return ticks;
+
+  const output = [ticks[0]];
+  const step = (ticks.length - 1) / (desired - 1);
+  for (let i = 1; i < desired - 1; i += 1) {
+    output.push(ticks[Math.round(i * step)]);
+  }
+  output.push(ticks[ticks.length - 1]);
+
+  return Array.from(new Set(output)).sort((a, b) => a - b);
+}
+
+function estimateLabelWidth(values: number[], digits = 2): number {
+  const labels = values.map((value) => Number(value).toFixed(digits));
+  const charWidth = 6.5;
+  const padding = 12;
+  return Math.ceil(Math.max(...labels.map((label) => label.length)) * charWidth + padding);
 }
 
 function shortTickCount(length: number): number {
@@ -91,63 +109,81 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
     const uncertaintyColor = theme.palette.warning.main;
     const uncertaintyFill = alpha(uncertaintyColor, 0.18);
 
-    const innerWidth = width - margin.left - margin.right;
+    const uncertaintySeries = uncertainty.length > 0 ? uncertainty : rewards.map(() => 0);
+
     const innerHeight = height - margin.top - margin.bottom;
+    if (innerHeight <= 0) return null;
+
     const panelGap = 8;
     const rewardPanelHeight = Math.floor((innerHeight - panelGap) / 2);
     const uncertaintyPanelHeight = innerHeight - rewardPanelHeight - panelGap;
     const rewardPanelTop = margin.top;
     const uncertaintyPanelTop = margin.top + rewardPanelHeight + panelGap;
 
-    // Slightly shorten x-span so x-axis does not occupy full width
-    const xPadding = Math.max(14, Math.floor(innerWidth * 0.05));
-    const xStart = margin.left + xPadding;
-    const xEnd = margin.left + innerWidth - xPadding;
-    const xChartWidth = Math.max(40, xEnd - xStart);
-
-    const safeDuration = videoDuration > 0 ? videoDuration : 1;
-    const fps = rewards.length / safeDuration;
-    const currentStep = clamp(Math.round(tooltipLeft * fps), 0, rewards.length - 1);
-
-    const rewardMin = Math.min(...rewards);
-    const rewardMax = Math.max(...rewards);
-    const uncertaintyMax = uncertainty.length > 0 ? Math.max(...uncertainty) : 0;
-
-    const stepScale = useMemo(
-      () =>
-        scaleLinear({
-          range: [xStart, xEnd],
-          domain: [0, Math.max(0, rewards.length - 1)],
-        }),
-      [xStart, xEnd, rewards.length],
+    const rewardDomain = safeDomain(Math.min(...rewards), Math.max(...rewards));
+    const uncertaintyDomain = safeDomain(
+      Math.min(...uncertaintySeries),
+      Math.max(...uncertaintySeries),
     );
 
     const rewardScale = useMemo(
       () =>
         scaleLinear({
           range: [rewardPanelTop + rewardPanelHeight, rewardPanelTop],
-          domain: safeDomain(rewardMin, rewardMax),
+          domain: rewardDomain,
           nice: true,
         }),
-      [rewardPanelTop, rewardPanelHeight, rewardMin, rewardMax],
+      [rewardPanelTop, rewardPanelHeight, rewardDomain],
     );
 
     const uncertaintyScale = useMemo(
       () =>
         scaleLinear({
           range: [uncertaintyPanelTop + uncertaintyPanelHeight, uncertaintyPanelTop],
-          domain: [0, uncertaintyMax > 0 ? uncertaintyMax : 1],
+          domain: uncertaintyDomain,
           nice: true,
         }),
-      [uncertaintyPanelTop, uncertaintyPanelHeight, uncertaintyMax],
+      [uncertaintyPanelTop, uncertaintyPanelHeight, uncertaintyDomain],
     );
 
-    const rewardTicks = useMemo(() => rewardScale.ticks(3), [rewardScale]);
-    const uncertaintyTicks = useMemo(() => uncertaintyScale.ticks(3), [uncertaintyScale]);
+    const rewardTicks = useMemo(() => pickTicks(rewardScale, 3), [rewardScale]);
+    const uncertaintyTicks = useMemo(
+      () => pickTicks(uncertaintyScale, 3),
+      [uncertaintyScale],
+    );
+
+    const neededLeft = Math.max(
+      estimateLabelWidth(rewardTicks),
+      estimateLabelWidth(uncertaintyTicks),
+    );
+
+    const adjustedMargin = {
+      ...margin,
+      left: Math.max(margin.left, neededLeft),
+    };
+
+    const innerWidth = width - adjustedMargin.left - adjustedMargin.right;
+    if (innerWidth <= 10) return null;
+
+    const stepScale = useMemo(
+      () =>
+        scaleLinear({
+          range: [adjustedMargin.left, innerWidth + adjustedMargin.left],
+          domain: [0, Math.max(0, rewards.length - 1)],
+        }),
+      [adjustedMargin.left, innerWidth, rewards.length],
+    );
+
+    const safeDuration = videoDuration > 0 ? videoDuration : 1;
+    const fps = rewards.length / safeDuration;
+    const currentStep = clamp(Math.round(tooltipLeft * fps), 0, rewards.length - 1);
 
     const rewardBaselineY =
-      rewardMin <= 0 && rewardMax >= 0 ? rewardScale(0) : rewardScale(rewardMin);
-    const uncertaintyBaselineY = uncertaintyScale(0);
+      rewardDomain[0] <= 0 && rewardDomain[1] >= 0
+        ? rewardScale(0)
+        : rewardScale(rewardDomain[0]);
+    const uncertaintyBaselineY = uncertaintyScale(uncertaintyDomain[0]);
+    const panelLabelOffsetY = 10;
 
     const handleTooltip = useCallback(
       (
@@ -164,7 +200,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
           tooltipData: {
             value: rewards[idx],
             index: idx,
-            uncertainty: uncertainty[idx],
+            uncertainty: uncertaintySeries[idx],
           },
           tooltipLeft: idx / (fps || 1),
           tooltipTop: rewardScale(rewards[idx]),
@@ -175,7 +211,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
         interactionLocked,
         stepScale,
         rewards,
-        uncertainty,
+        uncertaintySeries,
         showTooltip,
         fps,
         rewardScale,
@@ -211,7 +247,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
 
           <Group left={0} top={0}>
             <GridColumns
-              top={margin.top}
+              top={adjustedMargin.top}
               scale={stepScale}
               height={innerHeight}
               numTicks={shortTickCount(rewards.length)}
@@ -222,9 +258,9 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             />
 
             <GridRows
-              left={xStart}
+              left={adjustedMargin.left}
               scale={rewardScale}
-              width={xChartWidth}
+              width={innerWidth}
               numTicks={rewardTicks.length}
               strokeDasharray="1,3"
               stroke={theme.palette.divider}
@@ -251,18 +287,18 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             />
             <AxisLeft
               scale={rewardScale}
-              left={xStart}
+              left={adjustedMargin.left}
               tickValues={rewardTicks}
-              tickFormat={(v) => `${Number(v).toFixed(2)}`}
-              tickLabelProps={{ fill: theme.palette.text.primary, fontSize: 10 }}
+              tickFormat={(value) => `${Number(value).toFixed(2)}`}
+              tickLabelProps={{ fill: theme.palette.text.primary, fontSize: 11 }}
               tickLineProps={{ stroke: theme.palette.text.secondary }}
               stroke={theme.palette.text.secondary}
             />
 
             <GridRows
-              left={xStart}
+              left={adjustedMargin.left}
               scale={uncertaintyScale}
-              width={xChartWidth}
+              width={innerWidth}
               numTicks={uncertaintyTicks.length}
               strokeDasharray="1,3"
               stroke={theme.palette.divider}
@@ -270,7 +306,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
               pointerEvents="none"
             />
             <AreaClosed
-              data={uncertainty.length > 0 ? uncertainty : rewards.map(() => 0)}
+              data={uncertaintySeries}
               x={(_, i) => stepScale(i)}
               y={(d) => uncertaintyScale(d)}
               yScale={uncertaintyScale}
@@ -280,7 +316,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
               stroke="none"
             />
             <LinePath
-              data={uncertainty.length > 0 ? uncertainty : rewards.map(() => 0)}
+              data={uncertaintySeries}
               x={(_, i) => stepScale(i)}
               y={(d) => uncertaintyScale(d)}
               strokeWidth={2}
@@ -289,48 +325,50 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             />
             <AxisLeft
               scale={uncertaintyScale}
-              left={xStart}
+              left={adjustedMargin.left}
               tickValues={uncertaintyTicks}
-              tickFormat={(v) => `${Number(v).toFixed(2)}`}
-              tickLabelProps={{ fill: theme.palette.text.primary, fontSize: 10 }}
+              tickFormat={(value) => `${Number(value).toFixed(2)}`}
+              tickLabelProps={{ fill: theme.palette.text.primary, fontSize: 11 }}
               tickLineProps={{ stroke: theme.palette.text.secondary }}
               stroke={theme.palette.text.secondary}
             />
 
             <AxisBottom
               scale={stepScale}
-              top={margin.top + innerHeight}
+              top={adjustedMargin.top + innerHeight}
               numTicks={shortTickCount(rewards.length)}
-              tickFormat={(v) => `${Math.round(Number(v))}`}
+              tickFormat={(value) => `${Math.round(Number(value))}`}
               stroke={theme.palette.text.secondary}
               tickLabelProps={{ fill: theme.palette.text.primary, fontSize: 10 }}
               tickLineProps={{ stroke: theme.palette.text.secondary }}
             />
 
             <Line
-              from={{ x: stepScale(currentStep), y: margin.top }}
-              to={{ x: stepScale(currentStep), y: margin.top + innerHeight }}
+              from={{ x: stepScale(currentStep), y: adjustedMargin.top }}
+              to={{ x: stepScale(currentStep), y: adjustedMargin.top + innerHeight }}
               stroke={theme.palette.info.dark}
               strokeWidth={2}
               strokeDasharray="5,5"
               pointerEvents="none"
             />
 
-            {stepForCorrection !== null && stepForCorrection >= 0 && stepForCorrection < rewards.length && (
-              <polygon
-                points={`${stepScale(stepForCorrection) - 6},${margin.top + innerHeight + 5} ${stepScale(stepForCorrection) + 6},${margin.top + innerHeight + 5} ${stepScale(stepForCorrection)},${margin.top + innerHeight - 2}`}
-                fill={theme.palette.info.main}
-                stroke={alpha(theme.palette.background.paper, 0.9)}
-                strokeWidth={1}
-                pointerEvents="none"
-              />
-            )}
+            {stepForCorrection !== null &&
+              stepForCorrection >= 0 &&
+              stepForCorrection < rewards.length && (
+                <polygon
+                  points={`${stepScale(stepForCorrection) - 6},${adjustedMargin.top + innerHeight + 5} ${stepScale(stepForCorrection) + 6},${adjustedMargin.top + innerHeight + 5} ${stepScale(stepForCorrection)},${adjustedMargin.top + innerHeight - 2}`}
+                  fill={theme.palette.info.main}
+                  stroke={alpha(theme.palette.background.paper, 0.9)}
+                  strokeWidth={1}
+                  pointerEvents="none"
+                />
+              )}
           </Group>
 
           <Bar
-            x={xStart}
-            y={margin.top}
-            width={xChartWidth}
+            x={adjustedMargin.left}
+            y={adjustedMargin.top}
+            width={innerWidth}
             height={innerHeight}
             fill="transparent"
             rx={8}
@@ -390,6 +428,8 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
               backgroundColor: theme.palette.background.paper,
               color: theme.palette.text.primary,
               border: `1px solid ${theme.palette.divider}`,
+              zIndex: 40,
+              pointerEvents: "none",
             }}
           >
             <div><strong>Step {tooltipData.index}</strong></div>
@@ -404,37 +444,48 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
           </TooltipWithBounds>
         )}
 
-        <Tooltip
-          top={margin.top + innerHeight - 14}
-          left={stepScale(clamp(Math.round(tooltipLeft * fps), 0, rewards.length - 1))}
-          style={{
-            ...defaultStyles,
-            minWidth: 52,
-            textAlign: "center",
-            transform: "translateX(-50%)",
+        <Box
+          sx={{
+            position: "absolute",
+            top: Math.max(0, rewardPanelTop - panelLabelOffsetY),
+            right: 8,
+            display: "flex",
+            gap: 0.5,
+            fontSize: "12px",
+            alignItems: "center",
+            px: 0.4,
+            py: 0.15,
+            borderRadius: "4px",
+            bgcolor: alpha(theme.palette.background.paper, 0.82),
+            zIndex: 12,
           }}
         >
-          {clamp(Math.round(tooltipLeft * fps), 0, rewards.length - 1)}
-        </Tooltip>
+          <Box sx={{ width: 10, height: 10, bgcolor: rewardColor, opacity: 0.9 }} />
+          <Typography variant="caption" sx={{ color: theme.palette.text.secondary }}>
+            Predicted Reward
+          </Typography>
+        </Box>
 
         <Box
           sx={{
             position: "absolute",
-            top: 6,
+            top: Math.max(0, uncertaintyPanelTop - panelLabelOffsetY),
             right: 8,
             display: "flex",
-            gap: 1.5,
+            gap: 0.5,
             fontSize: "12px",
+            alignItems: "center",
+            px: 0.4,
+            py: 0.15,
+            borderRadius: "4px",
+            bgcolor: alpha(theme.palette.background.paper, 0.82),
+            zIndex: 12,
           }}
         >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            <Box sx={{ width: 10, height: 10, bgcolor: rewardColor, opacity: 0.9 }} />
-            <Typography variant="caption">Predicted Reward</Typography>
-          </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            <Box sx={{ width: 10, height: 10, bgcolor: uncertaintyColor, opacity: 0.9 }} />
-            <Typography variant="caption">Uncertainty</Typography>
-          </Box>
+          <Box sx={{ width: 10, height: 10, bgcolor: uncertaintyColor, opacity: 0.9 }} />
+          <Typography variant="caption" sx={{ color: theme.palette.text.secondary }}>
+            Uncertainty
+          </Typography>
         </Box>
 
         {useCorrectiveFeedback && (

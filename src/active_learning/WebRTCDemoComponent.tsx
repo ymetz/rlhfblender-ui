@@ -530,7 +530,9 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
                     variant="contained"
                     size="small"
                     disabled={!connected || isSubmitting}
-                    onClick={onSubmit}
+                    onClick={() => {
+                      void onSubmit();
+                    }}
                   >
                     {isSubmitting && (
                       <CircularProgress size={16} sx={{ mr: 1 }} color="inherit" />

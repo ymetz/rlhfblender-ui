@@ -1,7 +1,7 @@
 // best-of-k-column.tsx
 import React from "react";
 import Box from "@mui/material/Box";
-import { useTheme } from "@mui/material/styles";
+import { useTheme, alpha } from "@mui/material/styles";
 import { useSetupConfigState } from "../../SetupConfigContext";
 import EpisodeItem from "./episodeitem/episode-item";
 import { Feedback } from "../../types";
@@ -54,6 +54,12 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
         flexGrow: 1,
         flexShrink: 1,
         flexBasis: "auto",
+        flexWrap: "wrap",
+        justifyContent: "center",
+        alignContent: "flex-start",
+        gap: 1,
+        padding: 1,
+        boxSizing: "border-box",
         flexDirection: horizontalRanking ? "row" : "column",
         borderLeft: horizontalRanking
           ? `1px solid ${theme.palette.divider}`
@@ -61,7 +67,8 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
         borderTop: horizontalRanking
           ? "none"
           : `1px solid ${theme.palette.divider}`,
-        backgroundColor: theme.palette.background.l1,
+        borderRadius: "10px",
+        backgroundColor: alpha(theme.palette.primary.main, 0.05),
       }}
     >
       {episodeIDs.map((episodeID) => (
@@ -69,14 +76,16 @@ const BestOfKColumn: React.FC<BestOfKColumnProps> = ({
           key={episodeID}
           sx={{
             display: "flex",
-            margin: 1,
-
-            // Here I have to put flex 1 because I want to fill out the white with the grey
-            flex: 1,
-            marginLeft: horizontalRanking ? "none" : 0,
-            marginTop: horizontalRanking ? 0 : "none",
+            margin: 0,
+            flex: "0 1 auto",
+            width: horizontalRanking ? "min(520px, calc(50vw - 20px))" : "100%",
+            minWidth: horizontalRanking ? 340 : "auto",
+            marginLeft: horizontalRanking ? 0 : 0,
+            marginTop: horizontalRanking ? 0 : 0,
             borderRadius: horizontalRanking ? "0 0 5px 5px" : "0 5px 5px 0",
-            border: `1px solid ${theme.palette.divider}`,
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+            backgroundColor: alpha(theme.palette.primary.main, 0.06),
+            boxSizing: "border-box",
           }}
         >
           <EpisodeItem

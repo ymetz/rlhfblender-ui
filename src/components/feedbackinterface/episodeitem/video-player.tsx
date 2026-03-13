@@ -1,6 +1,8 @@
 // video-player.tsx
-import React, { useState } from "react";
-import { Box, Skeleton } from "@mui/material";
+import React, { useEffect, useState } from "react";
+import { Box, Skeleton, IconButton } from "@mui/material";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
 
 interface VideoPlayerProps {
   videoRef: React.RefObject<HTMLVideoElement>;
@@ -17,16 +19,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   videoRef,
   videoURL,
   onLoadMetadata,
+  playButtonHandler,
+  playing,
 }) => {
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [videoAspectRatio, setVideoAspectRatio] = useState(16 / 9);
 
-  // Constants for container dimensions
-  const CONTAINER_WIDTH = "30vw";
-  const CONTAINER_HEIGHT = "50vh";
+  useEffect(() => {
+    setVideoLoaded(false);
+    setVideoError(false);
+    setVideoAspectRatio(16 / 9);
+  }, [videoURL]);
 
   // Handle video load
   const handleVideoLoad = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const videoElement = event.currentTarget;
+    if (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+      setVideoAspectRatio(videoElement.videoWidth / videoElement.videoHeight);
+    }
     setVideoLoaded(true);
     setVideoError(false);
     // Call the original onLoadMetadata prop
@@ -42,15 +53,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <Box 
       sx={{
-        width: CONTAINER_WIDTH,
-        height: CONTAINER_HEIGHT,
+        width: "min(calc(100% - 16px), 33vw)",
+        minWidth: 260,
+        maxWidth: "100%",
+        aspectRatio: `${videoAspectRatio}`,
+        maxHeight: "56vh",
+        boxSizing: "border-box",
+        mx: "auto",
+        my: 1,
+        p: 0.5,
         position: "relative",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        // Ensure the container never collapses
-        minWidth: CONTAINER_WIDTH,
-        minHeight: CONTAINER_HEIGHT,
         backgroundColor: "background.paper",
         overflow: "hidden",
         // Ensure a smooth transition when content changes
@@ -64,7 +79,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           width="100%"
           height="100%"
           animation="wave"
-          sx={{ position: "absolute", top: 0, left: 0 }}
+          sx={{ position: "absolute", inset: 0 }}
         />
       )}
 
@@ -87,21 +102,50 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* The actual video element */}
       {videoURL && (
-        <video
-          ref={videoRef}
-          onLoadedMetadata={handleVideoLoad}
-          onError={handleVideoError}
-          loop
-          style={{
-            maxWidth: "100%",
-            maxHeight: "100%",
-            objectFit: "contain", // Maintain aspect ratio
-            opacity: videoLoaded ? 1 : 0, // Hide until loaded
-            transition: "opacity 0.3s ease-in-out"
-          }}
-        >
-          <source src={videoURL} type="video/mp4" />
-        </video>
+        <>
+          <video
+            ref={videoRef}
+            onLoadedMetadata={handleVideoLoad}
+            onError={handleVideoError}
+            loop
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "block",
+              objectFit: "contain", // Maintain aspect ratio
+              opacity: videoLoaded ? 1 : 0, // Hide until loaded
+              transition: "opacity 0.3s ease-in-out"
+            }}
+          >
+            <source src={videoURL} type="video/mp4" />
+          </video>
+          <IconButton
+            size="small"
+            onClick={playButtonHandler}
+            sx={{
+              position: "absolute",
+              bottom: 6,
+              right: 6,
+              zIndex: 2,
+              backgroundColor: playing
+                ? "rgba(76, 175, 80, 0.85)"
+                : "rgba(0, 0, 0, 0.55)",
+              color: "common.white",
+              "&:hover": {
+                backgroundColor: playing
+                  ? "rgba(76, 175, 80, 0.95)"
+                  : "rgba(0, 0, 0, 0.75)",
+              },
+              p: 0.5,
+            }}
+          >
+            {playing ? (
+              <PauseIcon fontSize="small" />
+            ) : (
+              <PlayArrowIcon fontSize="small" />
+            )}
+          </IconButton>
+        </>
       )}
     </Box>
   );

@@ -45,6 +45,115 @@ const App: React.FC = () => {
   const configState = useSetupConfigState();
   const configDispatch = useSetupConfigDispatch();
   const lastResetParamsRef = useRef<{ experimentId: number; checkpoint: number | null } | null>(null);
+  const projectionUncertaintyCacheRef = useRef<Map<string, Map<number, number[]>>>(
+    new Map(),
+  );
+  const projectionUncertaintyPendingRef = useRef<
+    Map<string, Promise<Map<number, number[]>>>
+  >(new Map());
+
+  const toNumberArray = useCallback((data: unknown): number[] => {
+    if (Array.isArray(data)) {
+      return data.map((value) => Number(value));
+    }
+
+    if (ArrayBuffer.isView(data)) {
+      return Array.from(data as ArrayLike<number>, (value) => Number(value));
+    }
+
+    if (data instanceof ArrayBuffer) {
+      return Array.from(new Float32Array(data), (value) => Number(value));
+    }
+
+    return [];
+  }, []);
+
+  const getProjectionUncertaintyByEpisode = useCallback(
+    async (episodeRef: ReturnType<typeof EpisodeFromID>) => {
+      const cacheKey = `${episodeRef.benchmark_id}_${episodeRef.checkpoint_step}`;
+      const cached = projectionUncertaintyCacheRef.current.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      const pending = projectionUncertaintyPendingRef.current.get(cacheKey);
+      if (pending) {
+        return pending;
+      }
+
+      const requestPromise = (async () => {
+        const [projectionResponse, projectionDataResponse] = await Promise.all([
+          axios.post("/projection/generate_projection", null, {
+            params: {
+              benchmark_id: episodeRef.benchmark_id,
+              checkpoint_step: episodeRef.checkpoint_step,
+            },
+          }),
+          axios.post("/projection/load_grid_projection_data", null, {
+            params: {
+              benchmark_id: episodeRef.benchmark_id,
+              checkpoint_step: episodeRef.checkpoint_step,
+              allow_missing: true,
+            },
+          }),
+        ]);
+
+        const projectionPayload = projectionResponse.data as {
+          episode_indices?: unknown;
+        };
+        const predictionPayload = projectionDataResponse.data as {
+          original_uncertainties?: unknown;
+        };
+
+        const episodeIndices = toNumberArray(projectionPayload.episode_indices);
+        const originalUncertainties = toNumberArray(
+          predictionPayload.original_uncertainties,
+        );
+
+        const byEpisode = new Map<number, number[]>();
+        const sharedLength = Math.min(
+          episodeIndices.length,
+          originalUncertainties.length,
+        );
+
+        for (let i = 0; i < sharedLength; i += 1) {
+          const rawEpisodeNum = episodeIndices[i];
+          const rawUncertainty = originalUncertainties[i];
+          if (!Number.isFinite(rawEpisodeNum) || !Number.isFinite(rawUncertainty)) {
+            continue;
+          }
+
+          const episodeNum = Math.round(rawEpisodeNum);
+          const currentValues = byEpisode.get(episodeNum) ?? [];
+          currentValues.push(rawUncertainty);
+          byEpisode.set(episodeNum, currentValues);
+        }
+
+        projectionUncertaintyCacheRef.current.set(cacheKey, byEpisode);
+        return byEpisode;
+      })()
+        .catch((error) => {
+          const emptyResult = new Map<number, number[]>();
+          projectionUncertaintyCacheRef.current.set(cacheKey, emptyResult);
+
+          if (!(axios.isAxiosError(error) && error.response?.status === 404)) {
+            console.error(
+              `Error loading projection uncertainty fallback for ${cacheKey}:`,
+              error,
+            );
+          }
+
+          return emptyResult;
+        })
+        .finally(() => {
+          projectionUncertaintyPendingRef.current.delete(cacheKey);
+        });
+
+      projectionUncertaintyPendingRef.current.set(cacheKey, requestPromise);
+      return requestPromise;
+    },
+    [toNumberArray],
+  );
 
   useEffect(() => {
     const initializeData = () => {
@@ -185,7 +294,7 @@ const App: React.FC = () => {
         const response = await axios.get("data/get_rewards", {
           params: EpisodeFromID(episodeId),
         });
-        const rewards = Array.from(new Float32Array(response.data));
+        const rewards = toNumberArray(response.data).filter((v) => Number.isFinite(v));
         dispatch({
           type: "SET_REWARDS_CACHE",
           payload: { [episodeId]: rewards },
@@ -196,7 +305,7 @@ const App: React.FC = () => {
       }
       return undefined;
     },
-    [state.rewardsCache, dispatch],
+    [state.rewardsCache, dispatch, toNumberArray],
   );
 
   const getUncertainty = useCallback(
@@ -208,18 +317,39 @@ const App: React.FC = () => {
         const response = await axios.get("data/get_uncertainty", {
           params: EpisodeFromID(episodeId),
         });
-        const uncertainty = Array.from(new Float32Array(response.data));
+        const uncertainty = toNumberArray(response.data).filter((v) =>
+          Number.isFinite(v),
+        );
+        if (uncertainty.length === 0) {
+          throw new Error("Empty uncertainty payload from /data/get_uncertainty");
+        }
         dispatch({
           type: "SET_UNCERTAINTY_CACHE",
           payload: { [episodeId]: uncertainty },
         });
         return uncertainty;
       } catch (error) {
-        console.error("Error fetching uncertainty:", error);
+        console.warn("File-based uncertainty fetch failed, trying projection fallback:", error);
+      }
+
+      try {
+        const episodeRef = EpisodeFromID(episodeId);
+        const byEpisode = await getProjectionUncertaintyByEpisode(episodeRef);
+        const fallbackUncertainty = byEpisode.get(episodeRef.episode_num);
+
+        if (fallbackUncertainty && fallbackUncertainty.length > 0) {
+          dispatch({
+            type: "SET_UNCERTAINTY_CACHE",
+            payload: { [episodeId]: fallbackUncertainty },
+          });
+          return fallbackUncertainty;
+        }
+      } catch (error) {
+        console.error("Error fetching uncertainty from projection fallback:", error);
       }
       return undefined;
     },
-    [state.uncertaintyCache, dispatch],
+    [state.uncertaintyCache, dispatch, toNumberArray, getProjectionUncertaintyByEpisode],
   );
 
   const getterContextValue = useMemo(

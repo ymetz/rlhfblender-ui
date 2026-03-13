@@ -35,9 +35,13 @@ const EvaluativeContainer = styled("div")<EvaluativeContainerProps>(
       ? `1px solid ${theme.palette.primary.main}`
       : `1px solid ${theme.palette.divider}`,
     backgroundColor: theme.palette.background.l0,
-    margin: "10px",
+    margin: "10px auto",
     alignItems: "center",
-    width: horizontalRanking ? "auto" : "50%",
+    columnGap: "4px",
+    justifySelf: "center",
+    boxSizing: "border-box",
+    width: "min(calc(100% - 16px), 33vw)",
+    minWidth: horizontalRanking ? 260 : 220,
   }),
 );
 
@@ -81,24 +85,58 @@ const EvaluativeFeedback: React.FC<EvaluativeFeedbackProps> = ({
         }}
         onClick={() => onChange(Math.max(0, value - 1))}
       />
-      <Slider
-        step={1}
-        min={0}
-        max={10}
-        value={value}
-        valueLabelDisplay="auto"
-        marks
-        sx={{
-          color: chroma
-            .mix(
-              theme.palette.primary.main,
-              theme.palette.text.secondary,
-              1.0 - (value + 1) / 10,
-            )
-            .hex(),
-        }}
-        onChangeCommitted={onCommit}
-      />
+      <Box sx={{ position: "relative", pt: 0.25, pb: 1.2 }}>
+        <Slider
+          step={1}
+          min={0}
+          max={10}
+          value={value}
+          valueLabelDisplay="auto"
+          marks
+          sx={{
+            color: chroma
+              .mix(
+                theme.palette.primary.main,
+                theme.palette.text.secondary,
+                1.0 - (value + 1) / 10,
+              )
+              .hex(),
+          }}
+          onChangeCommitted={onCommit}
+        />
+        <Box
+          sx={{
+            position: "absolute",
+            left: "calc(50% - 2px)",
+            transform: "translateX(-50%)",
+            top: "calc(100% - 13px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            pointerEvents: "none",
+            opacity: 0.68,
+          }}
+        >
+          <Box
+            sx={{
+              width: "1px",
+              height: "5px",
+              bgcolor: "text.secondary",
+            }}
+          />
+          <Box
+            component="span"
+            sx={{
+              mt: 0,
+              fontSize: "0.65rem",
+              color: "text.secondary",
+              letterSpacing: "0.03em",
+            }}
+          >
+            neutral
+          </Box>
+        </Box>
+      </Box>
       <ThumbUp
         sx={{
           color: theme.palette.primary.main,

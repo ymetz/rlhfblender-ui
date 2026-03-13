@@ -31,18 +31,19 @@ interface EpisodeItemContainerProps {
   horizontalRanking?: boolean;
   hasFeedback?: boolean;
   isBestOfK?: boolean;
+  showBestOfKSelect?: boolean;
 }
 
 const EpisodeItemContainer = styled("div")<EpisodeItemContainerProps>(
-  ({ theme, isDragging, horizontalRanking, hasFeedback, isBestOfK }) => ({
+  ({ theme, isDragging, horizontalRanking, hasFeedback, isBestOfK, showBestOfKSelect }) => ({
     backgroundColor: isDragging
       ? chroma
         .mix(theme.palette.background.l1, theme.palette.primary.main, 0.05)
         .hex()
       : theme.palette.background.l1,
-    flex: 1,
+    flex: "0 1 auto",
     borderRadius: "10px",
-    margin: "10px",
+    margin: "6px",
     display: "grid",
     position: "relative",
     border: `1px solid ${theme.palette.divider}`,
@@ -51,9 +52,14 @@ const EpisodeItemContainer = styled("div")<EpisodeItemContainerProps>(
       ? `0px 0px 20px 0px ${theme.palette.primary.main}`
       : "none",
     transition: "box-shadow 0.2s ease-in-out",
+    width: "100%",
+    maxWidth: horizontalRanking ? "520px" : "780px",
+    justifySelf: "center",
+    boxSizing: "border-box",
+    paddingTop: isBestOfK && showBestOfKSelect ? "48px" : 0,
     gridTemplateColumns: horizontalRanking
       ? "1fr"
-      : "auto auto minmax(50%, 1fr)",
+      : "auto auto minmax(340px, 560px)",
     gridTemplateRows: horizontalRanking
       ? "auto auto auto auto auto"
       : "auto auto auto",
@@ -71,8 +77,9 @@ const EpisodeItemContainer = styled("div")<EpisodeItemContainerProps>(
 
 const SelectButton = styled(IconButton)(({ theme }) => ({
   position: "absolute",
-  top: "10px",
+  top: "8px",
   right: "10px",
+  zIndex: 6,
   backgroundColor: theme.palette.primary.main,
   color: theme.palette.primary.contrastText,
   "&:hover": {
@@ -114,6 +121,25 @@ type StepDetails = {
   info: { [key: string]: string } & { mission?: string; seed?: number };
   action_space: object;
 };
+
+function sanitizeSubmitPayload(
+  payload?: Record<string, any>,
+): Record<string, any> {
+  if (!payload || typeof payload !== "object") {
+    return {};
+  }
+
+  // Guard against accidentally passing click/synthetic events as payload.
+  if ("nativeEvent" in payload || "target" in payload || "currentTarget" in payload) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(payload)) as Record<string, any>;
+  } catch (_error) {
+    return {};
+  }
+}
 
 const EpisodeItem: React.FC<EpisodeItemProps> = ({
   episodeID,
@@ -250,18 +276,16 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   }, [episodeID, getRewards]);
 
   useEffect(() => {
-    if (UIConfig.uiComponents.uncertaintyLine) {
-      getUncertainty(episodeID).then((uncertaintyData) => {
+    let active = true;
+    getUncertainty(episodeID).then((uncertaintyData) => {
+      if (active) {
         setUncertainty(uncertaintyData ? uncertaintyData : []);
-      });
-    }
-    return undefined;
-  }, [
-    episodeID,
-    getUncertainty,
-    UIConfig.uiComponents.showUncertainty,
-    UIConfig.uiComponents.uncertaintyLine,
-  ]);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [episodeID, getUncertainty]);
 
   // Memoized callback handlers - prevents recreation on each render
   const onCorrectionModalOpenHandler = useCallback((step: number) => {
@@ -283,12 +307,13 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   const onCorrectionDemoSubmit = useCallback(async (submitPayload?: Record<string, any>) => {
     if (!correctionSessionId) return;
     const correctionStep = lockedCorrectionStep ?? selectedStep;
+    const safeSubmitPayload = sanitizeSubmitPayload(submitPayload);
     setIsSubmittingCorrection(true);
     try {
       const response = await axios.post("/demo_generation/save_webrtc_demo", {
         session_id: correctionSessionId,
         checkpoint: normalizedCheckpoint,
-        ...submitPayload,
+        ...safeSubmitPayload,
       });
       if (response.data?.success) {
         const correctionPath =
@@ -354,6 +379,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
 
   const dragHandleProps = isBestOfK ? {} : { ...attributes, ...listeners };
   const shouldShowPanels = canShowDemo || canShowCorrection || canShowFeatureSelection;
+  const showBestOfKSelect = isBestOfK && Boolean(UIConfig.feedbackComponents.ranking);
 
   const startDemoPanel = () => {
     if (!canShowDemo) return;
@@ -373,12 +399,13 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
 
   const onDemoSubmit = async (submitPayload?: Record<string, any>) => {
     if (!demoSessionId) return;
+    const safeSubmitPayload = sanitizeSubmitPayload(submitPayload);
     setIsSubmittingDemo(true);
     try {
       const response = await axios.post("/demo_generation/save_webrtc_demo", {
         session_id: demoSessionId,
         checkpoint: normalizedCheckpoint,
-        ...submitPayload,
+        ...safeSubmitPayload,
       });
       if (response.data?.success) {
         const demoNumber = response.data?.demo_number ?? Date.now();
@@ -530,6 +557,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
       isDragging={isBestOfK ? false : isDragging}
       hasFeedback={false}
       isBestOfK={isBestOfK}
+      showBestOfKSelect={showBestOfKSelect}
     >
       {!isBestOfK && (
         <DragHandle
@@ -538,7 +566,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
         />
       )}
 
-      {isBestOfK && (
+      {showBestOfKSelect && (
         <SelectButton
           className={isSelectedAsBest ? "selected" : ""}
           onClick={() => selectBest(episodeID)}

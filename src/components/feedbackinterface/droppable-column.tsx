@@ -9,7 +9,7 @@ import EpisodeItem from "./episodeitem/episode-item";
 import Box from "@mui/material/Box";
 import { Feedback } from "../../types";
 import Chip from "@mui/material/Chip";
-import { useTheme } from "@mui/material/styles";
+import { useTheme, alpha } from "@mui/material/styles";
 import chroma from "chroma-js";
 import { useSetupConfigState } from "../../SetupConfigContext";
 
@@ -61,17 +61,19 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
     <Box
       sx={{
         display: "flex",
-        flexGrow: 1,
-        flexShrink: 1,
+        flexGrow: horizontalRanking ? 0 : 1,
+        flexShrink: horizontalRanking ? 0 : 1,
         flexBasis: "auto",
-        //flexDirection: horizontalRanking ? 'column' : 'row',
+        width: "100%",
         borderLeft: horizontalRanking
           ? `1px solid ${theme.palette.divider}`
           : "none",
         borderTop: horizontalRanking
           ? "none"
           : `1px solid ${theme.palette.divider}`,
-        backgroundColor: theme.palette.background.l1,
+        borderRadius: "10px",
+        backgroundColor: alpha(theme.palette.primary.main, 0.05),
+        boxSizing: "border-box",
       }}
     >
       <>
@@ -115,26 +117,20 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
             ref={setNodeRef}
             sx={{
               backgroundColor: isOver
-                ? chroma
-                  .mix(
-                    theme.palette.background.l0,
-                    theme.palette.primary.main,
-                    0.01,
-                  )
-                  .hex()
-                : theme.palette.background.l0,
+                ? alpha(theme.palette.primary.main, 0.12)
+                : alpha(theme.palette.primary.main, 0.06),
               display: "flex",
               flexDirection: horizontalRanking ? "column" : "row",
-              margin: 1,
-
-              // Here I have to put flex 1 because I want to fill out the white with the grey
-              flex: 1,
-              marginLeft: horizontalRanking ? "none" : 0,
-              marginTop: horizontalRanking ? 0 : "none",
+              margin: 0.75,
+              flex: "0 0 auto",
+              marginLeft: horizontalRanking ? 0.75 : 0,
+              marginTop: horizontalRanking ? 0 : 0.75,
               borderRadius: horizontalRanking ? "0 0 5px 5px" : "0 5px 5px 0",
               minHeight: horizontalRanking ? "none" : "4vh", // To match chip if collapsed,
               minWidth: horizontalRanking ? "4vh" : "none", // To match chip if collapsed,
               border: `1px solid ${theme.palette.divider}`,
+              boxSizing: "border-box",
+              gap: 0.5,
             }}
           >
             {episodeIDs.map((episodeID: string) => (

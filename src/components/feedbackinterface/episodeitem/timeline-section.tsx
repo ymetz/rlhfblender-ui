@@ -1,9 +1,8 @@
 import React from "react";
-import { Box, Tooltip } from "@mui/material";
+import { Box } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { useParentSize } from '@visx/responsive';
 import TimelineChart from "./timeline-chart";
-import CorrIcon from "../../../icons/corr-icon";
 
 interface TimelineSectionProps {
   rewards: number[];
@@ -40,15 +39,16 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
 }) => {
   const theme = useTheme();
 
-  const { parentRef, width, height } = useParentSize({ debounceTime: 150 });
+  const { parentRef, width } = useParentSize({ debounceTime: 150 });
+  const chartWidth = width > 0 ? width : 260;
 
   return (
     <Box
       sx={{
         display: "flex",
-        alignItems: "center",
         borderRadius: "10px",
-        m: 1,
+        my: 1,
+        mx: "auto",
         border: hasCorrectiveFeedback
           ? `1px solid ${theme.palette.primary.main}`
           : `1px solid ${theme.palette.divider}`,
@@ -58,37 +58,16 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
           : "none",
         gridArea: "timelinechart",
         overflow: "hidden",
-        width: "100%",
+        boxSizing: "border-box",
+        width: "min(calc(100% - 16px), 33vw)",
+        minWidth: 260,
       }}
     >
       <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          m: 1,
-          p: 1,
-          borderRight: `1px solid ${theme.palette.divider}`,
-          height: "100%",
-        }}
-      >
-        {useCorrectiveFeedback && (
-          <Tooltip title="Double Click to Correct">
-            <CorrIcon
-              color={
-                hasCorrectiveFeedback
-                  ? theme.palette.primary.main
-                  : theme.palette.text.secondary
-              }
-            />
-          </Tooltip>
-        )}
-      </Box>
-      <Box
         ref={parentRef}
         sx={{
-          flex: 1,
           width: "100%",
-          minWidth: 260,
+          minWidth: 0,
           height: 100,
         }}
       >
@@ -97,7 +76,7 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
           uncertainty={uncertainty}
           actions={actions}
           actionLabels={actionLabels}
-          width={Math.max(260, width - 12)}
+          width={chartWidth}
           height={100}
           videoDuration={videoDuration}
           tooltipLeft={videoSliderValue}
@@ -108,8 +87,6 @@ const TimelineSection: React.FC<TimelineSectionProps> = ({
           useCorrectiveFeedback={useCorrectiveFeedback}
           interactionLocked={interactionLocked}
           stepForCorrection={correctionStep}
-          showTooltip={() => { }}
-          hideTooltip={() => { }}
         />
       </Box>
     </Box>

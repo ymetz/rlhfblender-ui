@@ -76,8 +76,11 @@ const TextFeedback: React.FC<TextFeedbackProps> = ({
             : "none",
           overflow: "hidden",
           gridArea: "mission",
-          margin: "10px",
-          width: "auto",
+          margin: "10px auto",
+          justifySelf: "center",
+          boxSizing: "border-box",
+          width: "min(calc(100% - 16px), 33vw)",
+          minWidth: 260,
         }}
       >
         <TextField
