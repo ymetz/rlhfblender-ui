@@ -9,8 +9,8 @@ import {
   withTooltip,
   TooltipWithBounds,
   defaultStyles,
+  type WithTooltipProvidedProps,
 } from "@visx/tooltip";
-import { WithTooltipProvidedProps } from "@visx/tooltip/lib/enhancers/withTooltip";
 import { localPoint } from "@visx/event";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import { Box, Typography } from "@mui/material";
@@ -26,8 +26,8 @@ type TimelineChartProps = {
   margin?: { top: number; right: number; bottom: number; left: number };
   onChange: (value: number) => void;
   onCorrectionClick: (step: number) => void;
-  givenFeedbackMarkers: any[];
-  proposedFeedbackMarkers: any[];
+  givenFeedbackMarkers: FeedbackMarker[];
+  proposedFeedbackMarkers: FeedbackMarker[];
   videoDuration: number;
   tooltipData?: TooltipProps;
   tooltipTop?: number;
@@ -35,6 +35,10 @@ type TimelineChartProps = {
   useCorrectiveFeedback: boolean;
   interactionLocked?: boolean;
   stepForCorrection?: number | null;
+};
+
+type FeedbackMarker = {
+  x: number;
 };
 
 type TooltipProps = {
@@ -270,7 +274,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             <AreaClosed
               data={rewards}
               x={(_, i) => stepScale(i)}
-              y={(d) => rewardScale(d)}
+              y={(d: number) => rewardScale(d)}
               yScale={rewardScale}
               y0={() => rewardBaselineY}
               curve={curveMonotoneX}
@@ -280,7 +284,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             <LinePath
               data={rewards}
               x={(_, i) => stepScale(i)}
-              y={(d) => rewardScale(d)}
+              y={(d: number) => rewardScale(d)}
               strokeWidth={2}
               stroke={rewardColor}
               curve={curveMonotoneX}
@@ -308,7 +312,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             <AreaClosed
               data={uncertaintySeries}
               x={(_, i) => stepScale(i)}
-              y={(d) => uncertaintyScale(d)}
+              y={(d: number) => uncertaintyScale(d)}
               yScale={uncertaintyScale}
               y0={() => uncertaintyBaselineY}
               curve={curveMonotoneX}
@@ -318,7 +322,7 @@ export default withTooltip<TimelineChartProps, TooltipProps>(
             <LinePath
               data={uncertaintySeries}
               x={(_, i) => stepScale(i)}
-              y={(d) => uncertaintyScale(d)}
+              y={(d: number) => uncertaintyScale(d)}
               strokeWidth={2}
               stroke={uncertaintyColor}
               curve={curveMonotoneX}

@@ -36,6 +36,7 @@ import { ColorLegend, GlyphLegend, Legend, ObjectLegend } from './components/Pro
 import { drawStateSpaceVisualization } from './utils/drawStateSpace';
 import { clearCanvasImageCache } from './utils/canvasCache';
 import { computeUserTrajectorySignature } from './utils/trajectorySignature';
+import { interpolateBrightCividis } from './utils/vsupColors';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 
 type LastDrawParams = {
@@ -1106,7 +1107,7 @@ const StateSequenceProjection = (props: any) => {
                                     const [uMin, uMax] = activeLearningState.globalUncertaintyRange;
                                     const rNorm = (rMax > rMin) ? Math.min(1, Math.max(0, (avgR - rMin) / (rMax - rMin))) : 0.5;
                                     const uNorm = (uMax > uMin) ? Math.min(1, Math.max(0, (avgU - uMin) / (uMax - uMin))) : 0.5;
-                                    const scale = vsup.scale().quantize(vsup.quantization().branching(2).layers(4).valueDomain([0, 1]).uncertaintyDomain([1.0, 0.01])).range(d3.interpolateCividis);
+                                    const scale = vsup.scale().quantize(vsup.quantization().branching(2).layers(4).valueDomain([0, 1]).uncertaintyDomain([1.0, 0.01])).range(interpolateBrightCividis);
                                     indicatorColor = scale(rNorm, uNorm);
                                 }
 

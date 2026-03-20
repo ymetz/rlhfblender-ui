@@ -8,6 +8,7 @@ import { SelectedCluster, SelectedCoordinate, SelectedState, SelectionItem } fro
 import { canvasImageCache } from './canvasCache';
 import { computeTrajectoryColors, getFallbackColor } from './trajectoryColors';
 import { buildGridAxesFromBounds } from './projectionGrid';
+import { interpolateBrightCividis } from './vsupColors';
 
 
 export interface DrawStateSpaceArgs {
@@ -233,7 +234,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         // Setup VSUP color scale for predicted reward and uncertainty
         const colorScale = vsup.scale()
             .quantize(vsup.quantization().branching(2).layers(4).valueDomain([0, 1]).uncertaintyDomain([1.0, 0.01]))
-            .range(d3.interpolateCividis);
+            .range(interpolateBrightCividis);
 
         // Pre-compute color scale for predicted rewards and uncertainties (makes draw call faster)
         const point_colors = processedData.map((d, i) => {
@@ -842,7 +843,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         const clusterHullStyles = {
             defaultStroke: '#333333',
             defaultWidth: 2,
-            defaultOpacity: 0.75,
+            defaultOpacity: 0.7,
             selectedWidth: 4,
             selectedOpacity: 0.95,
             feedbackStroke: '#d3d3d3',
