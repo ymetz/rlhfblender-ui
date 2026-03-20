@@ -7,6 +7,7 @@ import { Color2D } from '../projection_utils/2dcolormaps';
 import { SelectedCluster, SelectedCoordinate, SelectedState, SelectionItem } from '../types/stateSequenceProjectionTypes';
 import { canvasImageCache } from './canvasCache';
 import { computeTrajectoryColors, getFallbackColor } from './trajectoryColors';
+import { buildGridAxesFromBounds } from './projectionGrid';
 
 
 export interface DrawStateSpaceArgs {
@@ -211,6 +212,16 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
 
         const xScale = d3.scaleLinear().domain(xDomain).range([0, svgWidth]);
         const yScale = d3.scaleLinear().range([svgHeight, 0]).domain(yDomain);
+        const projectionGridAxes = buildGridAxesFromBounds(
+            {
+                x_min: xDomain[0],
+                x_max: xDomain[1],
+                y_min: yDomain[0],
+                y_max: yDomain[1],
+                grid_resolution: gridData?.bounds?.grid_resolution,
+            },
+            gridData?.bounds?.grid_resolution,
+        );
 
         // Set up color mapping
         Color2D.ranges = { x: xDomain, y: yDomain };
@@ -344,6 +355,91 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
             ctx.restore();
         }
 
+        function drawProjectionCrossGrid(
+            ctx: CanvasRenderingContext2D | null,
+            transform: d3.ZoomTransform,
+        ) {
+            if (!ctx || !projectionGridAxes) return;
+
+            const { xValues, yValues } = projectionGridAxes;
+            if (!xValues.length || !yValues.length) return;
+
+            const xSpacing = xValues.length > 1 ? Math.abs(xScale(xValues[1]) - xScale(xValues[0])) : svgWidth;
+            const ySpacing = yValues.length > 1 ? Math.abs(yScale(yValues[1]) - yScale(yValues[0])) : svgHeight;
+            const minSpacingScreenPx = Math.max(1, Math.min(xSpacing, ySpacing) * transform.k);
+
+            const targetMaxCrosses = 2000;
+            const countStride = Math.max(1, Math.ceil(Math.sqrt((xValues.length * yValues.length) / targetMaxCrosses)));
+            const spacingStride = Math.max(1, Math.ceil(8 / minSpacingScreenPx));
+            const stride = Math.max(countStride, spacingStride);
+
+            const crossHalfScreenPx = Math.max(1.4, Math.min(4.2, minSpacingScreenPx * 0.18));
+            const crossHalfLocal = crossHalfScreenPx / Math.max(transform.k, 0.2);
+            const majorGridInterval = 5;
+            const maxMajorGridLines = 120;
+            const zeroCoordEpsilon = 1e-9;
+
+            ctx.save();
+            ctx.globalAlpha = 1;
+
+            const firstX = xScale(xValues[0]);
+            const lastX = xScale(xValues[xValues.length - 1]);
+            const firstY = yScale(yValues[0]);
+            const lastY = yScale(yValues[yValues.length - 1]);
+
+            const majorXIndices = xValues
+                .map((_, index) => index)
+                .filter((index) =>
+                    index > 0 &&
+                    index < xValues.length - 1 &&
+                    index % majorGridInterval === 0 &&
+                    Math.abs(xValues[index]) > zeroCoordEpsilon
+                );
+            const majorYIndices = yValues
+                .map((_, index) => index)
+                .filter((index) =>
+                    index > 0 &&
+                    index < yValues.length - 1 &&
+                    index % majorGridInterval === 0 &&
+                    Math.abs(yValues[index]) > zeroCoordEpsilon
+                );
+            const xLineStride = Math.max(1, Math.ceil(majorXIndices.length / maxMajorGridLines));
+            const yLineStride = Math.max(1, Math.ceil(majorYIndices.length / maxMajorGridLines));
+
+            // Major grid as full lines.
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(86, 94, 102, 0.55)';
+            ctx.lineWidth = 0.9 / Math.max(transform.k, 0.2);
+            for (let idx = 0; idx < majorXIndices.length; idx += xLineStride) {
+                const px = xScale(xValues[majorXIndices[idx]]);
+                ctx.moveTo(px, firstY);
+                ctx.lineTo(px, lastY);
+            }
+            for (let idx = 0; idx < majorYIndices.length; idx += yLineStride) {
+                const py = yScale(yValues[majorYIndices[idx]]);
+                ctx.moveTo(firstX, py);
+                ctx.lineTo(lastX, py);
+            }
+            ctx.stroke();
+
+            // Minor grid as crosses.
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(150, 158, 166, 0.58)';
+            ctx.lineWidth = 0.8 / Math.max(transform.k, 0.2);
+            for (let xi = 0; xi < xValues.length; xi += stride) {
+                for (let yi = 0; yi < yValues.length; yi += stride) {
+                    const px = xScale(xValues[xi]);
+                    const py = yScale(yValues[yi]);
+                    ctx.moveTo(px - crossHalfLocal, py);
+                    ctx.lineTo(px + crossHalfLocal, py);
+                    ctx.moveTo(px, py - crossHalfLocal);
+                    ctx.lineTo(px, py + crossHalfLocal);
+                }
+            }
+            ctx.stroke();
+            ctx.restore();
+        }
+
         let loggedFirstZoom = false;
 
         const zoom = d3
@@ -442,6 +538,8 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
 
             // Stop propagation to prevent zoom from catching it
             event.stopPropagation();
+            const isMultiSelectEvent =
+                multiSelectModeRef.current || Boolean((event as any)?.shiftKey);
 
             const mouse = d3.pointer(event);
 
@@ -517,7 +615,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     setSelectedTrajectory(episodeIdx);
                     selectedTrajectoryRef.current = episodeIdx;
                     
-                    if (multiSelectModeRef.current) {
+                    if (isMultiSelectEvent) {
 
                         // Add to existing selection - use ref to get current state
                         const currentSelection = currentSelectionRef.current;
@@ -550,7 +648,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 }
             } else {
                 // Skip coordinate selection in multi-select mode
-                if (multiSelectModeRef.current) {
+                if (isMultiSelectEvent) {
                     return;
                 }
                 
@@ -875,9 +973,11 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     .style('cursor', 'pointer')
                     .on('click', function (event) {
                         event.stopPropagation();
+                        const isMultiSelectEvent =
+                            multiSelectModeRef.current || Boolean((event as any)?.shiftKey);
                         
                         // Skip cluster selection in multi-select mode
-                        if (multiSelectModeRef.current) {
+                        if (isMultiSelectEvent) {
                             return;
                         }
                         
@@ -1069,6 +1169,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 if (isZoomEnd) {
                     const r = Math.round((3 / transform.k) * 100) / 100;
                     const width = Math.round((2.5 / transform.k) * 100) / 100;
+                    const hasBackgroundMap = canvasImageCache.has(imageKey);
 
                     // Save current context
                     context.save();
@@ -1076,6 +1177,10 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     // Apply the same transformation as the background image
                     context.translate(transform.x, transform.y);
                     context.scale(transform.k, transform.k);
+
+                    if (hasBackgroundMap) {
+                        drawProjectionCrossGrid(context, transform);
+                    }
                     
                     // Draw paths with efficient batching
                     buildEpisodeDrawOrder().forEach((episodeIdx) => {

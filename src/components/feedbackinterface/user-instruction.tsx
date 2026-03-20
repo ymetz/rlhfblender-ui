@@ -7,8 +7,11 @@ const instructionStrings: Record<string, string> = {
   ranking: "Select the best example by clicking on the checkmark",
   correction: "Select a step to correct and double-click on the timeline",
   demonstration: "Click on the demo button to provide a demonstration",
+  featureSelection: "Click on the feature-selection button to generate an annotation",
   "feature selection":
     "Click on the feature-selection button to generate an annotation",
+  clusterRating: "Rate the entire cluster of states via the slider",
+  "cluster rating": "Rate the entire cluster of states via the slider",
   text: "Enter text to provide feedback",
 };
 
@@ -27,7 +30,7 @@ const UserInstruction = React.memo(() => {
     return feedbackTypes
       .map((type) => {
         const normalizedType = type.replace(/([A-Z])/g, " $1").toLowerCase();
-        return instructionStrings[normalizedType];
+        return instructionStrings[type] ?? instructionStrings[normalizedType];
       })
       .filter(Boolean)
       .join(" • ");

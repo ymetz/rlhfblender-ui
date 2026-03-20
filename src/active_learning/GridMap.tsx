@@ -6,6 +6,7 @@ import { interpolateRdBu } from 'd3-scale-chromatic';
 import { withTooltip, TooltipWithBounds, defaultStyles } from '@visx/tooltip';
 import { localPoint } from '@visx/event';
 import { ParentSize } from '@visx/responsive';
+import { buildGridAxesFromCoordinates } from './utils/projectionGrid';
 
 interface TrajectoryEpisode {
   episode: number;
@@ -65,6 +66,10 @@ interface TooltipData {
 
 const background = '#ffffff';
 const MAX_TRAJECTORIES = 80;
+const MAX_RENDERED_GRID_CROSSES = 1800;
+const MAX_MAJOR_GRID_LINES = 120;
+const MAJOR_GRID_INTERVAL = 5;
+const ZERO_COORD_EPSILON = 1e-9;
 
 const tooltipStyles = {
   ...defaultStyles,
@@ -191,7 +196,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
     return null;
   }, [differenceRange, differenceStats]);
 
-  const margin = { top: 30, right: 16, bottom: 130, left: 30 };
+  const margin = { top: 15, right: 0, bottom: 10, left: 0 };
   const innerWidth = Math.max(0, width - margin.left - margin.right);
   const innerHeight = Math.max(0, height - margin.top - margin.bottom);
 
@@ -221,6 +226,100 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
 
   const xScale = useMemo(() => scaleLinear({ domain: xDomain, range: [margin.left, innerWidth + margin.left] }), [xDomain, innerWidth, margin.left]);
   const yScale = useMemo(() => scaleLinear({ domain: yDomain, range: [innerHeight + margin.top, margin.top] }), [yDomain, innerHeight, margin.top]);
+
+  const projectionGridAxes = useMemo(
+    () => buildGridAxesFromCoordinates(gridCoordinates, projectionBounds),
+    [gridCoordinates, projectionBounds],
+  );
+
+  const sampledGridPoints = useMemo(() => {
+    if (!projectionGridAxes) return [] as Array<{ x: number; y: number }>;
+
+    const { xValues, yValues } = projectionGridAxes;
+    if (!xValues.length || !yValues.length) {
+      return [] as Array<{ x: number; y: number }>;
+    }
+
+    const totalCrosses = xValues.length * yValues.length;
+    const countStride = Math.max(1, Math.ceil(Math.sqrt(totalCrosses / MAX_RENDERED_GRID_CROSSES)));
+
+    const sampled: Array<{ x: number; y: number }> = [];
+    for (let xi = 0; xi < xValues.length; xi += countStride) {
+      for (let yi = 0; yi < yValues.length; yi += countStride) {
+        sampled.push({ x: xValues[xi], y: yValues[yi] });
+      }
+    }
+    return sampled;
+  }, [projectionGridAxes]);
+
+  const majorGridLines = useMemo(() => {
+    if (!projectionGridAxes) {
+      return { x: [] as number[], y: [] as number[] };
+    }
+    const { xValues, yValues } = projectionGridAxes;
+    if (!xValues.length || !yValues.length) {
+      return { x: [] as number[], y: [] as number[] };
+    }
+
+    const majorX = xValues.filter(
+      (value, index) =>
+        index > 0 &&
+        index < xValues.length - 1 &&
+        index % MAJOR_GRID_INTERVAL === 0 &&
+        Math.abs(value) > ZERO_COORD_EPSILON,
+    );
+    const majorY = yValues.filter(
+      (value, index) =>
+        index > 0 &&
+        index < yValues.length - 1 &&
+        index % MAJOR_GRID_INTERVAL === 0 &&
+        Math.abs(value) > ZERO_COORD_EPSILON,
+    );
+
+    const xStride = Math.max(1, Math.ceil(majorX.length / MAX_MAJOR_GRID_LINES));
+    const yStride = Math.max(1, Math.ceil(majorY.length / MAX_MAJOR_GRID_LINES));
+
+    return {
+      x: majorX.filter((_, index) => index % xStride === 0),
+      y: majorY.filter((_, index) => index % yStride === 0),
+    };
+  }, [projectionGridAxes]);
+
+  const minorGridScreenBounds = useMemo(() => {
+    if (!sampledGridPoints.length) {
+      return null as { minX: number; maxX: number; minY: number; maxY: number } | null;
+    }
+
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    for (const point of sampledGridPoints) {
+      const px = xScale(point.x);
+      const py = yScale(point.y);
+      minX = Math.min(minX, px);
+      maxX = Math.max(maxX, px);
+      minY = Math.min(minY, py);
+      maxY = Math.max(maxY, py);
+    }
+
+    return { minX, maxX, minY, maxY };
+  }, [sampledGridPoints, xScale, yScale]);
+
+  const gridCrossHalfSize = useMemo(() => {
+    if (!projectionGridAxes) return 0;
+
+    const stepPxX = projectionGridAxes.xValues.length > 1
+      ? Math.abs(xScale(projectionGridAxes.xValues[1]) - xScale(projectionGridAxes.xValues[0]))
+      : innerWidth;
+    const stepPxY = projectionGridAxes.yValues.length > 1
+      ? Math.abs(yScale(projectionGridAxes.yValues[1]) - yScale(projectionGridAxes.yValues[0]))
+      : innerHeight;
+
+    const minStepPx = Math.max(1, Math.min(stepPxX, stepPxY));
+    return Math.max(1.1, Math.min(4.5, minStepPx * 0.18));
+  }, [projectionGridAxes, xScale, yScale, innerWidth, innerHeight]);
 
   const limitedPrevious = useMemo(
     () => previousTrajectories.slice(0, MAX_TRAJECTORIES),
@@ -324,11 +423,13 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
     });
   };
 
-  const legendWidth = innerWidth;
-  const legendStepWidth = legendSteps.length ? legendWidth / legendSteps.length : legendWidth;
-  const legendOriginY = innerHeight + margin.top + 18;
-  const policyLegendX = margin.left;
-  const policyLegendY = legendOriginY + 60;
+  const legendBarWidth = innerWidth * 0.6;
+  const legendBarOffsetX = innerWidth * 0.2;
+  const legendStepWidth = legendSteps.length ? legendBarWidth / legendSteps.length : legendBarWidth;
+  const ARROW_LABEL_Y_IN_BAR = 36;
+  const trajectoryLegendY = innerHeight + margin.top - 60;
+  const colorBarOriginY = trajectoryLegendY + 15;
+  const policyLegendX = margin.left + innerWidth / 2 - 200;
 
   return (
     <>
@@ -352,6 +453,59 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
             clipPath="url(#uncertainty-map-area)"
             opacity={1}
           />
+        )}
+
+        {processedDifferenceUrl && imageLoaded && sampledGridPoints.length > 0 && (
+          <g clipPath="url(#uncertainty-map-area)">
+            {majorGridLines.x.map((xValue, index) => (
+              <line
+                key={`major-grid-x-${index}-${xValue}`}
+                x1={xScale(xValue)}
+                y1={minorGridScreenBounds?.minY ?? margin.top}
+                x2={xScale(xValue)}
+                y2={minorGridScreenBounds?.maxY ?? innerHeight + margin.top}
+                stroke="rgba(86, 94, 102, 0.55)"
+                strokeWidth={0.9}
+              />
+            ))}
+            {majorGridLines.y.map((yValue, index) => (
+              <line
+                key={`major-grid-y-${index}-${yValue}`}
+                x1={minorGridScreenBounds?.minX ?? margin.left}
+                y1={yScale(yValue)}
+                x2={minorGridScreenBounds?.maxX ?? innerWidth + margin.left}
+                y2={yScale(yValue)}
+                stroke="rgba(86, 94, 102, 0.55)"
+                strokeWidth={0.9}
+              />
+            ))}
+            {sampledGridPoints.map((point, idx) => {
+              const cx = xScale(point.x);
+              const cy = yScale(point.y);
+              return (
+                <g key={`grid-cross-${idx}-${point.x}-${point.y}`}>
+                  <line
+                    x1={cx - gridCrossHalfSize}
+                    y1={cy}
+                    x2={cx + gridCrossHalfSize}
+                    y2={cy}
+                    stroke="rgba(150, 158, 166, 0.58)"
+                    strokeWidth={0.8}
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1={cx}
+                    y1={cy - gridCrossHalfSize}
+                    x2={cx}
+                    y2={cy + gridCrossHalfSize}
+                    stroke="rgba(150, 158, 166, 0.58)"
+                    strokeWidth={0.8}
+                    strokeLinecap="round"
+                  />
+                </g>
+              );
+            })}
+          </g>
         )}
 
         {limitedPrevious.map((trajectory) => {
@@ -387,7 +541,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
 
         <text
           x={width / 2}
-          y={margin.top / 1.8}
+          y={margin.top}
           textAnchor="middle"
           fontFamily="Arial, sans-serif"
           fontSize={15}
@@ -410,7 +564,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
         />
 
         {effectiveRange && legendSteps.length > 0 && (
-          <g transform={`translate(${margin.left}, ${legendOriginY})`}>
+          <g transform={`translate(${margin.left + legendBarOffsetX}, ${colorBarOriginY})`}>
             {legendSteps.map((value, idx) => {
               const t = clamp01((value - effectiveRange.min) / (effectiveRange.max - effectiveRange.min || 1));
               const color = interpolateRdBu(1 - t);
@@ -421,7 +575,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
                     x={legendStepWidth / 2}
                     y={22}
                     textAnchor="middle"
-                    fontSize={10}
+                    fontSize={13}
                     fill="#444"
                   >
                     {value.toFixed(3)}
@@ -429,11 +583,11 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
                 </g>
               );
             })}
-            <text x={0} y={40} fontSize={11} fill="#2e537dff">↓ uncertainty</text>
+            <text x={0} y={ARROW_LABEL_Y_IN_BAR} fontSize={15} fill="#2e537dff">↓ uncertainty</text>
             <text
-              x={legendWidth}
-              y={40}
-              fontSize={11}
+              x={legendBarWidth}
+              y={ARROW_LABEL_Y_IN_BAR}
+              fontSize={15}
               fill="#c62828"
               textAnchor="end"
             >
@@ -442,7 +596,7 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
           </g>
         )}
 
-        <g transform={`translate(${policyLegendX}, ${policyLegendY})`}>
+        <g transform={`translate(${policyLegendX}, ${trajectoryLegendY})`}>
           <g transform="translate(10, 0)">
             <line
               x1={0}
@@ -453,11 +607,11 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
               strokeWidth={2}
               strokeDasharray="4 3"
             />
-            <text x={28} y={4} fontSize={11} fill="#880e4f">Previous policy trajectories</text>
+            <text x={28} y={4} fontSize={15} fill="#880e4f">Previous policy trajectories</text>
           </g>
-          <g transform="translate(200, 0)">
+          <g transform="translate(220, 0)">
             <line x1={0} y1={0} x2={20} y2={0} stroke="rgba(25, 118, 210, 0.8)" strokeWidth={2} />
-            <text x={28} y={4} fontSize={11} fill="#1a237e">Updated policy trajectories</text>
+            <text x={28} y={4} fontSize={15} fill="#1a237e">Updated policy trajectories</text>
           </g>
         </g>
       </svg>

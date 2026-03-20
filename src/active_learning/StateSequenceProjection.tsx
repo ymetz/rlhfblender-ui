@@ -185,6 +185,33 @@ const StateSequenceProjection = (props: any) => {
         multiSelectModeRef.current = multiSelectMode;
     }, [multiSelectMode]);
 
+    // Hold-to-multiselect behavior: Shift key enables additive selection temporarily.
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Shift') {
+                setMultiSelectMode(true);
+            }
+        };
+        const handleKeyUp = (event: KeyboardEvent) => {
+            if (event.key === 'Shift') {
+                setMultiSelectMode(false);
+            }
+        };
+        const handleWindowBlur = () => {
+            setMultiSelectMode(false);
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        window.addEventListener('blur', handleWindowBlur);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            window.removeEventListener('blur', handleWindowBlur);
+        };
+    }, []);
+
     // Keep currentSelectionRef in sync with activeLearningState.selection
     useEffect(() => {
         currentSelectionRef.current = (activeLearningState.selection || []) as SelectionItem[];
@@ -371,7 +398,7 @@ const StateSequenceProjection = (props: any) => {
         [activeLearningDispatch]
     );
 
-    const handleEpisodeTileClick = useCallback((ep: number) => {
+    const handleEpisodeTileClick = useCallback((ep: number, event?: React.MouseEvent<HTMLElement>) => {
         const episodeIndices = activeLearningState.episodeIndices || [];
         const episodeStartIndex = episodeIndices.indexOf(ep);
 
@@ -411,7 +438,9 @@ const StateSequenceProjection = (props: any) => {
 
         let nextSelection = currentSelection;
 
-        if (multiSelectMode) {
+        const isAdditiveSelection = multiSelectMode || Boolean(event?.shiftKey);
+
+        if (isAdditiveSelection) {
             if (!alreadySelected) {
                 nextSelection = [...currentSelection, newStateSelection];
                 activeLearningDispatch({
@@ -915,9 +944,9 @@ const StateSequenceProjection = (props: any) => {
                                     '& .MuiSvgIcon-root': { fontSize: 24 },
                                 })}
                                 onClick={() => {
-                                    activeLearningDispatch({
-                                        type: 'SET_SELECTION',
-                                        payload: []
+                    activeLearningDispatch({
+                        type: 'SET_SELECTION',
+                        payload: []
                                     });
                                     // Clear local selection state
                                     setSelectedState(null);
@@ -927,7 +956,7 @@ const StateSequenceProjection = (props: any) => {
                                     setSelectedUserTrajectoryId(null);
                                     setSelectedUserDemo(null);
                                     selectedUserTrajectoryIdRef.current = null;
-                                    // Reset multi-select mode when clearing selection
+                                    // Ensure hold-to-multiselect visual state is reset
                                     setMultiSelectMode(false);
                                 }}
                             >
@@ -936,14 +965,17 @@ const StateSequenceProjection = (props: any) => {
                         </Tooltip>
 
                         <OnboardingHighlight stepId="multi-select-mode" pulse={true}>
-                            <Tooltip title={multiSelectMode ? "Multi-Select Mode: ON" : "Multi-Select Mode: OFF"}>
-                                <IconButton
-                                    color={multiSelectMode ? "primary" : "default"}
+                            <Tooltip title={multiSelectMode ? "Shift pressed: Multi-Select active" : "Hold Shift to Multi-Select"}>
+                                <Box
                                     sx={(theme) => {
                                         const activeColor = theme.palette.primary.main;
                                         return {
                                             width: 52,
                                             height: 52,
+                                            borderRadius: '50%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
                                             backgroundColor: multiSelectMode
                                                 ? alpha(activeColor, 0.95)
                                                 : alpha(theme.palette.primary.main, 0.15),
@@ -953,22 +985,12 @@ const StateSequenceProjection = (props: any) => {
                                                 ? `0 3px 10px ${alpha(activeColor, 0.35)}`
                                                 : `0 2px 8px ${alpha(theme.palette.grey[700], 0.25)}`,
                                             transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
-                                            '&:hover': {
-                                                backgroundColor: multiSelectMode
-                                                    ? activeColor
-                                                    : alpha(theme.palette.primary.light, 0.3),
-                                            },
                                             '& .MuiSvgIcon-root': { fontSize: 24 },
                                         };
                                     }}
-                                    onClick={() => {
-                                        if (selectedTrajectory || selectedState) {
-                                            setMultiSelectMode(!multiSelectMode);
-                                        }
-                                    }}
                                 >
                                     <AddIcon />
-                                </IconButton>
+                                </Box>
                             </Tooltip>
                         </OnboardingHighlight>
 
@@ -988,10 +1010,10 @@ const StateSequenceProjection = (props: any) => {
                                     whiteSpace: 'nowrap'
                                 }}
                             >
-                                Click Trajectory to Add (Already Selected: {selectedTrajectoriesCount})
+                                Shift held: click trajectory to add (Selected: {selectedTrajectoriesCount})
                             </Typography>
                         )}
-                        {!multiSelectMode && selectedTrajectoriesCount > 0 && (
+                        {!multiSelectMode && (
                             <Typography
                                 variant="caption"
                                 sx={{
@@ -1007,7 +1029,7 @@ const StateSequenceProjection = (props: any) => {
                                     whiteSpace: 'nowrap'
                                 }}
                             >
-                                Activate Multi-Select to Compare Multiple Episodes
+                                Hold Shift + click to add more episodes
                             </Typography>
                         )}
                     </Box>
@@ -1109,7 +1131,7 @@ const StateSequenceProjection = (props: any) => {
                                         arrow
                                     >
                                         <Box
-                                            onClick={() => handleEpisodeTileClick(ep)}
+                                            onClick={(event) => handleEpisodeTileClick(ep, event)}
                                             sx={{
                                                 cursor: 'pointer',
                                                 border: '2px solid',

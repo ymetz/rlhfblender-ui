@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Box, Paper, Button, CircularProgress, IconButton, Typography, Tooltip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
+import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { Box, Paper, Button, CircularProgress, IconButton, Typography, Tooltip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Chip } from '@mui/material';
 import { ChevronRight, AirplaneTicket } from '@mui/icons-material';
 import axios from 'axios';
 // Import components
@@ -36,6 +36,36 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   const appState = useAppState();
   const activeLearningDispatch = useActiveLearningDispatch();
   const appStateDispatch = useAppDispatch();
+
+  const checkpointProgress = useMemo(() => {
+    const checkpoints = appState.selectedExperiment.checkpoint_list || [];
+    const total = checkpoints.length;
+    if (total === 0) {
+      return { current: 0, total: 0, index: -1 };
+    }
+
+    const numericSelectedCheckpoint = Number(appState.selectedCheckpoint);
+    let index = Number.isFinite(numericSelectedCheckpoint)
+      ? checkpoints.findIndex((checkpoint) => Number(checkpoint) === numericSelectedCheckpoint)
+      : -1;
+    if (index < 0) {
+      index = checkpoints.findIndex(
+        (checkpoint) => String(checkpoint) === String(appState.selectedCheckpoint),
+      );
+    }
+    if (index < 0) {
+      index = 0;
+    }
+
+    return { current: index + 1, total, index };
+  }, [appState.selectedCheckpoint, appState.selectedExperiment.checkpoint_list]);
+  const showCheckpointProgress = checkpointProgress.total > 1;
+  const isLastCheckpoint =
+    checkpointProgress.total > 0 &&
+    checkpointProgress.index >= checkpointProgress.total - 1;
+  const nextPhaseButtonLabel = isLastCheckpoint
+    ? 'Complete Experiment'
+    : 'Go to Next Phase';
 
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastDataTimestampRef = useRef<number | null>(null);
@@ -110,13 +140,20 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
 
         setPendingProgressSummary(true);
 
-        // Check if "simulation" exists and is true in resultsData - chose next checkpoint from existing checkpoint list,
-        // do not add a new one
+        // For simulation studies, step through the predefined checkpoint list.
+        // If there is no next checkpoint, finish the phase flow instead of wrapping to 0.
+        let hasNextSimulationCheckpoint = false;
         if (resultsData.simulation) {
-          const nextCheckpoint = appState.selectedExperiment.checkpoint_list?.[phase] || 0;
-          appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: Number(nextCheckpoint) });
-        }
-        else {
+          const checkpoints = appState.selectedExperiment.checkpoint_list || [];
+          const nextCheckpointRaw = checkpoints[phase];
+          if (nextCheckpointRaw !== undefined) {
+            const nextCheckpoint = Number(nextCheckpointRaw);
+            if (Number.isFinite(nextCheckpoint)) {
+              appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: nextCheckpoint });
+              hasNextSimulationCheckpoint = true;
+            }
+          }
+        } else {
           // For DynamicRLHF, use the current phase as the checkpoint
           console.log("Adding new checkpoint for phase:", activeLearningState.currentPhase);
           const nextCheckpoint = activeLearningState.currentPhase + 1; // Checkpoints are 1-indexed
@@ -131,13 +168,21 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
           appStateDispatch({ type: 'SET_SELECTED_CHECKPOINT', payload: Number(nextCheckpoint) });
         }
 
-        // Check if we've reached the maximum number of iterations
-        const maxIterations = 5; // This should ideally come from the session data
-        if (activeLearningState.currentPhase >= maxIterations) {
-          // Trigger experiment end modal
-          appStateDispatch({ type: 'SET_END_MODAL_OPEN' });
+        if (resultsData.simulation) {
+          if (hasNextSimulationCheckpoint) {
+            await stepSampler();
+          } else {
+            appStateDispatch({ type: 'SET_END_MODAL_OPEN' });
+          }
         } else {
-          await stepSampler();
+          // Check if we've reached the maximum number of iterations
+          const maxIterations = 5; // This should ideally come from the session data
+          if (activeLearningState.currentPhase >= maxIterations) {
+            // Trigger experiment end modal
+            appStateDispatch({ type: 'SET_END_MODAL_OPEN' });
+          } else {
+            await stepSampler();
+          }
         }
 
         setWaiting(false);
@@ -466,9 +511,11 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
               p: 1,
               height: 'calc(9% - 0.5rem)',
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
+              gap: 1,
+              flexWrap: 'wrap',
             }}
           >
             <OnboardingHighlight stepId="next-phase" pulse={true}>
@@ -477,14 +524,17 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
                 color="primary"
                 onClick={handleNextPhaseClick}
               >
-                {(() => {
-                  const checkpoints = appState.selectedExperiment.checkpoint_list || [];
-                  const currentIndex = checkpoints.indexOf(appState.selectedCheckpoint.toString());
-                  const isLastCheckpoint = currentIndex >= checkpoints.length - 1;
-                  return isLastCheckpoint ? 'Complete Experiment' : 'Go to Next Phase';
-                })()}
+                {nextPhaseButtonLabel}
               </Button>
             </OnboardingHighlight>
+            {showCheckpointProgress && (
+              <Chip
+                label={`Checkpoint ${checkpointProgress.current}/${checkpointProgress.total}`}
+                size="small"
+                color="primary"
+                variant="outlined"
+              />
+            )}
           </Paper>
         </Box>
       </Box>

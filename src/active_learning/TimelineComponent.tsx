@@ -8,6 +8,7 @@ import { GridRows, GridColumns } from "@visx/grid";
 import { scaleLinear } from "@visx/scale";
 import { Group } from "@visx/group";
 import { withTooltip, TooltipWithBounds, defaultStyles } from "@visx/tooltip";
+//@ts-ignore // no types for withTooltip
 import { WithTooltipProvidedProps } from "@visx/tooltip/lib/enhancers/withTooltip";
 import { localPoint } from "@visx/event";
 import { useTheme, alpha } from "@mui/material/styles";
@@ -204,15 +205,17 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
         if (x === -1) return;
         const x0 = stepScale.invert(x);
         const idx = Math.max(0, Math.min(Math.round(x0), rewards.length - 1));
-        setHoverStep(idx);
-        onStepHover?.(idx);
+        if (idx !== hoverStep) {
+          setHoverStep(idx);
+          onStepHover?.(idx);
+        }
         showTooltip({
           tooltipData: { value: rewards[idx], index: idx, uncertainty: uncertainties[idx] },
           tooltipLeft: stepScale(idx),
           tooltipTop: rewardScale(rewards[idx]),
         });
       },
-      [interactionLocked, stepScale, rewards, uncertainties, showTooltip, rewardScale, onStepHover]
+      [interactionLocked, stepScale, rewards, uncertainties, showTooltip, rewardScale, onStepHover, hoverStep]
     );
 
     const handleClick = useCallback(
@@ -462,7 +465,7 @@ const TimelineComponent = withTooltip<TimelineComponentProps, TooltipProps>(
           {/* Tooltip */}
           {tooltipData && (
             <TooltipWithBounds
-              key={Math.random()}
+              key={`timeline-tooltip-${selectedEpisode}-${tooltipData.index}`}
               top={tooltipTop - 12}
               left={tooltipLeft + 12}
               style={{

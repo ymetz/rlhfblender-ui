@@ -6,7 +6,7 @@ function generateTemplateColumns(props: StyledDroppableColumnContainerProps) {
   if (props.horizontalRanking) {
     for (let i = 0; i < props.columnOrder.length; i++) {
       if (props.ranks[props.columnOrder[i]].episodeItemIDs.length > 0) {
-        templateString += "minmax(360px, 520px) ";
+        templateString += "minmax(360px, clamp(520px, 32vw, 760px)) ";
       } else {
         templateString += "56px ";
       }

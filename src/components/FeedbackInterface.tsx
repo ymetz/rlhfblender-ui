@@ -14,7 +14,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Box } from "@mui/material";
+import { Box, Chip } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { RatingInfoContext } from "../rating-info-context";
 import { useAppDispatch, useAppState } from "../AppStateContext";
@@ -62,6 +62,30 @@ const FeedbackInterface: React.FC = () => {
     : "ranking";
   const horizontalDrag =
     activeUIConfig.uiComponents.horizontalRanking && feedbackMode === "ranking";
+  const checkpointProgress = useMemo(() => {
+    const checkpoints = selectedExperiment?.checkpoint_list ?? [];
+    const total = checkpoints.length;
+    if (total === 0) {
+      return { current: 0, total: 0 };
+    }
+
+    const numericSelectedCheckpoint = Number(selectedCheckpoint);
+    let index = Number.isFinite(numericSelectedCheckpoint)
+      ? checkpoints.findIndex((checkpoint) => Number(checkpoint) === numericSelectedCheckpoint)
+      : -1;
+    if (index < 0) {
+      index = checkpoints.findIndex(
+        (checkpoint) => String(checkpoint) === String(selectedCheckpoint),
+      );
+    }
+    if (index < 0) {
+      index = 0;
+    }
+
+    return { current: index + 1, total };
+  }, [selectedCheckpoint, selectedExperiment?.checkpoint_list]);
+  const showCheckpointProgress =
+    state.app_mode === "study" && checkpointProgress.total > 1;
 
   const { columnOrder, setColumnOrder, ranks, setRanks } =
     useFeedbackState(rankeableEpisodeIDs);
@@ -132,6 +156,19 @@ const FeedbackInterface: React.FC = () => {
       setSelectedColumn(null);
     }
   }, [episodeIDsChronologically, sampleEpisodes, uiConfigSequence]);
+
+  useEffect(() => {
+    // Ensure best-of-k selection UI resets when moving to a new sampled step
+    // even if one episode ID remains the same between consecutive batches.
+    setSelectedColumn(null);
+  }, [currentStep, activeUIConfig.id, rankeableEpisodeIDs]);
+
+  const handleSubmitFeedback = useCallback(async () => {
+    const hasNextStep = await submitFeedback(scheduledFeedback, state.sessionId);
+    if (hasNextStep) {
+      setSelectedColumn(null);
+    }
+  }, [scheduledFeedback, state.sessionId, submitFeedback]);
 
   const sensors = useSensors(useSensor(PointerSensor));
 
@@ -305,11 +342,15 @@ const FeedbackInterface: React.FC = () => {
 
   const hasFeedback = useCallback(
     (episode: Episode, feedbackType: FeedbackType) => {
+      const episodeId = IDfromEpisode(episode);
       return scheduledFeedback.some(
         (feedback) =>
           feedback.feedback_type === feedbackType &&
           feedback.targets?.some(
-            (target) => target.target_id === IDfromEpisode(episode),
+            (target) =>
+              target.target_id === episodeId ||
+              (target.reference !== undefined &&
+                IDfromEpisode(target.reference as Episode) === episodeId),
           ),
       );
     },
@@ -347,7 +388,7 @@ const FeedbackInterface: React.FC = () => {
         numEpisodes={episodeIDsChronologically.length}
         currentStep={currentStep}
         progressSteps={configState.uiConfigSequence.length}
-        onSubmit={() => submitFeedback(scheduledFeedback, state.sessionId)}
+        onSubmit={handleSubmitFeedback}
         onSubmitHover={setIsOnSubmit}
       />
       <Box
@@ -358,8 +399,27 @@ const FeedbackInterface: React.FC = () => {
           width: "100%",
           overflow: "scroll",
           boxSizing: "border-box",
+          position: "relative",
         }}
       >
+        {showCheckpointProgress && (
+          <Box
+            sx={{
+              position: "absolute",
+              top: 10,
+              left: 10,
+              zIndex: 5,
+              pointerEvents: "none",
+            }}
+          >
+            <Chip
+              label={`Checkpoint ${checkpointProgress.current}/${checkpointProgress.total}`}
+              size="small"
+              color="primary"
+              variant="outlined"
+            />
+          </Box>
+        )}
         {feedbackMode === "ranking" ? (
           <DndContext sensors={sensors} onDragEnd={onDragEnd}>
             <Box

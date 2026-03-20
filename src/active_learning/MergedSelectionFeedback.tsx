@@ -40,6 +40,12 @@ import WebRTCDemoComponent from './WebRTCDemoComponent';
 import TimelineComponent from './TimelineComponent';
 import { OnboardingHighlight, useOnboarding } from './OnboardingSystem';
 
+type PendingStateSelectionSync = {
+  episodeIdx: number;
+  step: number;
+  baseStateData: any;
+};
+
 // ————————————————————————————————————————————————————————————
 // Visual helpers
 // ————————————————————————————————————————————————————————————
@@ -165,13 +171,19 @@ const MergedSelectionFeedback = () => {
   const [isCorrectionStepManual, setIsCorrectionStepManual] = useState(false);
   const [showCorrectionInterface, setShowCorrectionInterface] = useState(false);
   const [videoProgress, setVideoProgress] = useState<Map<number, number>>(() => new Map());
+  const [videoSteps, setVideoSteps] = useState<Map<number, number>>(() => new Map());
+  const [videoAspectRatios, setVideoAspectRatios] = useState<Map<number, number>>(
+    () => new Map(),
+  );
   const [userDemoVideoStatus, setUserDemoVideoStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(600);
-
-  const STEP_UPDATE_STRIDE = 20; // or 20
+  const SELECTION_SYNC_DEBOUNCE_MS = 90;
+  const selectionSyncTimeoutRef = useRef<number | null>(null);
+  const pendingSelectionSyncRef = useRef<PendingStateSelectionSync | null>(null);
+  const lastSyncedSelectionRef = useRef<{ episodeIdx: number; step: number } | null>(null);
 
 
   // avoid stale selectedStep in the timeupdate closure
@@ -322,6 +334,14 @@ const MergedSelectionFeedback = () => {
     setCorrectionStep(null);
     setIsCorrectionStepManual(false);
     setShowCorrectionInterface(false);
+    setVideoProgress(new Map());
+    setVideoSteps(new Map());
+    if (selectionSyncTimeoutRef.current !== null) {
+      window.clearTimeout(selectionSyncTimeoutRef.current);
+      selectionSyncTimeoutRef.current = null;
+    }
+    pendingSelectionSyncRef.current = null;
+    lastSyncedSelectionRef.current = null;
     lastUpdateStepRef.current = -1; // Reset sync tracking
   }, [selectionResetKey]);
 
@@ -355,6 +375,82 @@ const MergedSelectionFeedback = () => {
     [activeLearningState.episodeIndices]
   );
 
+  const clearScheduledSelectionSync = useCallback(() => {
+    if (selectionSyncTimeoutRef.current !== null) {
+      window.clearTimeout(selectionSyncTimeoutRef.current);
+      selectionSyncTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      clearScheduledSelectionSync();
+    },
+    [clearScheduledSelectionSync]
+  );
+
+  const buildStateSelectionPayload = useCallback(
+    (episodeIdx: number, step: number, baseStateData: any) => {
+      const baseStep = typeof baseStateData?.step === 'number' ? baseStateData.step : step;
+      const baseIndex = typeof baseStateData?.index === 'number' ? baseStateData.index : baseStep;
+      return [{
+        type: 'state',
+        data: {
+          episode: episodeIdx,
+          step,
+          coords: baseStateData?.coords || [0, 0],
+          x: baseStateData?.x || 0,
+          y: baseStateData?.y || 0,
+          index: baseIndex + (step - baseStep),
+        },
+      }];
+    },
+    []
+  );
+
+  const dispatchStateSelectionStep = useCallback(
+    (episodeIdx: number, step: number, baseStateData: any) => {
+      const last = lastSyncedSelectionRef.current;
+      if (last && last.episodeIdx === episodeIdx && last.step === step) {
+        return;
+      }
+      activeLearningDispatch({
+        type: 'SET_SELECTION',
+        payload: buildStateSelectionPayload(episodeIdx, step, baseStateData),
+      });
+      lastSyncedSelectionRef.current = { episodeIdx, step };
+    },
+    [activeLearningDispatch, buildStateSelectionPayload]
+  );
+
+  const scheduleStateSelectionSync = useCallback(
+    (episodeIdx: number, step: number, baseStateData: any, immediate = false) => {
+      pendingSelectionSyncRef.current = { episodeIdx, step, baseStateData };
+
+      if (immediate) {
+        clearScheduledSelectionSync();
+        const pending = pendingSelectionSyncRef.current;
+        pendingSelectionSyncRef.current = null;
+        if (pending) {
+          dispatchStateSelectionStep(pending.episodeIdx, pending.step, pending.baseStateData);
+        }
+        return;
+      }
+
+      if (selectionSyncTimeoutRef.current !== null) return;
+
+      selectionSyncTimeoutRef.current = window.setTimeout(() => {
+        selectionSyncTimeoutRef.current = null;
+        const pending = pendingSelectionSyncRef.current;
+        pendingSelectionSyncRef.current = null;
+        if (pending) {
+          dispatchStateSelectionStep(pending.episodeIdx, pending.step, pending.baseStateData);
+        }
+      }, SELECTION_SYNC_DEBOUNCE_MS);
+    },
+    [SELECTION_SYNC_DEBOUNCE_MS, clearScheduledSelectionSync, dispatchStateSelectionStep]
+  );
+
   useEffect(() => {
     let derivedStep: number | null = null;
 
@@ -371,7 +467,10 @@ const MergedSelectionFeedback = () => {
     }
 
     const safeStep = derivedStep ?? 0;
-    setSelectedStep(safeStep);
+    setSelectedStep((prev) => (prev === safeStep ? prev : safeStep));
+    if (selectionData.type === 'state' && currentStateData && typeof currentStateData.episode === 'number') {
+      lastSyncedSelectionRef.current = { episodeIdx: currentStateData.episode, step: safeStep };
+    }
 
     if (!isCorrectionStepManual) {
       setCorrectionStep(derivedStep);
@@ -1084,22 +1183,21 @@ const MergedSelectionFeedback = () => {
         }
       };
 
-      if (video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0) {
-        syncVideoTime();
-      } else {
-        const handleLoadedMetadata = () => {
-          syncVideoTime();
-        };
-        video.addEventListener('loadedmetadata', handleLoadedMetadata);
-        cleanupFns.push(() => {
-          video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-        });
-      }
-
       // Handle play/pause
       if (currentPlaying === index) {
         video.play().catch((e) => console.log('Play failed:', e));
       } else {
+        if (video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0) {
+          syncVideoTime();
+        } else {
+          const handleLoadedMetadata = () => {
+            syncVideoTime();
+          };
+          video.addEventListener('loadedmetadata', handleLoadedMetadata);
+          cleanupFns.push(() => {
+            video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+          });
+        }
         try { video.pause(); } catch { /* noop */ }
       }
     });
@@ -1108,6 +1206,48 @@ const MergedSelectionFeedback = () => {
       cleanupFns.forEach((fn) => fn());
     };
   }, [currentPlaying, selectedStep, selectionData, getEpisodeLength]);
+
+  const seekVideoToStep = useCallback((index: number, step: number, totalStepCount: number) => {
+    const videoEl = videoRefs.current[index];
+    const safeTotalStepCount = Math.max(1, totalStepCount);
+    const maxStep = Math.max(0, safeTotalStepCount - 1);
+    const clampedStep = Math.max(0, Math.min(maxStep, Math.round(step)));
+
+    setVideoSteps((prev) => {
+      if (prev.get(index) === clampedStep) return prev;
+      const next = new Map(prev);
+      next.set(index, clampedStep);
+      return next;
+    });
+
+    if (!videoEl) {
+      return;
+    }
+
+    const duration = videoEl.duration;
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+
+    const targetTime =
+      maxStep > 0 ? (clampedStep / maxStep) * duration : 0;
+    if (!Number.isFinite(targetTime)) {
+      return;
+    }
+
+    if (Math.abs(videoEl.currentTime - targetTime) > 0.01) {
+      videoEl.currentTime = targetTime;
+    }
+
+    const normalizedProgress =
+      maxStep > 0 ? clampedStep / maxStep : 0;
+    setVideoProgress((prev) => {
+      if (Math.abs((prev.get(index) ?? -1) - normalizedProgress) < 0.0005) return prev;
+      const next = new Map(prev);
+      next.set(index, normalizedProgress);
+      return next;
+    });
+  }, []);
 
   const getVideoElement = (
     episode: Episode,
@@ -1119,6 +1259,18 @@ const MergedSelectionFeedback = () => {
   ) => {
     const episodeId = IDfromEpisode(episode);
     const videoUrl = videoURLs.get(episodeId);
+    const episodeLength = Math.max(1, totalSteps || getEpisodeLength(index));
+    const maxVideoStep = Math.max(0, episodeLength - 1);
+    const currentVideoStep = Math.max(
+      0,
+      Math.min(maxVideoStep, Math.round(videoSteps.get(index) ?? 0)),
+    );
+    const tallRatioThreshold = 1 / 1.2;
+    const nativeAspectRatio = videoAspectRatios.get(index) ?? (small ? 1 : 16 / 9);
+    const isVeryTallVideo = nativeAspectRatio < tallRatioThreshold;
+    const layoutAspectRatio = small
+      ? (isVeryTallVideo ? tallRatioThreshold : nativeAspectRatio)
+      : 16 / 9;
 
     return (
       <Box
@@ -1128,7 +1280,9 @@ const MergedSelectionFeedback = () => {
           border: `3px solid ${getEpisodeColor(index)}`,
           borderRadius: 2,
           overflow: 'hidden',
-          aspectRatio: '16/9',
+          aspectRatio: `${layoutAspectRatio}`,
+          maxHeight: small && isVeryTallVideo ? 'min(52vh, 520px)' : undefined,
+          bgcolor: '#000',
           mx: 'auto',
           boxShadow: currentPlaying === index ? '0 0 0 4px rgba(76, 175, 80, 0.25) inset' : 'none',
           transition: 'box-shadow 0.2s ease',
@@ -1141,37 +1295,60 @@ const MergedSelectionFeedback = () => {
   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
   muted
   ref={attachVideoRef(index)}
+  onLoadedMetadata={(event) => {
+    const video = event.currentTarget;
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      const aspectRatio = video.videoWidth / video.videoHeight;
+      if (Number.isFinite(aspectRatio) && aspectRatio > 0) {
+        setVideoAspectRatios((prev) => {
+          if (Math.abs((prev.get(index) ?? -1) - aspectRatio) < 0.0005) return prev;
+          const next = new Map(prev);
+          next.set(index, aspectRatio);
+          return next;
+        });
+      }
+    }
+  }}
   onTimeUpdate={(e) => {
-    if (!singleTrajectory || currentPlaying !== index) return;
-    
     const video = e.currentTarget;
     const duration = video.duration;
     if (!duration || duration <= 0) return;
-    
-    const episodeLength = totalSteps || getEpisodeLength(index);
-    const newStep = Math.floor((video.currentTime / duration) * episodeLength);
-    
-    if (newStep !== selectedStep) {
-      startTransition(() => {
-        setSelectedStep(newStep);
-        // Update selection if needed
-        if (selectionData.type === 'state') {
-          activeLearningDispatch({
-            type: 'SET_SELECTION',
-            payload: [{
-              type: 'state',
-              data: {
-                episode: index,
-                step: newStep,
-                coords: currentStateData?.coords || [0, 0],
-                x: currentStateData?.x || 0,
-                y: currentStateData?.y || 0,
-                index: (currentStateData?.index || 0) + (newStep - selectedStep),
-              },
-            }],
-          });
-        }
+
+    const normalizedProgress = Math.max(
+      0,
+      Math.min(1, video.currentTime / duration),
+    );
+    const newStep = Math.max(0, Math.min(maxVideoStep, Math.floor(normalizedProgress * maxVideoStep)));
+
+    if (small) {
+      setVideoProgress((prev) => {
+        if (Math.abs((prev.get(index) ?? -1) - normalizedProgress) < 0.0005) return prev;
+        const next = new Map(prev);
+        next.set(index, normalizedProgress);
+        return next;
       });
+      setVideoSteps((prev) => {
+        if (prev.get(index) === newStep) return prev;
+        const next = new Map(prev);
+      next.set(index, newStep);
+      return next;
+    });
+  }
+
+    if (!singleTrajectory || currentPlaying !== index) return;
+
+    const singleSelectionStep = Math.max(
+      0,
+      Math.min(episodeLength - 1, Math.floor((video.currentTime / duration) * episodeLength)),
+    );
+    
+    if (singleSelectionStep !== selectedStepRef.current) {
+      startTransition(() => {
+        setSelectedStep(singleSelectionStep);
+      });
+      if (selectionData.type === 'state') {
+        scheduleStateSelectionSync(index, singleSelectionStep, currentStateData, false);
+      }
     }
   }}
 />
@@ -1179,7 +1356,8 @@ const MergedSelectionFeedback = () => {
               size="small"
               sx={{
                 position: 'absolute',
-                bottom: 6,
+                top: small ? 6 : 'auto',
+                bottom: small ? 'auto' : 6,
                 right: 6,
                 backgroundColor: currentPlaying === index ? 'rgba(76, 175, 80, 0.85)' : 'rgba(0,0,0,0.5)',
                 color: 'white',
@@ -1204,25 +1382,56 @@ const MergedSelectionFeedback = () => {
             >
               {currentPlaying === index ? <Pause fontSize="small" /> : <PlayArrow fontSize="small" />}
             </IconButton>
-            {small && videoProgress.has(index) && (
+            {small && (
               <Box
                 sx={{
                   position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: 4,
-                  bgcolor: 'rgba(255,255,255,0.25)'
+                  left: 8,
+                  right: 8,
+                  bottom: 8,
+                  px: 1,
+                  py: 0.4,
+                  borderRadius: 1,
+                  backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                  backdropFilter: 'blur(1.5px)',
                 }}
               >
-                <Box
+                <Slider
+                  size="small"
+                  min={0}
+                  max={maxVideoStep}
+                  value={currentVideoStep}
+                  onChange={(_, value) => {
+                    const nextValue = Array.isArray(value) ? value[0] : value;
+                    seekVideoToStep(index, Number(nextValue), episodeLength);
+                  }}
                   sx={{
-                    width: `${Math.max(0, Math.min(1, videoProgress.get(index) ?? 0)) * 100}%`,
-                    height: '100%',
-                    bgcolor: 'primary.main',
-                    transition: 'width 0.15s linear'
+                    py: 0,
+                    color: 'rgba(255,255,255,0.9)',
+                    '& .MuiSlider-thumb': {
+                      width: 10,
+                      height: 10,
+                    },
+                    '& .MuiSlider-rail': {
+                      opacity: 0.5,
+                    },
+                    '& .MuiSlider-track': {
+                      border: 0,
+                    },
                   }}
                 />
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: 'block',
+                    textAlign: 'center',
+                    color: 'rgba(255,255,255,0.9)',
+                    fontSize: '0.65rem',
+                    lineHeight: 1.1,
+                  }}
+                >
+                  Step {currentVideoStep} / {maxVideoStep}
+                </Typography>
               </Box>
             )}
           </>
@@ -1518,28 +1727,13 @@ const MergedSelectionFeedback = () => {
                   onStepHover={(newStep) => {
                     if (showCorrectionInterface) return;
                     const clamped = clampStep(newStep);
-                    if (clamped !== selectedStep) {
-                      setSelectedStep(clamped);
+                    if (clamped !== selectedStepRef.current) {
+                      startTransition(() => {
+                        setSelectedStep(clamped);
+                      });
                     }
                     if (selectionData.type === 'state') {
-                      const baseStep = typeof currentStateData?.step === 'number'
-                        ? currentStateData.step
-                        : clamped;
-                      const baseIndex = typeof currentStateData?.index === 'number'
-                        ? currentStateData.index
-                        : baseStep;
-                      const updatedSelection = [{
-                        type: 'state',
-                        data: {
-                          episode: episodeIdx,
-                          step: clamped,
-                          coords: currentStateData?.coords || [0, 0],
-                          x: currentStateData?.x || 0,
-                          y: currentStateData?.y || 0,
-                          index: baseIndex + (clamped - baseStep),
-                        },
-                      }];
-                      activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection });
+                      scheduleStateSelectionSync(episodeIdx, clamped, currentStateData, false);
                     }
                   }}
                   onCorrectionStepSelect={(newStep) => {
@@ -1550,24 +1744,7 @@ const MergedSelectionFeedback = () => {
                       setSelectedStep(clamped);
                     }
                     if (selectionData.type === 'state') {
-                      const baseStep = typeof currentStateData?.step === 'number'
-                        ? currentStateData.step
-                        : clamped;
-                      const baseIndex = typeof currentStateData?.index === 'number'
-                        ? currentStateData.index
-                        : baseStep;
-                      const updatedSelection = [{
-                        type: 'state',
-                        data: {
-                          episode: episodeIdx,
-                          step: clamped,
-                          coords: currentStateData?.coords || [0, 0],
-                          x: currentStateData?.x || 0,
-                          y: currentStateData?.y || 0,
-                          index: baseIndex + (clamped - baseStep),
-                        },
-                      }];
-                      activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection });
+                      scheduleStateSelectionSync(episodeIdx, clamped, currentStateData, true);
                     }
                   }}
                   width={Math.max(280, timelineWidth)}
