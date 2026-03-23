@@ -332,6 +332,8 @@ const App: React.FC = () => {
   const projectionClusterCountPendingRef = useRef<Map<string, Promise<number>>>(
     new Map(),
   );
+  const comparativeSessionBaseRef = useRef<string | null>(null);
+  const comparativeSessionStorageKeyRef = useRef<string | null>(null);
   const [comparativeStudyPhases, setComparativeStudyPhases] = useState<
     ComparativeStudyPhase[]
   >([]);
@@ -405,6 +407,52 @@ const App: React.FC = () => {
 
     return [];
   }, []);
+
+  const resolveComparativeSessionBaseName = useCallback((): string | null => {
+    if (!isComparativeStudyMode || currentComparativePhaseIndex < 0) {
+      return null;
+    }
+
+    const phaseKey = comparativeStudyPhases
+      .map((phase) => `${phase.kind}:${phase.studyCode}`)
+      .join("|");
+    const storageKey = `comparative-study-session:${phaseKey}`;
+
+    if (comparativeSessionStorageKeyRef.current !== storageKey) {
+      comparativeSessionStorageKeyRef.current = storageKey;
+      comparativeSessionBaseRef.current = null;
+    }
+
+    if (comparativeSessionBaseRef.current) {
+      return comparativeSessionBaseRef.current;
+    }
+
+    let baseName: string | null = null;
+    try {
+      baseName = window.sessionStorage.getItem(storageKey);
+    } catch {
+      baseName = null;
+    }
+
+    if (!baseName) {
+      const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
+      const seed = comparativeStudyPhases[0]?.studyCode || "session";
+      const safeSeed = seed.replace(/[^a-zA-Z0-9_-]/g, "-");
+      baseName = `${safeSeed}_${timestamp}`;
+      try {
+        window.sessionStorage.setItem(storageKey, baseName);
+      } catch {
+        // Ignore storage errors (e.g., disabled storage); keep in-memory fallback below.
+      }
+    }
+
+    comparativeSessionBaseRef.current = baseName;
+    return baseName;
+  }, [
+    comparativeStudyPhases,
+    currentComparativePhaseIndex,
+    isComparativeStudyMode,
+  ]);
 
   const getProjectionUncertaintyByEpisode = useCallback(
     async (episodeRef: ReturnType<typeof EpisodeFromID>) => {
@@ -1251,11 +1299,19 @@ const App: React.FC = () => {
       projectionRewardCacheRef.current.clear();
       projectionRewardPendingRef.current.clear();
 
+      const params = new URLSearchParams({
+        experiment_id: String(state.selectedExperiment.id),
+        sampling_strategy: configState.activeBackendConfig.samplingStrategy,
+      });
+
+      const comparativeSessionBase = resolveComparativeSessionBaseName();
+      if (comparativeSessionBase) {
+        params.set("session_name", comparativeSessionBase);
+        params.set("phase", String(currentComparativePhaseIndex + 1));
+      }
+
       const resetResponse = await axios.post(
-        "/data/reset_sampler?experiment_id=" +
-        state.selectedExperiment.id +
-        "&sampling_strategy=" +
-        configState.activeBackendConfig.samplingStrategy,
+        `/data/reset_sampler?${params.toString()}`,
       );
 
       await dispatch({
@@ -1307,6 +1363,8 @@ const App: React.FC = () => {
     getEpisodeIDsChronologically,
     getActionLabels,
     currentSetupSignature,
+    currentComparativePhaseIndex,
+    resolveComparativeSessionBaseName,
   ]);
 
   const stepSampler = async () => {

@@ -130,9 +130,7 @@ export const useConfigBasedSampling = () => {
         await dispatch({ type: "SET_END_MODAL_OPEN" });
         
         try {
-          await axios.post("/data/submit_session", {
-            sessionId: state.sessionId,
-          });
+          await axios.post(`/data/submit_session?session_id=${state.sessionId}`);
         } catch (error) {
           console.error("Error submitting session:", error);
         }
