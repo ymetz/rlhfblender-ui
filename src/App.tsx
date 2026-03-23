@@ -47,7 +47,7 @@ import StudyCodeModal from "./components/modals/study-code-modal";
 import StudyPhaseTransitionModal from "./components/modals/study-phase-transition-modal";
 
 const DEFAULT_STUDY_SURVEY_URL =
-  "https://docs.google.com/forms/d/e/1FAIpQLScE7s3EOEQL0p5Ky3B_S8gBYAx-FTCh4VucRNoY41an1nmMYw/viewform?usp=sf_link";
+  "https://docs.google.com/forms/d/e/1FAIpQLSc0TvdTw_9UigBODvQra2zdG9z6EmdlrTTYjiZpH7nxr-oVoQ/viewform?usp=dialog";
 
 type ComparativePhaseKind = "baseline" | "mixed" | "active-learning";
 type ComparativeStudyStage = "intro" | "between" | "complete";
@@ -215,11 +215,11 @@ const buildConfigSequenceWithElementCounts = (
           selectionMode === "random"
             ? buildRandomBatch(batchSize, episodeCount, random)
             : buildBatchIndices(
-                counters[index],
-                batchSize,
-                limits[index],
-                episodeCount,
-              );
+              counters[index],
+              batchSize,
+              limits[index],
+              episodeCount,
+            );
         if (!batch.length) {
           counters[index] = limits[index];
           continue;
@@ -749,9 +749,9 @@ const App: React.FC = () => {
     const basePhases: ComparativeStudyPhase[] = [
       {
         kind: "baseline",
-        label: "Preference-Only Baseline",
+        label: "Preference-Only Feedback",
         description:
-          "Simple baseline interface with comparative preference feedback only.",
+          "Baseline interface with pairwise-preference feedback only.",
         studyCode: baselineCode,
         appMode: "study",
       },
@@ -759,15 +759,15 @@ const App: React.FC = () => {
         kind: "mixed",
         label: "Mixed Feedback (Alternating)",
         description:
-          "Baseline interface with backend-configured mixed feedback types (for example alternating).",
+          "A sequence of five alternating feedback types.",
         studyCode: mixedCode,
         appMode: "study",
       },
       {
         kind: "active-learning",
-        label: "Full Active Learning Interface",
+        label: "Visual Interactive Feedback Generation for RL",
         description:
-          "Complete active-learning workflow with the expanded annotation and training loop.",
+          "Visual interface with active sample selection and multiple feedback types.",
         studyCode: activeLearningCode,
         appMode: "study-active-learning",
       },
@@ -1373,7 +1373,7 @@ const App: React.FC = () => {
     if (state.selectedExperiment.id === -1) {
       return;
     }
-    
+
     if (state.feedbackInterfaceReset) {
       state.feedbackInterfaceReset();
     }
@@ -1386,7 +1386,7 @@ const App: React.FC = () => {
 
       const stepResponse = await axios.post(
         "/data/step_sampler?session_id=" + state.sessionId + '&experiment_id=' +
-          state.selectedExperiment.id
+        state.selectedExperiment.id
       );
 
       // Log step as meta feedback
@@ -1800,7 +1800,7 @@ const App: React.FC = () => {
                   >
                     <HelpIcon />
                   </IconButton>
-                
+
                 </>
               )}
             </Box>

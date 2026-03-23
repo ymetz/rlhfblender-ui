@@ -37,7 +37,7 @@ const StudyPhaseTransitionModal: React.FC<StudyPhaseTransitionModalProps> = ({
   onContinue,
 }) => {
   const titleByStage: Record<"intro" | "between" | "complete", string> = {
-    intro: "Comparative Study",
+    intro: "User Study",
     between: "Next Phase",
     complete: "Study Complete",
   };
@@ -83,11 +83,12 @@ const StudyPhaseTransitionModal: React.FC<StudyPhaseTransitionModalProps> = ({
             </Typography>
           ) : (
             <Typography variant="body1">
-              Before starting this phase, please continue the parallel survey and record your impressions there.
+              Please complete the demographic survey first.
+              Then after completing each phase, fill out a section in the survey. Ideally, just keep the survey open in another tab.
             </Typography>
           )}
 
-          <Typography variant="body2">
+          <Typography variant="body1">
             Survey link:{" "}
             <Link href={surveyUrl} target="_blank" rel="noopener noreferrer">
               Open Google Form
