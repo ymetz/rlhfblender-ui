@@ -158,7 +158,7 @@ const PracticeDemoPanel: React.FC = () => {
     try {
       const payload: Record<string, any> = {
         session_id: practiceSessionId,
-        projection_method: activeLearningState?.embeddingMethod || 'PCA',
+        projection_method: 'PCA',
       };
       if (!Number.isNaN(checkpoint)) {
         payload.checkpoint = Number(checkpoint);
@@ -198,7 +198,7 @@ const PracticeDemoPanel: React.FC = () => {
     } finally {
       setIsSaving(false);
     }
-  }, [activeLearningDispatch, activeLearningState?.embeddingMethod, checkpoint, userTrajectoryCount]);
+  }, [activeLearningDispatch, checkpoint, userTrajectoryCount]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

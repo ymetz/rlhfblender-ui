@@ -39,6 +39,7 @@ import axios from 'axios';
 import WebRTCDemoComponent from './WebRTCDemoComponent';
 import TimelineComponent from './TimelineComponent';
 import { OnboardingHighlight, useOnboarding } from './OnboardingSystem';
+import { limitEpisodesForCheckpoint } from '../trajectoryDisplayLimit';
 
 type PendingStateSelectionSync = {
   episodeIdx: number;
@@ -200,8 +201,7 @@ const MergedSelectionFeedback = () => {
       return [];
     }
 
-    // Filter episodes to only include those from the current checkpoint
-    return episodes.filter((episode: Episode) => episode.checkpoint_step === checkpointStep);
+    return limitEpisodesForCheckpoint(episodes, checkpointStep);
   }, [appState.episodeIDsChronologically, appState.selectedCheckpoint]);
   // Extract selection type and data
   const userGeneratedTrajectories = activeLearningState.userGeneratedTrajectories || [];
@@ -1054,7 +1054,7 @@ const MergedSelectionFeedback = () => {
     try {
       const payload: any = {
         session_id: sessionId,
-        projection_method: activeLearningState.embeddingMethod,
+        projection_method: 'PCA',
         ...submitPayload,
       };
       if (appState.selectedCheckpoint !== undefined && appState.selectedCheckpoint !== null) {
@@ -1111,7 +1111,7 @@ const MergedSelectionFeedback = () => {
     } finally {
       setSavingDemo(false);
     }
-  }, [activeLearningDispatch, activeLearningState.embeddingMethod, activeLearningState.userGeneratedTrajectories.length, appState.selectedCheckpoint, waitForVideoAvailability]);
+  }, [activeLearningDispatch, activeLearningState.userGeneratedTrajectories.length, appState.selectedCheckpoint, waitForVideoAvailability]);
 
   const submitDemo = async (extraMetadata: Record<string, any> = {}, submitPayload?: Record<string, any>) => {
     const trajectory = await saveDemoAndIntegrate(appState.sessionId, 'generated', extraMetadata, submitPayload);

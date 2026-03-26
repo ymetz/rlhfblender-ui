@@ -3,6 +3,7 @@ import axios from "axios";
 import { useAppDispatch, useAppState } from "./AppStateContext";
 import { useSetupConfigDispatch, useSetupConfigState } from "./SetupConfigContext";
 import { IDfromEpisode } from "./id";
+import { limitEpisodesForCheckpoint } from "./trajectoryDisplayLimit";
 
 export const useConfigBasedSampling = () => {
   const dispatch = useAppDispatch();
@@ -14,18 +15,20 @@ export const useConfigBasedSampling = () => {
   const isInitialized = useRef(false);
 
   const getCheckpointEpisodePool = useCallback(() => {
+    const allEpisodes = state.episodeIDsChronologically ?? [];
     const selectedCheckpointValue = Number(state.selectedCheckpoint);
     if (!Number.isFinite(selectedCheckpointValue) || selectedCheckpointValue < 0) {
-      return state.episodeIDsChronologically ?? [];
+      return allEpisodes;
     }
 
-    const filteredEpisodes = (state.episodeIDsChronologically ?? []).filter(
-      (episode) => Number(episode.checkpoint_step) === selectedCheckpointValue,
+    const filteredEpisodes = limitEpisodesForCheckpoint(
+      allEpisodes,
+      selectedCheckpointValue,
     );
 
     return filteredEpisodes.length > 0
       ? filteredEpisodes
-      : (state.episodeIDsChronologically ?? []);
+      : allEpisodes;
   }, [state.episodeIDsChronologically, state.selectedCheckpoint]);
 
   const isReadyToProgress = useCallback(() => {

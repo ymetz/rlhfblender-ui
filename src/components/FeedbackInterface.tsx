@@ -31,6 +31,7 @@ import DroppableColumn from "./feedbackinterface/droppable-column";
 import BestOfKColumn from "./feedbackinterface/best-of-k-column";
 import ScrollableEpisodeList from "./feedbackinterface/scrollable-episode-list";
 import { useFeedbackShortcuts } from "./feedbackinterface/hooks/useShortcuts";
+import { limitEpisodesForCheckpoint } from "../trajectoryDisplayLimit";
 
 // Add new type for feedback mode
 type FeedbackMode = "ranking" | "bestOfK" | "annotation";
@@ -86,6 +87,17 @@ const FeedbackInterface: React.FC = () => {
   }, [selectedCheckpoint, selectedExperiment?.checkpoint_list]);
   const showCheckpointProgress =
     state.app_mode === "study" && checkpointProgress.total > 1;
+  const checkpointEpisodeIDs = useMemo(() => {
+    const selectedCheckpointValue = Number(selectedCheckpoint);
+    if (!Number.isFinite(selectedCheckpointValue) || selectedCheckpointValue < 0) {
+      return episodeIDsChronologically;
+    }
+    const limitedEpisodes = limitEpisodesForCheckpoint(
+      episodeIDsChronologically,
+      selectedCheckpointValue,
+    );
+    return limitedEpisodes.length > 0 ? limitedEpisodes : episodeIDsChronologically;
+  }, [episodeIDsChronologically, selectedCheckpoint]);
 
   const { columnOrder, setColumnOrder, ranks, setRanks } =
     useFeedbackState(rankeableEpisodeIDs);
@@ -148,14 +160,14 @@ const FeedbackInterface: React.FC = () => {
     // Only run initial sampling once when conditions are met
     if (
       !isInitialized.current &&
-      episodeIDsChronologically.length > 0 &&
+      checkpointEpisodeIDs.length > 0 &&
       uiConfigSequence.length > 0
     ) {
       isInitialized.current = true;
       sampleEpisodes(0); // Start with step 0
       setSelectedColumn(null);
     }
-  }, [episodeIDsChronologically, sampleEpisodes, uiConfigSequence]);
+  }, [checkpointEpisodeIDs, sampleEpisodes, uiConfigSequence]);
 
   useEffect(() => {
     // Ensure best-of-k selection UI resets when moving to a new sampled step
@@ -385,7 +397,7 @@ const FeedbackInterface: React.FC = () => {
     <RatingInfoContext.Provider value={ratingInfoValue}>
       <ProgressHeader
         showProgressBar={activeUIConfig.uiComponents.progressBar}
-        numEpisodes={episodeIDsChronologically.length}
+        numEpisodes={checkpointEpisodeIDs.length}
         currentStep={currentStep}
         progressSteps={configState.uiConfigSequence.length}
         onSubmit={handleSubmitFeedback}
@@ -435,7 +447,7 @@ const FeedbackInterface: React.FC = () => {
             >
               {activeUIConfig.uiComponents.interactiveEpisodeSelect && (
                 <ScrollableEpisodeList
-                  episodeIDs={episodeIDsChronologically}
+                  episodeIDs={checkpointEpisodeIDs}
                   rankeableEpisodeIDs={rankeableEpisodeIDs}
                 />
               )}

@@ -292,7 +292,7 @@ function activeLearningReducer(
     case "SET_ANNOTATION_MODE":
       return { ...state, annotationMode: action.payload };
     case "SET_EMBEDDING_METHOD":
-      return { ...state, embeddingMethod: action.payload };
+      return { ...state, embeddingMethod: "PCA" };
     case "SET_INFO_TYPES":
       return { ...state, infoTypes: action.payload };
     case "SET_ACTION_DATA":

@@ -202,7 +202,7 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose }
         benchmark_id: benchmarkId,
         current_checkpoint_step: currentCheckpoint,
         previous_checkpoint_step: previousCheckpoint,
-        projection_method: activeLearningState.embeddingMethod || 'PCA',
+        projection_method: 'PCA',
       })
       .then((response) => { if (!isCancelled) setUncertaintyDifference(response.data); })
       .catch((error) => {
@@ -214,7 +214,7 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose }
       .finally(() => { if (!isCancelled) setIsDifferenceLoading(false); });
 
     return () => { isCancelled = true; };
-  }, [benchmarkId, currentCheckpoint, previousCheckpoint, activeLearningState.embeddingMethod]);
+  }, [benchmarkId, currentCheckpoint, previousCheckpoint]);
 
   // Scroll list to selected item when selection comes from the chart
   useEffect(() => {

@@ -33,6 +33,8 @@ import { useAppState } from "../../../AppStateContext";
 import { useSetupConfigState } from "../../../SetupConfigContext";
 import { useGetter } from "../../../getter-context";
 import { useRatingInfo } from "../../../rating-info-context";
+import { getTrajectoryDisplayLimit } from "../../../trajectoryDisplayLimit";
+import { postCached } from "../../../utils/cachedPostRequests";
 
 interface EpisodeItemContainerProps {
   isDragging?: boolean;
@@ -143,6 +145,8 @@ type ClusterDefinition = {
   states: ClusterStateRef[];
 };
 
+const MAX_TRAJECTORIES_PER_CHECKPOINT = getTrajectoryDisplayLimit();
+
 function sanitizeSubmitPayload(
   payload?: Record<string, any>,
 ): Record<string, any> {
@@ -250,13 +254,19 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     [episodeID],
   );
   const checkpointEpisodes = useMemo(
-    () =>
-      appState.episodeIDsChronologically.filter(
+    () => {
+      const matchingEpisodes = appState.episodeIDsChronologically.filter(
         (episode) =>
           episode.checkpoint_step === episodeReference.checkpoint_step &&
           episode.benchmark_id === episodeReference.benchmark_id &&
           episode.env_name === episodeReference.env_name,
-      ),
+      );
+
+      if (!Number.isFinite(MAX_TRAJECTORIES_PER_CHECKPOINT)) {
+        return matchingEpisodes;
+      }
+      return matchingEpisodes.slice(0, MAX_TRAJECTORIES_PER_CHECKPOINT);
+    },
     [
       appState.episodeIDsChronologically,
       episodeReference.benchmark_id,
@@ -431,14 +441,13 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     }
 
     let active = true;
-    axios
-      .post("/projection/generate_projection", null, {
+    postCached("/projection/generate_projection", null, {
         params: {
           env_name: episodeReference.env_name,
           benchmark_id: episodeReference.benchmark_id,
           checkpoint_step: episodeReference.checkpoint_step,
           projection_method: "PCA",
-          sequence_length: 5,
+          sequence_length: 1,
         },
       })
       .then((response) => {

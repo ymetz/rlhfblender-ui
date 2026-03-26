@@ -39,12 +39,15 @@ import {
   BackendConfig,
   UIConfig,
   SequenceElement,
+  Episode,
   Feedback,
   FeedbackType,
 } from "./types";
 import { ShortcutsProvider } from "./ShortCutProvider";
 import StudyCodeModal from "./components/modals/study-code-modal";
 import StudyPhaseTransitionModal from "./components/modals/study-phase-transition-modal";
+import { limitEpisodesForCheckpoint } from "./trajectoryDisplayLimit";
+import { clearCachedPostRequests, postCached } from "./utils/cachedPostRequests";
 
 const DEFAULT_STUDY_SURVEY_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSc0TvdTw_9UigBODvQra2zdG9z6EmdlrTTYjiZpH7nxr-oVoQ/viewform?usp=dialog";
@@ -64,6 +67,26 @@ type ComparativeStudyPhase = {
 
 type LoadedSetupResult = {
   checkpoint: number | null;
+};
+
+type ResetParams = {
+  experimentId: number;
+  checkpoint: number | null;
+  setupSignature: string;
+};
+
+const areResetParamsEqual = (
+  left: ResetParams | null,
+  right: ResetParams | null,
+): boolean => {
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.experimentId === right.experimentId &&
+    left.checkpoint === right.checkpoint &&
+    left.setupSignature === right.setupSignature
+  );
 };
 
 const hashStringToSeed = (value: string): number => {
@@ -310,11 +333,9 @@ const App: React.FC = () => {
   const dispatch = useAppDispatch();
   const configState = useSetupConfigState();
   const configDispatch = useSetupConfigDispatch();
-  const lastResetParamsRef = useRef<{
-    experimentId: number;
-    checkpoint: number | null;
-    setupSignature: string;
-  } | null>(null);
+  const lastResetParamsRef = useRef<ResetParams | null>(null);
+  const pendingResetParamsRef = useRef<ResetParams | null>(null);
+  const resetInFlightRef = useRef<Promise<void> | null>(null);
   const isApplyingSetupRef = useRef<boolean>(false);
   const projectionUncertaintyCacheRef = useRef<Map<string, Map<number, number[]>>>(
     new Map(),
@@ -408,6 +429,82 @@ const App: React.FC = () => {
     return [];
   }, []);
 
+  const getProjectionSeriesByEpisode = useCallback(
+    async (
+      episodeRef: ReturnType<typeof EpisodeFromID>,
+      valueKey: "original_predictions" | "original_uncertainties",
+    ): Promise<Map<number, number[]>> => {
+      const methodCandidates: Array<"PCA"> = ["PCA"];
+
+      const buildEpisodeSeriesMap = (
+        rawEpisodeIndices: number[],
+        rawValues: number[],
+      ): Map<number, number[]> => {
+        const byEpisode = new Map<number, number[]>();
+        const sharedLength = Math.min(rawEpisodeIndices.length, rawValues.length);
+        for (let i = 0; i < sharedLength; i += 1) {
+          const rawEpisodeNum = rawEpisodeIndices[i];
+          const rawValue = rawValues[i];
+          if (!Number.isFinite(rawEpisodeNum) || !Number.isFinite(rawValue)) {
+            continue;
+          }
+          const episodeNum = Math.round(rawEpisodeNum);
+          const currentValues = byEpisode.get(episodeNum) ?? [];
+          currentValues.push(rawValue);
+          byEpisode.set(episodeNum, currentValues);
+        }
+        return byEpisode;
+      };
+
+      for (const projectionMethod of methodCandidates) {
+        const projectionDataResponse = await postCached("/projection/load_grid_projection_data", null, {
+          params: {
+            benchmark_id: episodeRef.benchmark_id,
+            checkpoint_step: episodeRef.checkpoint_step,
+            projection_method: projectionMethod,
+            allow_missing: true,
+          },
+        });
+
+        const predictionPayload = projectionDataResponse.data as {
+          episode_indices?: unknown;
+          original_predictions?: unknown;
+          original_uncertainties?: unknown;
+        };
+
+        let episodeIndices = toNumberArray(predictionPayload.episode_indices);
+        const values = toNumberArray(predictionPayload[valueKey]);
+
+        if (values.length === 0) {
+          continue;
+        }
+
+        if (episodeIndices.length === 0) {
+          const projectionResponse = await postCached("/projection/generate_projection", null, {
+            params: {
+              benchmark_id: episodeRef.benchmark_id,
+              checkpoint_step: episodeRef.checkpoint_step,
+              projection_method: projectionMethod,
+              sequence_length: 1,
+            },
+          });
+          const projectionPayload = projectionResponse.data as {
+            episode_indices?: unknown;
+          };
+          episodeIndices = toNumberArray(projectionPayload.episode_indices);
+        }
+
+        const byEpisode = buildEpisodeSeriesMap(episodeIndices, values);
+        if (byEpisode.size > 0) {
+          return byEpisode;
+        }
+      }
+
+      return new Map<number, number[]>();
+    },
+    [toNumberArray],
+  );
+
   const resolveComparativeSessionBaseName = useCallback((): string | null => {
     if (!isComparativeStudyMode || currentComparativePhaseIndex < 0) {
       return null;
@@ -468,53 +565,10 @@ const App: React.FC = () => {
       }
 
       const requestPromise = (async () => {
-        const [projectionResponse, projectionDataResponse] = await Promise.all([
-          axios.post("/projection/generate_projection", null, {
-            params: {
-              benchmark_id: episodeRef.benchmark_id,
-              checkpoint_step: episodeRef.checkpoint_step,
-            },
-          }),
-          axios.post("/projection/load_grid_projection_data", null, {
-            params: {
-              benchmark_id: episodeRef.benchmark_id,
-              checkpoint_step: episodeRef.checkpoint_step,
-              allow_missing: true,
-            },
-          }),
-        ]);
-
-        const projectionPayload = projectionResponse.data as {
-          episode_indices?: unknown;
-        };
-        const predictionPayload = projectionDataResponse.data as {
-          original_uncertainties?: unknown;
-        };
-
-        const episodeIndices = toNumberArray(projectionPayload.episode_indices);
-        const originalUncertainties = toNumberArray(
-          predictionPayload.original_uncertainties,
+        const byEpisode = await getProjectionSeriesByEpisode(
+          episodeRef,
+          "original_uncertainties",
         );
-
-        const byEpisode = new Map<number, number[]>();
-        const sharedLength = Math.min(
-          episodeIndices.length,
-          originalUncertainties.length,
-        );
-
-        for (let i = 0; i < sharedLength; i += 1) {
-          const rawEpisodeNum = episodeIndices[i];
-          const rawUncertainty = originalUncertainties[i];
-          if (!Number.isFinite(rawEpisodeNum) || !Number.isFinite(rawUncertainty)) {
-            continue;
-          }
-
-          const episodeNum = Math.round(rawEpisodeNum);
-          const currentValues = byEpisode.get(episodeNum) ?? [];
-          currentValues.push(rawUncertainty);
-          byEpisode.set(episodeNum, currentValues);
-        }
-
         projectionUncertaintyCacheRef.current.set(cacheKey, byEpisode);
         return byEpisode;
       })()
@@ -538,7 +592,7 @@ const App: React.FC = () => {
       projectionUncertaintyPendingRef.current.set(cacheKey, requestPromise);
       return requestPromise;
     },
-    [toNumberArray],
+    [getProjectionSeriesByEpisode],
   );
 
   const getProjectionRewardByEpisode = useCallback(
@@ -555,53 +609,10 @@ const App: React.FC = () => {
       }
 
       const requestPromise = (async () => {
-        const [projectionResponse, projectionDataResponse] = await Promise.all([
-          axios.post("/projection/generate_projection", null, {
-            params: {
-              benchmark_id: episodeRef.benchmark_id,
-              checkpoint_step: episodeRef.checkpoint_step,
-            },
-          }),
-          axios.post("/projection/load_grid_projection_data", null, {
-            params: {
-              benchmark_id: episodeRef.benchmark_id,
-              checkpoint_step: episodeRef.checkpoint_step,
-              allow_missing: true,
-            },
-          }),
-        ]);
-
-        const projectionPayload = projectionResponse.data as {
-          episode_indices?: unknown;
-        };
-        const predictionPayload = projectionDataResponse.data as {
-          original_predictions?: unknown;
-        };
-
-        const episodeIndices = toNumberArray(projectionPayload.episode_indices);
-        const originalPredictions = toNumberArray(
-          predictionPayload.original_predictions,
+        const byEpisode = await getProjectionSeriesByEpisode(
+          episodeRef,
+          "original_predictions",
         );
-
-        const byEpisode = new Map<number, number[]>();
-        const sharedLength = Math.min(
-          episodeIndices.length,
-          originalPredictions.length,
-        );
-
-        for (let i = 0; i < sharedLength; i += 1) {
-          const rawEpisodeNum = episodeIndices[i];
-          const rawPrediction = originalPredictions[i];
-          if (!Number.isFinite(rawEpisodeNum) || !Number.isFinite(rawPrediction)) {
-            continue;
-          }
-
-          const episodeNum = Math.round(rawEpisodeNum);
-          const currentValues = byEpisode.get(episodeNum) ?? [];
-          currentValues.push(rawPrediction);
-          byEpisode.set(episodeNum, currentValues);
-        }
-
         projectionRewardCacheRef.current.set(cacheKey, byEpisode);
         return byEpisode;
       })()
@@ -625,7 +636,7 @@ const App: React.FC = () => {
       projectionRewardPendingRef.current.set(cacheKey, requestPromise);
       return requestPromise;
     },
-    [toNumberArray],
+    [getProjectionSeriesByEpisode],
   );
 
   const getProjectionClusterCount = useCallback(
@@ -646,13 +657,12 @@ const App: React.FC = () => {
         return pending;
       }
 
-      const requestPromise = axios
-        .post("/projection/generate_projection", null, {
+      const requestPromise = postCached("/projection/generate_projection", null, {
           params: {
             benchmark_id: benchmarkId,
             checkpoint_step: checkpointStep,
             projection_method: "PCA",
-            sequence_length: 5,
+            sequence_length: 1,
           },
         })
         .then((response) => {
@@ -1265,7 +1275,9 @@ const App: React.FC = () => {
     try {
       // Fetch episodes
       const response = await axios.get("/data/get_all_episodes");
-      const episodes = response.data;
+      const episodes: Episode[] = Array.isArray(response.data)
+        ? response.data
+        : [];
 
       // Update state with the fetched episodes
       await Promise.all([
@@ -1288,71 +1300,114 @@ const App: React.FC = () => {
       return;
     }
 
+    const checkpointNumber = Number(state.selectedCheckpoint);
+    const checkpointValue = Number.isFinite(checkpointNumber)
+      ? checkpointNumber
+      : null;
+    const requestedResetParams: ResetParams = {
+      experimentId: state.selectedExperiment.id,
+      checkpoint: checkpointValue,
+      setupSignature: currentSetupSignature,
+    };
+
+    if (
+      areResetParamsEqual(lastResetParamsRef.current, requestedResetParams) ||
+      areResetParamsEqual(pendingResetParamsRef.current, requestedResetParams)
+    ) {
+      return;
+    }
+
+    if (resetInFlightRef.current) {
+      await resetInFlightRef.current;
+      if (
+        areResetParamsEqual(lastResetParamsRef.current, requestedResetParams) ||
+        areResetParamsEqual(pendingResetParamsRef.current, requestedResetParams)
+      ) {
+        return;
+      }
+    }
+
     // First reset the FeedbackInterface initialization if reset function exists
     if (state.feedbackInterfaceReset) {
       state.feedbackInterfaceReset();
     }
 
-    try {
-      projectionClusterCountCacheRef.current.clear();
-      projectionClusterCountPendingRef.current.clear();
-      projectionRewardCacheRef.current.clear();
-      projectionRewardPendingRef.current.clear();
+    pendingResetParamsRef.current = requestedResetParams;
+    let runPromise: Promise<void> | null = null;
+    runPromise = (async () => {
+      try {
+        clearCachedPostRequests();
+        projectionClusterCountCacheRef.current.clear();
+        projectionClusterCountPendingRef.current.clear();
+        projectionRewardCacheRef.current.clear();
+        projectionRewardPendingRef.current.clear();
+        projectionUncertaintyCacheRef.current.clear();
+        projectionUncertaintyPendingRef.current.clear();
 
-      const params = new URLSearchParams({
-        experiment_id: String(state.selectedExperiment.id),
-        sampling_strategy: configState.activeBackendConfig.samplingStrategy,
-      });
+        const params = new URLSearchParams({
+          experiment_id: String(state.selectedExperiment.id),
+          sampling_strategy: configState.activeBackendConfig.samplingStrategy,
+        });
 
-      const comparativeSessionBase = resolveComparativeSessionBaseName();
-      if (comparativeSessionBase) {
-        params.set("session_name", comparativeSessionBase);
-        params.set("phase", String(currentComparativePhaseIndex + 1));
+        const comparativeSessionBase = resolveComparativeSessionBaseName();
+        if (comparativeSessionBase) {
+          params.set("session_name", comparativeSessionBase);
+          params.set("phase", String(currentComparativePhaseIndex + 1));
+        }
+
+        const resetResponse = await axios.post(
+          `/data/reset_sampler?${params.toString()}`,
+        );
+
+        await dispatch({
+          type: "SET_SESSION_ID",
+          payload: resetResponse.data.session_id,
+        });
+        await dispatch({ type: "CLEAR_SCHEDULED_FEEDBACK" });
+
+        // Log reset as meta feedback
+        const resetFeedback: Feedback = {
+          experiment_id: state.selectedExperiment.id,
+          session_id: resetResponse.data.session_id,
+          feedback_type: FeedbackType.Meta,
+          granularity: "entire",
+          timestamp: Date.now(),
+          targets: [],
+          meta_action: "reset",
+        };
+        axios.post("/data/give_feedback", [resetFeedback]);
+
+        // Get episodes first and store the result
+        const episodes = await getEpisodeIDsChronologically();
+        const selectedCheckpointValue = Number(state.selectedCheckpoint);
+        const checkpointEpisodes = Number.isFinite(selectedCheckpointValue) && selectedCheckpointValue >= 0
+          ? limitEpisodesForCheckpoint(episodes, selectedCheckpointValue)
+          : episodes;
+
+        // Generate UI config sequence with the fetched episodes
+        await generateUiConfigSequence(
+          checkpointEpisodes.length > 0 ? checkpointEpisodes : episodes,
+        );
+
+        // Fetch action labels
+        await getActionLabels(resetResponse.data.environment_id);
+
+        lastResetParamsRef.current = requestedResetParams;
+      } catch (error) {
+        console.error("Error in resetSampler:", error);
+      } finally {
+        if (areResetParamsEqual(pendingResetParamsRef.current, requestedResetParams)) {
+          pendingResetParamsRef.current = null;
+        }
       }
-
-      const resetResponse = await axios.post(
-        `/data/reset_sampler?${params.toString()}`,
-      );
-
-      await dispatch({
-        type: "SET_SESSION_ID",
-        payload: resetResponse.data.session_id,
-      });
-      await dispatch({ type: "CLEAR_SCHEDULED_FEEDBACK" });
-
-      // Log reset as meta feedback
-      const resetFeedback: Feedback = {
-        experiment_id: state.selectedExperiment.id,
-        session_id: resetResponse.data.session_id,
-        feedback_type: FeedbackType.Meta,
-        granularity: "entire",
-        timestamp: Date.now(),
-        targets: [],
-        meta_action: "reset",
+    })().finally(() => {
+      if (resetInFlightRef.current === runPromise) {
+        resetInFlightRef.current = null;
       }
-      axios.post("/data/give_feedback", [resetFeedback]);
+    });
 
-      // Get episodes first and store the result
-      const episodes = await getEpisodeIDsChronologically();
-
-      // Generate UI config sequence with the fetched episodes
-      await generateUiConfigSequence(episodes);
-
-      // Fetch action labels
-      await getActionLabels(resetResponse.data.environment_id);
-
-      const checkpointNumber = Number(state.selectedCheckpoint);
-      const checkpointValue = Number.isFinite(checkpointNumber)
-        ? checkpointNumber
-        : null;
-      lastResetParamsRef.current = {
-        experimentId: state.selectedExperiment.id,
-        checkpoint: checkpointValue,
-        setupSignature: currentSetupSignature,
-      };
-    } catch (error) {
-      console.error("Error in resetSampler:", error);
-    }
+    resetInFlightRef.current = runPromise;
+    await runPromise;
   }, [
     state.selectedExperiment.id,
     state.selectedCheckpoint,
@@ -1379,10 +1434,13 @@ const App: React.FC = () => {
     }
 
     try {
+      clearCachedPostRequests();
       projectionClusterCountCacheRef.current.clear();
       projectionClusterCountPendingRef.current.clear();
       projectionRewardCacheRef.current.clear();
       projectionRewardPendingRef.current.clear();
+      projectionUncertaintyCacheRef.current.clear();
+      projectionUncertaintyPendingRef.current.clear();
 
       const stepResponse = await axios.post(
         "/data/step_sampler?session_id=" + state.sessionId + '&experiment_id=' +
@@ -1403,9 +1461,15 @@ const App: React.FC = () => {
 
       // Get episodes first and store the result
       const episodes = await getEpisodeIDsChronologically();
+      const selectedCheckpointValue = Number(state.selectedCheckpoint);
+      const checkpointEpisodes = Number.isFinite(selectedCheckpointValue) && selectedCheckpointValue >= 0
+        ? limitEpisodesForCheckpoint(episodes, selectedCheckpointValue)
+        : episodes;
 
       // Generate UI config sequence with the fetched episodes
-      await generateUiConfigSequence(episodes);
+      await generateUiConfigSequence(
+        checkpointEpisodes.length > 0 ? checkpointEpisodes : episodes,
+      );
 
       // Fetch action labels
       //await getActionLabels(stepResponse.data.environment_id);
@@ -1424,16 +1488,21 @@ const App: React.FC = () => {
       return;
     }
 
-    const checkpointValue = Number.isFinite(state.selectedCheckpoint)
-      ? state.selectedCheckpoint
+    const parsedCheckpoint = Number(state.selectedCheckpoint);
+    const checkpointValue = Number.isFinite(parsedCheckpoint)
+      ? parsedCheckpoint
       : null;
 
+    const requestedResetParams: ResetParams = {
+      experimentId,
+      checkpoint: checkpointValue,
+      setupSignature: currentSetupSignature,
+    };
     const last = lastResetParamsRef.current;
+    const pending = pendingResetParamsRef.current;
     if (
-      last &&
-      last.experimentId === experimentId &&
-      last.checkpoint === checkpointValue &&
-      last.setupSignature === currentSetupSignature
+      areResetParamsEqual(last, requestedResetParams) ||
+      areResetParamsEqual(pending, requestedResetParams)
     ) {
       return;
     }
@@ -1552,7 +1621,8 @@ const App: React.FC = () => {
   const handleExperimentStartClose = async () => {
     if (
       (state.app_mode === "study" || state.app_mode === "study-active-learning") &&
-      state.studyCode
+      state.studyCode &&
+      state.selectedExperiment?.id === -1
     ) {
       try {
         const mode: AppMode =
@@ -1588,7 +1658,10 @@ const App: React.FC = () => {
             payload: loadedSetup.checkpoint,
           });
         }
-        await dispatch({ type: "SET_START_MODAL_OPEN", payload: false });
+        await dispatch({
+          type: "SET_START_MODAL_OPEN",
+          payload: phaseIndex === 0,
+        });
         if (state.endModalOpen) {
           await dispatch({ type: "SET_END_MODAL_OPEN" });
         }
@@ -1701,17 +1774,22 @@ const App: React.FC = () => {
     }
 
     const experimentId = state.selectedExperiment?.id ?? -1;
-    const checkpointValue = Number.isFinite(state.selectedCheckpoint)
-      ? state.selectedCheckpoint
+    const parsedCheckpoint = Number(state.selectedCheckpoint);
+    const checkpointValue = Number.isFinite(parsedCheckpoint)
+      ? parsedCheckpoint
       : null;
+    const requestedResetParams: ResetParams = {
+      experimentId,
+      checkpoint: checkpointValue,
+      setupSignature: currentSetupSignature,
+    };
     const last = lastResetParamsRef.current;
+    const pending = pendingResetParamsRef.current;
 
     if (experimentId !== -1) {
       if (
-        !last ||
-        last.experimentId !== experimentId ||
-        last.checkpoint !== checkpointValue ||
-        last.setupSignature !== currentSetupSignature
+        !areResetParamsEqual(last, requestedResetParams) &&
+        !areResetParamsEqual(pending, requestedResetParams)
       ) {
         void resetSampler();
       }
@@ -1818,7 +1896,12 @@ const App: React.FC = () => {
               </OnboardingProvider>
             </ActiveLearningProvider>
           ) : (
-            state.selectedProject?.id >= 0 ? <FeedbackInterface /> : null
+            <>
+              {state.selectedProject?.id >= 0 ? <FeedbackInterface /> : null}
+              {state.app_mode === "study" ? (
+                <ExperimentStartModal onClose={handleExperimentStartClose} />
+              ) : null}
+            </>
           )}
           <ConfigModal
             config={configState.activeUIConfig}

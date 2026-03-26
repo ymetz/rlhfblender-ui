@@ -7,6 +7,7 @@ import { withTooltip, TooltipWithBounds, defaultStyles } from '@visx/tooltip';
 import { localPoint } from '@visx/event';
 import { ParentSize } from '@visx/responsive';
 import { buildGridAxesFromCoordinates } from './utils/projectionGrid';
+import { getTrajectoryDisplayLimit } from '../trajectoryDisplayLimit';
 
 interface TrajectoryEpisode {
   episode: number;
@@ -65,7 +66,7 @@ interface TooltipData {
 }
 
 const background = '#ffffff';
-const MAX_TRAJECTORIES = 80;
+const MAX_TRAJECTORIES_PER_CHECKPOINT = getTrajectoryDisplayLimit(80);
 const MAX_RENDERED_GRID_CROSSES = 1800;
 const MAX_MAJOR_GRID_LINES = 120;
 const MAJOR_GRID_INTERVAL = 5;
@@ -322,11 +323,11 @@ const GridMap = withTooltip<GridUncertaintyMapProps, TooltipData>((props) => {
   }, [projectionGridAxes, xScale, yScale, innerWidth, innerHeight]);
 
   const limitedPrevious = useMemo(
-    () => previousTrajectories.slice(0, MAX_TRAJECTORIES),
+    () => previousTrajectories.slice(0, MAX_TRAJECTORIES_PER_CHECKPOINT),
     [previousTrajectories],
   );
   const limitedCurrent = useMemo(
-    () => currentTrajectories.slice(0, MAX_TRAJECTORIES),
+    () => currentTrajectories.slice(0, MAX_TRAJECTORIES_PER_CHECKPOINT),
     [currentTrajectories],
   );
 

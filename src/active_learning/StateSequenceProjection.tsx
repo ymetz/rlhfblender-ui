@@ -38,6 +38,8 @@ import { clearCanvasImageCache } from './utils/canvasCache';
 import { computeUserTrajectorySignature } from './utils/trajectorySignature';
 import { interpolateBrightCividis } from './utils/vsupColors';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import { buildEpisodeKeepMask } from '../trajectoryDisplayLimit';
+import { postCached } from '../utils/cachedPostRequests';
 
 type LastDrawParams = {
     data: number[][];
@@ -543,7 +545,7 @@ const StateSequenceProjection = (props: any) => {
         // Clear image cache
         clearCanvasImageCache();
 
-        const embedding_method = props.embeddingMethod;
+        const embedding_method = 'PCA';
         const use_one_d_embedding = 0;
         const reproject = props.reproject ? 1 : 0;
         const append_time = props.appendTimestamp ? 1 : 0;
@@ -581,27 +583,114 @@ const StateSequenceProjection = (props: any) => {
 
         // Load all projection data
         Promise.all([
-            axios.post(`${url}?${queryString}`, {
+            postCached<any>(`${url}?${queryString}`, {
                 benchmarks: props.benchmarkedModels,
                 embedding_props: props.embeddingSettings
             }),
-            axios.post(`${grid_projection_url}?${queryString}`),
-            axios.post(`${grid_projection_url}?${uncertainty_grid_projection_queryString}`),
+            postCached<any>(`${grid_projection_url}?${queryString}`),
+            postCached<any>(`${grid_projection_url}?${uncertainty_grid_projection_queryString}`),
         ])
             .then(([projectionRes, gridRes, gridUncertaintyRes]) => {
                 const data = projectionRes.data;
                 const grid_data = gridRes.data;
                 const grid_uncertainty_data = gridUncertaintyRes.data;
 
+                const forwardProjection = Array.isArray(data?.projection) ? data.projection : [];
+                const gridProjection = Array.isArray(grid_data?.original_coordinates)
+                    ? grid_data.original_coordinates
+                    : [];
+                // Prefer coordinates coming from the prediction payload because they are in
+                // the exact same frame as the pre-rendered background map.
+                const effectiveProjection = gridProjection.length > 0 ? gridProjection : forwardProjection;
+
+                const forwardEpisodeIndices = Array.isArray(data?.episode_indices) ? data.episode_indices : [];
+                const gridEpisodeIndices = Array.isArray(grid_data?.episode_indices) ? grid_data.episode_indices : [];
+                const effectiveEpisodeIndices =
+                    gridEpisodeIndices.length === effectiveProjection.length
+                        ? gridEpisodeIndices
+                        : forwardEpisodeIndices.length === effectiveProjection.length
+                            ? forwardEpisodeIndices
+                            : gridEpisodeIndices.length === forwardProjection.length
+                                ? gridEpisodeIndices
+                                : forwardEpisodeIndices;
+
+                const forwardDones = Array.isArray(data?.dones) ? data.dones : [];
+                const gridDones = Array.isArray(grid_data?.dones) ? grid_data.dones : [];
+                const effectiveDones =
+                    gridDones.length === effectiveProjection.length
+                        ? gridDones
+                        : forwardDones.length === effectiveProjection.length
+                            ? forwardDones
+                            : gridDones.length === forwardProjection.length
+                                ? gridDones
+                                : forwardDones;
+
+                let normalizedEpisodeIndices = effectiveEpisodeIndices;
+                if (normalizedEpisodeIndices.length !== effectiveProjection.length) {
+                    if (effectiveDones.length === effectiveProjection.length) {
+                        const rebuilt: number[] = [];
+                        let currentEpisode = 0;
+                        effectiveDones.forEach((doneFlag: any) => {
+                            rebuilt.push(currentEpisode);
+                            if (Boolean(doneFlag)) {
+                                currentEpisode += 1;
+                            }
+                        });
+                        normalizedEpisodeIndices = rebuilt;
+                    } else if (effectiveProjection.length > 0) {
+                        normalizedEpisodeIndices = Array.from({ length: effectiveProjection.length }, () => 0);
+                    }
+                }
+
+                const projectionPoints: number[][] = Array.isArray(effectiveProjection)
+                    ? effectiveProjection as number[][]
+                    : [];
+                const episodeIndexList: number[] = Array.isArray(normalizedEpisodeIndices)
+                    ? normalizedEpisodeIndices as number[]
+                    : [];
+                const doneList: any[] = Array.isArray(effectiveDones) ? effectiveDones : [];
+                const labelList: any[] = Array.isArray(data?.labels) ? data.labels : [];
+                const actionList: any[] = Array.isArray(data?.actions) ? data.actions : [];
+                const rewardList: number[] = Array.isArray(grid_data?.original_predictions)
+                    ? grid_data.original_predictions as number[]
+                    : [];
+                const uncertaintyList: number[] = Array.isArray(grid_data?.original_uncertainties)
+                    ? grid_data.original_uncertainties as number[]
+                    : [];
+
+                const projectionKeepMask = episodeIndexList.length === projectionPoints.length
+                    ? buildEpisodeKeepMask(episodeIndexList)
+                    : Array.from({ length: projectionPoints.length }, () => true);
+                const applyKeepMask = <T,>(values: T[]): T[] => {
+                    if (!Array.isArray(values) || values.length !== projectionKeepMask.length) {
+                        return values;
+                    }
+                    return values.filter((_, index) => projectionKeepMask[index]);
+                };
+
+                const limitedProjection = applyKeepMask(projectionPoints);
+                const limitedEpisodeIndices = applyKeepMask(episodeIndexList);
+                const limitedDones = applyKeepMask(doneList);
+                const limitedLabels = applyKeepMask(labelList);
+                const limitedActions = applyKeepMask(actionList);
+                const limitedPredictedRewards = applyKeepMask(rewardList);
+                const limitedPredictedUncertainties = applyKeepMask(uncertaintyList);
+
+                if (gridProjection.length === 0 && effectiveProjection.length > 0) {
+                    console.warn(
+                        "grid original_coordinates unavailable; falling back to generate_projection output."
+                    );
+                }
+
                 console.log("Loaded projection data:", grid_data.x_range, grid_data.y_range);
-                const xs = data.projection.map((p: number[]) => p[0]);
-                const ys = data.projection.map((p: number[]) => p[1]);
+                const xs = limitedProjection.map((p: number[]) => p[0]);
+                const ys = limitedProjection.map((p: number[]) => p[1]);
 
                 // get min/max
-                const minX = Math.min(...xs);
-                const maxX = Math.max(...xs);
-                const minY = Math.min(...ys);
-                const maxY = Math.max(...ys);
+                const minX = xs.length > 0 ? Math.min(...xs) : 0;
+                const maxX = xs.length > 0 ? Math.max(...xs) : 0;
+                const minY = ys.length > 0 ? Math.min(...ys) : 0;
+                const maxY = ys.length > 0 ? Math.max(...ys) : 0;
 
                 console.log({ minX, maxX, minY, maxY });
 
@@ -610,7 +699,7 @@ const StateSequenceProjection = (props: any) => {
 
                 // Set projectionStates to be used across the UI (timeline, selections)
                 // Use the API projection (expected to be joint/global if available)
-                activeLearningDispatch({ type: 'SET_PROJECTION_STATES', payload: data.projection });
+                activeLearningDispatch({ type: 'SET_PROJECTION_STATES', payload: limitedProjection });
 
                 // Update grid image data
                 activeLearningDispatch({ type: 'SET_GRID_PREDICTION_IMAGE', payload: grid_data.image });
@@ -624,7 +713,7 @@ const StateSequenceProjection = (props: any) => {
                     : [];
 
                 // Update global state - projection data
-                activeLearningDispatch({ type: 'SET_EMBEDDING_LABELS', payload: data.labels });
+                activeLearningDispatch({ type: 'SET_EMBEDDING_LABELS', payload: limitedLabels });
                 activeLearningDispatch({ type: 'SET_CLUSTER_CENTROIDS', payload: data.centroids });
                 activeLearningDispatch({ type: 'SET_MERGED_POINTS', payload: data.merged_points });
                 activeLearningDispatch({ type: 'SET_POINT_CONNECTIONS', payload: data.connections });
@@ -634,15 +723,15 @@ const StateSequenceProjection = (props: any) => {
                 activeLearningDispatch({ type: 'SET_LAST_DATA_UPDATE_TIMESTAMP', payload: dataTimestamp });
                 activeLearningDispatch({ type: 'SET_SELECTED_POINTS', payload: selected_points });
                 activeLearningDispatch({ type: 'SET_HIGHLIGHTED_POINTS', payload: highlighted_points });
-                activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: data.episode_indices || [] });
-                activeLearningDispatch({ type: 'SET_PREDICTED_REWARDS', payload: grid_data.original_predictions || [] });
-                activeLearningDispatch({ type: 'SET_PREDICTED_UNCERTAINTIES', payload: grid_data.original_uncertainties || [] });
+                activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: limitedEpisodeIndices || [] });
+                activeLearningDispatch({ type: 'SET_PREDICTED_REWARDS', payload: limitedPredictedRewards || [] });
+                activeLearningDispatch({ type: 'SET_PREDICTED_UNCERTAINTIES', payload: limitedPredictedUncertainties || [] });
 
                 // Compute and store per-episode stats once on data load
                 try {
-                    const epiIdx = data.episode_indices || [];
-                    const preds = grid_data.original_predictions || [];
-                    const uncs = grid_data.original_uncertainties || [];
+                    const epiIdx = limitedEpisodeIndices || [];
+                    const preds = limitedPredictedRewards || [];
+                    const uncs = limitedPredictedUncertainties || [];
                     const statsMap = new Map<number, { avgReward: number | null; avgUncertainty: number | null; count: number }>();
                     const uniqueEpisodes = Array.from(new Set(epiIdx)) as number[];
                     uniqueEpisodes.forEach((ep: number) => {
@@ -662,8 +751,8 @@ const StateSequenceProjection = (props: any) => {
                 }
 
                 // Calculate and set global ranges for consistent timeline scaling
-                const rewards = grid_data.original_predictions || [];
-                const uncertainties = grid_data.original_uncertainties || [];
+                const rewards = limitedPredictedRewards || [];
+                const uncertainties = limitedPredictedUncertainties || [];
                 
                 if (rewards.length > 0) {
                     const rewardRange: [number, number] = [
@@ -705,14 +794,14 @@ const StateSequenceProjection = (props: any) => {
 
                 // Process segments with the loaded data
                 let processedSegments: any[] = [];
-                if (data.projection && data.episode_indices) {
+                if (limitedProjection && limitedEpisodeIndices && limitedProjection.length > 0) {
                     const episodeToPaths = new Map();
-                    data.episode_indices.forEach((episodeIdx: number, i: number) => {
+                    limitedEpisodeIndices.forEach((episodeIdx: number, i: number) => {
                         if (!episodeToPaths.has(episodeIdx)) {
                             episodeToPaths.set(episodeIdx, []);
                         }
-                        if (i < data.projection.length) {
-                            episodeToPaths.get(episodeIdx).push(data.projection[i]);
+                        if (i < limitedProjection.length) {
+                            episodeToPaths.get(episodeIdx).push(limitedProjection[i]);
                         }
                     });
                     
@@ -734,18 +823,18 @@ const StateSequenceProjection = (props: any) => {
 
                 // Draw the chart with all data including segments
                 // Use API projection coordinates (should be joint/global if available)
-                const coordsForOverlay = data.projection;
+                const coordsForOverlay = limitedProjection;
 
                 drawChart(
                     viewMode,
                     coordsForOverlay,
-                    data.labels,
-                    data.actions,
-                    data.dones,
-                    data.episode_indices,
+                    limitedLabels,
+                    limitedActions,
+                    limitedDones,
+                    limitedEpisodeIndices,
                     [],
-                    grid_data.original_predictions,
-                    grid_data.original_uncertainties,
+                    limitedPredictedRewards,
+                    limitedPredictedUncertainties,
                     {
                         "prediction_image": grid_prediction_image_path,
                         "uncertainty_image": grid_uncertainty_image_path,
@@ -756,17 +845,17 @@ const StateSequenceProjection = (props: any) => {
 
                 lastDrawParamsRef.current = {
                     data: coordsForOverlay,
-                    labels: data.labels || [],
-                    doneData: data.dones || [],
+                    labels: limitedLabels || [],
+                    doneData: limitedDones || [],
                     labelInfos: [],
-                    episodeIndices: data.episode_indices || [],
+                    episodeIndices: limitedEpisodeIndices || [],
                     gridData: {
                         prediction_image: grid_prediction_image_path,
                         uncertainty_image: grid_uncertainty_image_path,
                         bounds: grid_data.projection_bounds,
                     },
-                    predictedRewards: grid_data.original_predictions || [],
-                    predictedUncertainties: grid_data.original_uncertainties || [],
+                    predictedRewards: limitedPredictedRewards || [],
+                    predictedUncertainties: limitedPredictedUncertainties || [],
                     segments: processedSegments,
                 };
                 lastUserTrajectorySignatureRef.current = computeUserTrajectorySignature(

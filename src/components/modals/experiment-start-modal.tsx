@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useAppState, useAppDispatch } from "../../AppStateContext";
-import { useSetupConfigState } from "../../SetupConfigContext";
 import { useOptionalActiveLearningDispatch } from "../../ActiveLearningContext";
 import PracticeDemoPanel from "../practice/PracticeDemoPanel";
 
@@ -35,12 +34,34 @@ type ExperimentStartModalProps = {
   onClose: () => void;
 };
 
+const FEEDBACK_TYPE_DESCRIPTIONS = {
+  rating:
+    "Select a single trajectory from the projection and rate it using the slider (0-10). Videos of the episode will be displayed for review.",
+  comparison:
+    "Select multiple trajectories to compare them by activating the multi-selection mode. Choose the best performing episode from the available options.",
+  demonstration:
+    "Select an empty coordinate in the projection to start a demonstration for an unknown state. Demonstrate behavior via keyboard controls.",
+  correction:
+    "Select a single state to correct from this position.",
+  clusterRating:
+    "Select a cluster of states and rate the overall performance of that cluster.",
+} as const;
+
+const ALL_FEEDBACK_TYPES: Array<{
+  key: keyof typeof FEEDBACK_TYPE_DESCRIPTIONS;
+  label: string;
+}> = [
+  { key: "rating", label: "Rating" },
+  { key: "comparison", label: "Comparison" },
+  { key: "demonstration", label: "Demonstrations" },
+  { key: "correction", label: "Correction" },
+  { key: "clusterRating", label: "ClusterRatings" },
+];
+
 const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
   const state = useAppState();
   const dispatch = useAppDispatch();
   const activeLearningDispatch = useOptionalActiveLearningDispatch();
-  const setupConfigState = useSetupConfigState();
-  const { activeUIConfig } = setupConfigState;
   const [activeTab, setActiveTab] = useState(0);
   const [ssvSlide, setSsvSlide] = useState(0);
 
@@ -72,23 +93,11 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
     setActiveTab((prev) => Math.min(prev + 1, navigationItems.length - 1));
   };
 
-  const feedbackTypes = Object.entries(activeUIConfig.feedbackComponents ?? {})
-    .filter(([_, v]) => v)
-    .map(([key, _]) => ({
-      key,
-      description: {
-        rating:
-          "Select a single trajectory from the projection and rate it using the slider (0-10). Videos of the episode will be displayed for review.",
-        comparison:
-          "Select multiple trajectories to compare them by activating the multi-selection mode. Choose the best performing episode from the available options.",
-        correction:
-          "Select a single state to correct from this position. ",
-        demonstration:
-          "Select an empty coordinate in the projection to start a demonstration for an unknown state. Demonstrate behavior via keyboard controls",
-        clusterRating:
-          "Select a cluster of states and rate the overall performance of that cluster.",
-        }[key],
-    }));
+  const feedbackTypes = ALL_FEEDBACK_TYPES.map(({ key, label }) => ({
+    key,
+    label,
+    description: FEEDBACK_TYPE_DESCRIPTIONS[key],
+  }));
 
   return (
     <Dialog
@@ -276,7 +285,7 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
               {/* Centered container with reduced width */}
               <Container maxWidth="lg">
                 <Grid container spacing={3} justifyContent="center">
-                  {feedbackTypes.map(({ key, description }) => (
+                  {feedbackTypes.map(({ key, label, description }) => (
                     <Grid item xs={12} sm={6} md={3} key={key}>
                       <Card
                         variant="outlined"
@@ -311,9 +320,9 @@ const ExperimentStartModal = ({ onClose }: ExperimentStartModalProps) => {
                           <Typography
                             variant="h6"
                             gutterBottom
-                            sx={{ textTransform: "capitalize" }}
+                            sx={{ textTransform: "none" }}
                           >
-                            {key}
+                            {label}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
                             {description}
