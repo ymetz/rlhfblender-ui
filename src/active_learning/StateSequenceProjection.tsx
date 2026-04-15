@@ -115,6 +115,7 @@ const StateSequenceProjection = (props: any) => {
     } | null>(null);
     const lastDrawParamsRef = useRef<LastDrawParams | null>(null);
     const lastUserTrajectorySignatureRef = useRef<string>('');
+    const userTrajectoryCoordinateTransformRef = useRef<{ sx: number; sy: number; tx: number; ty: number } | null>(null);
     
     // Count currently selected trajectories (unique episodes) for multi-select helper text
     const selectedTrajectoriesCount = React.useMemo(() => {
@@ -544,6 +545,7 @@ const StateSequenceProjection = (props: any) => {
         
         // Clear image cache
         clearCanvasImageCache();
+        userTrajectoryCoordinateTransformRef.current = null;
 
         const embedding_method = 'PCA';
         const use_one_d_embedding = 0;
@@ -599,23 +601,44 @@ const StateSequenceProjection = (props: any) => {
                 const gridProjection = Array.isArray(grid_data?.original_coordinates)
                     ? grid_data.original_coordinates
                     : [];
-                // Prefer coordinates coming from the prediction payload because they are in
-                // the exact same frame as the pre-rendered background map.
-                const effectiveProjection = gridProjection.length > 0 ? gridProjection : forwardProjection;
-
                 const forwardEpisodeIndices = Array.isArray(data?.episode_indices) ? data.episode_indices : [];
                 const gridEpisodeIndices = Array.isArray(grid_data?.episode_indices) ? grid_data.episode_indices : [];
+                const forwardDones = Array.isArray(data?.dones) ? data.dones : [];
+                const gridDones = Array.isArray(grid_data?.dones) ? grid_data.dones : [];
+
+                // Use grid-provided coordinates only when they can be aligned with sequence metadata.
+                // Some prediction files contain dense grid-like "original_coordinates" without episode
+                // sequencing, which should not replace trajectory coordinates for rendering.
+                const gridProjectionMatchesSequence =
+                    gridProjection.length > 0 &&
+                    (
+                        gridEpisodeIndices.length === gridProjection.length ||
+                        gridDones.length === gridProjection.length ||
+                        forwardProjection.length === gridProjection.length
+                    );
+                const effectiveProjection = gridProjectionMatchesSequence ? gridProjection : forwardProjection;
+
+                if (gridProjection.length > 0 && !gridProjectionMatchesSequence) {
+                    console.warn(
+                        "Ignoring grid original_coordinates for trajectory rendering because sequence metadata does not align.",
+                        {
+                            gridProjectionLength: gridProjection.length,
+                            gridEpisodeIndicesLength: gridEpisodeIndices.length,
+                            gridDonesLength: gridDones.length,
+                            forwardProjectionLength: forwardProjection.length,
+                        }
+                    );
+                }
+
                 const effectiveEpisodeIndices =
                     gridEpisodeIndices.length === effectiveProjection.length
                         ? gridEpisodeIndices
                         : forwardEpisodeIndices.length === effectiveProjection.length
                             ? forwardEpisodeIndices
-                            : gridEpisodeIndices.length === forwardProjection.length
-                                ? gridEpisodeIndices
-                                : forwardEpisodeIndices;
+                                : gridEpisodeIndices.length === forwardProjection.length
+                                    ? gridEpisodeIndices
+                                    : forwardEpisodeIndices;
 
-                const forwardDones = Array.isArray(data?.dones) ? data.dones : [];
-                const gridDones = Array.isArray(grid_data?.dones) ? grid_data.dones : [];
                 const effectiveDones =
                     gridDones.length === effectiveProjection.length
                         ? gridDones
@@ -675,6 +698,39 @@ const StateSequenceProjection = (props: any) => {
                 const limitedActions = applyKeepMask(actionList);
                 const limitedPredictedRewards = applyKeepMask(rewardList);
                 const limitedPredictedUncertainties = applyKeepMask(uncertaintyList);
+
+                const computeExtent = (points: number[][], axis: 0 | 1): [number, number] | null => {
+                    if (!Array.isArray(points) || points.length === 0) return null;
+                    const values = points
+                        .map((point) => Number(point?.[axis]))
+                        .filter((value) => Number.isFinite(value));
+                    if (values.length === 0) return null;
+                    return [Math.min(...values), Math.max(...values)];
+                };
+
+                const sourceXExtent = computeExtent(forwardProjection as number[][], 0);
+                const sourceYExtent = computeExtent(forwardProjection as number[][], 1);
+                const targetXExtent = computeExtent(projectionPoints, 0);
+                const targetYExtent = computeExtent(projectionPoints, 1);
+
+                if (sourceXExtent && sourceYExtent && targetXExtent && targetYExtent) {
+                    const sourceXRange = sourceXExtent[1] - sourceXExtent[0];
+                    const sourceYRange = sourceYExtent[1] - sourceYExtent[0];
+                    const targetXRange = targetXExtent[1] - targetXExtent[0];
+                    const targetYRange = targetYExtent[1] - targetYExtent[0];
+
+                    const safeSourceXRange = Math.abs(sourceXRange) < 1e-9 ? 1 : sourceXRange;
+                    const safeSourceYRange = Math.abs(sourceYRange) < 1e-9 ? 1 : sourceYRange;
+
+                    const sx = targetXRange / safeSourceXRange;
+                    const sy = targetYRange / safeSourceYRange;
+                    const tx = targetXExtent[0] - sx * sourceXExtent[0];
+                    const ty = targetYExtent[0] - sy * sourceYExtent[0];
+
+                    userTrajectoryCoordinateTransformRef.current = { sx, sy, tx, ty };
+                } else {
+                    userTrajectoryCoordinateTransformRef.current = null;
+                }
 
                 if (gridProjection.length === 0 && effectiveProjection.length > 0) {
                     console.warn(
@@ -930,6 +986,7 @@ const StateSequenceProjection = (props: any) => {
             setSelectedCluster,
             maxUncertaintySegments,
             userGeneratedTrajectories: activeLearningState.userGeneratedTrajectories || [],
+            userTrajectoryCoordinateTransform: userTrajectoryCoordinateTransformRef.current,
             gridPredictionImage: activeLearningState.grid_prediction_image || null,
             currentPhase: activeLearningState.currentPhase,
         });

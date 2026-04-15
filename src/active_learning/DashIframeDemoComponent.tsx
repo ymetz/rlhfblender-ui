@@ -21,8 +21,8 @@ type DashSample = {
   timestamp: number;
 };
 
-const DEFAULT_PLAYER_URL = (import.meta.env.VITE_DASH_PLAYER_URL as string | undefined) ?? 'http://localhost:5173';
-const DEFAULT_PLAYER_ORIGIN = (import.meta.env.VITE_DASH_PLAYER_ORIGIN as string | undefined) ?? 'http://localhost:5173';
+const DEFAULT_PLAYER_URL = (import.meta.env.VITE_DASH_PLAYER_URL as string | undefined) ?? 'http://localhost:4173';
+const DEFAULT_PLAYER_ORIGIN = (import.meta.env.VITE_DASH_PLAYER_ORIGIN as string | undefined) ?? 'http://localhost:4173';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));

@@ -10,6 +10,8 @@ import { computeTrajectoryColors, getFallbackColor } from './trajectoryColors';
 import { buildGridAxesFromBounds } from './projectionGrid';
 import { interpolateBrightCividis } from './vsupColors';
 
+let lastTrajectoryDebugSignature = '';
+
 
 export interface DrawStateSpaceArgs {
     data?: number[][];
@@ -48,6 +50,7 @@ export interface DrawStateSpaceArgs {
     setSelectedCluster: Dispatch<SetStateAction<SelectedCluster | null>>;
     maxUncertaintySegments: number;
     userGeneratedTrajectories: UserDemoTrajectory[];
+    userTrajectoryCoordinateTransform?: { sx: number; sy: number; tx: number; ty: number } | null;
     gridPredictionImage: string | null;
     currentPhase: number;
 }
@@ -105,6 +108,7 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         setSelectedCluster,
         maxUncertaintySegments,
         userGeneratedTrajectories,
+        userTrajectoryCoordinateTransform = null,
         gridPredictionImage,
         currentPhase = 0,
     } = args;
@@ -128,9 +132,24 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
     }
 
     let processedData = data.map((k, i) => [...k, episodeIndices[i] || 0]);
-    const userTrajectories = (userGeneratedTrajectories || []).filter(
-        (trajectory) => trajectory.phase === currentPhase
-    );
+    const userTrajectories = (userGeneratedTrajectories || [])
+        .filter((trajectory) => trajectory.phase === currentPhase)
+        .map((trajectory) => {
+            if (!userTrajectoryCoordinateTransform || !Array.isArray(trajectory.projection) || trajectory.projection.length === 0) {
+                return trajectory;
+            }
+
+            const { sx, sy, tx, ty } = userTrajectoryCoordinateTransform;
+            const transformedProjection = trajectory.projection.map((point: number[]) => [
+                sx * Number(point[0]) + tx,
+                sy * Number(point[1]) + ty,
+            ]);
+
+            return {
+                ...trajectory,
+                projection: transformedProjection,
+            };
+        });
 
     // Create quad tree for fast point lookup
     const quadTree = d3.quadtree(
@@ -1074,6 +1093,58 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
             pathPoints.pop();
         }
     });
+
+    const normalTrajectoryEntry = Array.from(episodeToPaths.entries()).find(([, points]) => points.length >= 2);
+    const userTrajectoryEntry = userTrajectories.find(
+        (trajectory) => Array.isArray(trajectory.projection) && trajectory.projection.length >= 2
+    );
+    if (normalTrajectoryEntry && userTrajectoryEntry) {
+        const [, normalPoints] = normalTrajectoryEntry;
+        const userPoints = userTrajectoryEntry.projection || [];
+        const sampleCount = 3;
+        const normalRawSample = normalPoints.slice(0, sampleCount).map((point: number[]) => [Number(point[0]), Number(point[1])]);
+        const userRawSample = userPoints.slice(0, sampleCount).map((point: number[]) => [Number(point[0]), Number(point[1])]);
+        const toScaled = (point: number[]) => [xScale(point[0]), yScale(point[1])];
+        const toZoomed = (point: number[]) => {
+            const scaled = toScaled(point);
+            return [finalTransform.applyX(scaled[0]), finalTransform.applyY(scaled[1])];
+        };
+
+        const payload = {
+            phase: currentPhase,
+            xDomain,
+            yDomain,
+            zoom: { x: finalTransform.x, y: finalTransform.y, k: finalTransform.k },
+            userTrajectoryCoordinateTransform,
+            normal: {
+                episode: normalTrajectoryEntry[0],
+                raw: normalRawSample,
+                scaled: normalRawSample.map(toScaled),
+                zoomed: normalRawSample.map(toZoomed),
+            },
+            user: {
+                id: userTrajectoryEntry.id,
+                raw: userRawSample,
+                scaled: userRawSample.map(toScaled),
+                zoomed: userRawSample.map(toZoomed),
+            },
+        };
+
+        const signature = JSON.stringify({
+            phase: payload.phase,
+            normal: payload.normal.raw[0],
+            user: payload.user.raw[0],
+            zoom: payload.zoom,
+            transform: payload.userTrajectoryCoordinateTransform,
+        });
+        if (signature !== lastTrajectoryDebugSignature) {
+            lastTrajectoryDebugSignature = signature;
+            console.log('[ProjectionDebug] normal vs user trajectory samples', payload);
+        }
+        if (typeof window !== 'undefined') {
+            (window as any).__trajectoryProjectionDebug = payload;
+        }
+    }
 
     // Compute similarity-based colors for all trajectories outside the canvas context
     const computedTrajectoryColors = computeTrajectoryColors(episodeToPaths);
