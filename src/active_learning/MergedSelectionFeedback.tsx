@@ -228,6 +228,7 @@ const MergedSelectionFeedback = () => {
         } as any;
       }
       if (item.type === 'cluster') return { type: 'cluster', label: (item as any).label, data: item.data } as any;
+      if (item.type === 'coordinate_cluster') return { type: 'coordinate_cluster', label: (item as any).label, data: item.data } as any;
       if (item.type === 'coordinate') return { type: 'coordinate', data: [item.data] } as any;
       return { type: 'state', data: [item.data] } as any;
     }
@@ -666,6 +667,10 @@ const MergedSelectionFeedback = () => {
         const stepIndices = episodeStepPairs.map((pair) => pair.stepWithinEpisode);
         fetchClusterFrames(stepIndices, episodeData);
       }
+    } else if (selectionData.type === 'coordinate_cluster') {
+      const frames = ((selectionData as any).data?.renderFrames || []) as string[];
+      setSelectionInstance(prev => prev + 1);
+      setClusterFrameImages(frames);
     } else { setClusterFrameImages([]); }
   }, [selectionData, allEpisodes, fetchClusterFrames, (activeLearningState as any).episodeIndices]);
 
@@ -697,6 +702,8 @@ const MergedSelectionFeedback = () => {
         return { target_id: `cluster_${data}`, reference: null, origin: 'online', timestamp: Date.now() };
       case 'coordinate':
         return { target_id: `coordinate_${data.x}_${data.y}`, reference: null, origin: 'online', timestamp: Date.now() };
+      case 'coordinate_cluster':
+        return { target_id: `coordinate_cluster_${data?.clusterId ?? Date.now()}`, reference: data, origin: 'online', timestamp: Date.now() };
       case 'user_demo': {
         const trajectoryId = data?.trajectory?.id ?? data?.trajectoryId ?? Date.now();
         const target: any = {
@@ -754,6 +761,11 @@ const MergedSelectionFeedback = () => {
         const label = selectionData.label ?? 'Cluster';
         const size = selectionData.data?.length ?? 0;
         return { cluster_id: label, description: `${label} (${size} states)` };
+      }
+      case 'coordinate_cluster': {
+        const label = selectionData.label ?? 'Lasso Region';
+        const size = (selectionData as any).data?.coordinates?.length ?? 0;
+        return { cluster_id: label, description: `${label} (${size} sampled coordinates)` };
       }
       case 'coordinate': {
         const coord = selectionData.data?.[0];
@@ -901,6 +913,14 @@ const MergedSelectionFeedback = () => {
           if (!Number.isNaN(x) && !Number.isNaN(y)) {
             coordKeys.push(`${x.toFixed(3)},${y.toFixed(3)}`);
           }
+        } else if (item.type === 'coordinate_cluster' && item.data?.coordinates) {
+          for (const coord of item.data.coordinates as any[]) {
+            const x = Number(coord?.[0] ?? coord?.x);
+            const y = Number(coord?.[1] ?? coord?.y);
+            if (!Number.isNaN(x) && !Number.isNaN(y)) {
+              coordKeys.push(`${x.toFixed(3)},${y.toFixed(3)}`);
+            }
+          }
         }
       }
 
@@ -986,6 +1006,34 @@ const MergedSelectionFeedback = () => {
 
   const handleClusterRate = () => {
     const clusterLabel = (selectionData as any).label;
+    if (selectionData.type === 'coordinate_cluster') {
+      const clusterData = (selectionData as any).data || {};
+      const coordinates: number[][] = clusterData.coordinates || [];
+      if (!coordinates.length) return;
+      const targets = coordinates.map((coord: number[], index: number) => ({
+        target_id: `coordinate_${Number(coord[0]).toFixed(4)}_${Number(coord[1]).toFixed(4)}_${index}`,
+        reference: {
+          coordinate: coord,
+          polygon: clusterData.polygon,
+          artifact_file: clusterData.artifactFile,
+          cluster_id: clusterData.clusterId,
+        },
+        origin: 'online',
+        timestamp: Date.now(),
+      }));
+      const fb: Feedback = {
+        feedback_type: FeedbackType.ClusterRating,
+        targets,
+        granularity: 'coordinate_cluster',
+        timestamp: Date.now(),
+        session_id: appState.sessionId,
+        score: value,
+        cluster_label: clusterLabel,
+      } as any;
+      submitFeedback(fb);
+      return;
+    }
+
     const clusterIndices: number[] = (selectionData as any).data || [];
     if (!clusterIndices.length) return;
 
@@ -1470,6 +1518,8 @@ const MergedSelectionFeedback = () => {
         return 'Select the Best Episode';
       case 'cluster':
         return 'Rate this Cluster of States';
+      case 'coordinate_cluster':
+        return 'Rate Sampled Region';
       case 'coordinate':
         return 'Demo from New Coordinate';
       case 'user_demo':
@@ -1876,6 +1926,67 @@ const MergedSelectionFeedback = () => {
               <Typography variant="caption" display="block" sx={{ mt: 1, textAlign: 'center' }}>
                 Rating applies to all {clusterIndices.length} states in the cluster
               </Typography>
+            </Box>
+          </Box>
+        );
+      }
+
+      case 'coordinate_cluster': {
+        const clusterLabel = (selectionData as any).label || 'Lasso Region';
+        const coordinates: number[][] = (selectionData as any).data?.coordinates || [];
+        const maxStatesToShow = 12;
+        const limitedCoordinates = coordinates.slice(0, maxStatesToShow);
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+            <Typography variant="h6" gutterBottom>
+              {clusterLabel} Selected ({coordinates.length} sampled states)
+            </Typography>
+            <Box
+              sx={{
+                mb: 2,
+                display: 'grid',
+                gridTemplateColumns: {
+                  xs: 'repeat(2, minmax(0, 1fr))',
+                  sm: 'repeat(3, minmax(0, 1fr))',
+                  md: 'repeat(3, minmax(0, 1fr))',
+                },
+                gap: 1,
+              }}
+            >
+              {limitedCoordinates.map((_, index: number) => (
+                <Box
+                  key={`coordinate-cluster-${selectionInstance}-${index}`}
+                  sx={{
+                    aspectRatio: '1 / 1',
+                    overflow: 'hidden',
+                    bgcolor: 'background.paper',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {clusterFrameImages[index] ? (
+                    <img
+                      src={clusterFrameImages[index]}
+                      alt={`Sampled state ${index + 1}`}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    />
+                  ) : (
+                    <ImageIcon sx={{ fontSize: 30, color: 'text.secondary' }} />
+                  )}
+                </Box>
+              ))}
+            </Box>
+            <Box sx={{ ...sectionCardSx, mt: 2 }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1, maxWidth: 560, mx: 'auto', width: '100%' }}>
+                  <ThumbDown sx={{ cursor: 'pointer' }} onClick={() => setValue((v) => Math.max(0, v - 1))} />
+                  <Slider value={value} min={0} max={10} step={1} marks valueLabelDisplay="auto" onChange={(_, v) => setValue(v as number)} sx={evalSliderSx as any} />
+                  <ThumbUp sx={{ cursor: 'pointer' }} onClick={() => setValue((v) => Math.min(10, v + 1))} />
+                  <Typography sx={{ minWidth: 36, textAlign: 'center' }}>{value}/10</Typography>
+                </Stack>
+                <Button variant="contained" onClick={handleClusterRate}>Submit Region Rating</Button>
+              </Stack>
             </Box>
           </Box>
         );

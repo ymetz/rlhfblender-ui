@@ -5,11 +5,13 @@ import * as d3 from 'd3';
 import * as vsup from 'vsup';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { interpolateBrightCividis } from '../utils/vsupColors';
+import { ProjectionBackgroundMode } from '../types/stateSequenceProjectionTypes';
 
 interface ColorLegendProps {
     minMax: [number, number] | null;
     width: number;
     title: string;
+    mode: ProjectionBackgroundMode;
 }
 
 const LegendContainer = styled(Box)(({ theme }) => ({
@@ -32,13 +34,13 @@ export const GlyphLegend = styled(LegendContainer)(({ theme }) => ({
     width: '180px',
 }));
 
-export const ColorLegend: React.FC<ColorLegendProps> = ({ minMax, width, title }) => {
+export const ColorLegend: React.FC<ColorLegendProps> = ({ minMax, width, title, mode }) => {
     const legendRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
-        if (!legendRef.current || !minMax) return;
+        if (!legendRef.current) return;
 
-        d3.select(legendRef.current).select('*').remove();
+        d3.select(legendRef.current).selectAll('*').remove();
 
         const margin = { top: 0, right: 0, bottom: 0, left: 0 };
         const height = 190 - margin.top - margin.bottom;
@@ -50,35 +52,100 @@ export const ColorLegend: React.FC<ColorLegendProps> = ({ minMax, width, title }
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
 
-        const quantization = vsup.quantization().branching(2).layers(4).valueDomain([minMax[0], minMax[1]]).uncertaintyDomain([1.0, 0.01]);
-        const scale = vsup.scale().quantize(quantization).range(interpolateBrightCividis);
+        if (mode === 'reward_model' && minMax) {
+            const quantization = vsup.quantization().branching(2).layers(4).valueDomain([minMax[0], minMax[1]]).uncertaintyDomain([1.0, 0.01]);
+            const scale = vsup.scale().quantize(quantization).range(interpolateBrightCividis);
 
-        const arcLegend = vsup.legend.arcmapLegend()
-            .size(160)
-            .scale(scale)
-            .x(10)
-            .y(25)
-            .format('.2f');
+            const arcLegend = vsup.legend.arcmapLegend()
+                .size(160)
+                .scale(scale)
+                .x(10)
+                .y(25)
+                .format('.2f');
 
-        svg.call(arcLegend as any);
+            svg.call(arcLegend as any);
 
-        svg.selectAll('.arc-label text')
-            .style('font-size', '9px');
+            svg.selectAll('.arc-label text')
+                .style('font-size', '9px');
 
-        const arcLabels = svg.selectAll<SVGGElement, unknown>('.arc-label');
-        const totalLabels = arcLabels.size();
+            const arcLabels = svg.selectAll<SVGGElement, unknown>('.arc-label');
+            const totalLabels = arcLabels.size();
 
-        if (totalLabels > 4) {
-            const keepEveryNth = Math.ceil(totalLabels / 4);
+            if (totalLabels > 4) {
+                const keepEveryNth = Math.ceil(totalLabels / 4);
 
-            arcLabels.each(function (_d, i) {
-                if (i % keepEveryNth !== 1 && i !== totalLabels - 2) {
-                    d3.select(this).select('text').style('display', 'none');
-                    d3.select(this).select('line').style('display', 'none');
-                }
-            });
+                arcLabels.each(function (_d, i) {
+                    if (i % keepEveryNth !== 1 && i !== totalLabels - 2) {
+                        d3.select(this).select('text').style('display', 'none');
+                        d3.select(this).select('line').style('display', 'none');
+                    }
+                });
+            }
+
+            return;
         }
-    }, [minMax, width, title]);
+
+        const legendWidth = Math.max(26, Math.min(36, width * 0.12));
+        const legendHeight = 120;
+        const x = 16;
+        const y = 14;
+        const defs = svg.append('defs');
+        const gradientId = `projection-legend-${mode}`;
+        const gradient = defs
+            .append('linearGradient')
+            .attr('id', gradientId)
+            .attr('x1', '0%')
+            .attr('y1', '100%')
+            .attr('x2', '0%')
+            .attr('y2', '0%');
+
+        const stops =
+            mode === 'policy'
+                ? [
+                    { offset: '0%', color: '#E3F2FD' },
+                    { offset: '45%', color: '#64B5F6' },
+                    { offset: '100%', color: '#0D47A1' },
+                ]
+                : [
+                    { offset: '0%', color: '#D84315' },
+                    { offset: '50%', color: '#FDD835' },
+                    { offset: '100%', color: '#00796B' },
+                ];
+
+        stops.forEach((stop) => {
+            gradient.append('stop').attr('offset', stop.offset).attr('stop-color', stop.color);
+        });
+
+        svg.append('rect')
+            .attr('x', x)
+            .attr('y', y)
+            .attr('width', legendWidth)
+            .attr('height', legendHeight)
+            .attr('fill', `url(#${gradientId})`)
+            .attr('stroke', 'rgba(33, 33, 33, 0.18)')
+            .attr('stroke-width', 1);
+
+        const labels =
+            mode === 'policy'
+                ? [
+                    { text: 'High visitation', y: y + 8, anchor: 'hanging' as const },
+                    { text: 'Sparse', y: y + legendHeight, anchor: 'auto' as const },
+                ]
+                : [
+                    { text: 'Stable / trusted', y: y + 8, anchor: 'hanging' as const },
+                    { text: 'Unstable', y: y + legendHeight, anchor: 'auto' as const },
+                ];
+
+        labels.forEach((label) => {
+            svg.append('text')
+                .attr('x', x + legendWidth + 10)
+                .attr('y', label.y)
+                .attr('dominant-baseline', label.anchor)
+                .attr('font-size', '11px')
+                .attr('fill', '#37474F')
+                .text(label.text);
+        });
+    }, [minMax, width, title, mode]);
 
     return (
         <Box>
@@ -100,11 +167,10 @@ export const Legend: React.FC = () => {
             return;
         }
 
-        const legendItems: Array<{ label: string; type: 'start' | 'end' | 'episode' | 'cluster' | 'selected' }> = [
+        const legendItems: Array<{ label: string; type: 'start' | 'end' | 'episode' | 'selected' }> = [
             { label: 'Start states', type: 'start' },
             { label: 'End states', type: 'end' },
             { label: 'Episode', type: 'episode' },
-            { label: 'Cluster', type: 'cluster' },
             { label: 'Selected Episode', type: 'selected' },
         ];
 
@@ -150,14 +216,6 @@ export const Legend: React.FC = () => {
                         .attr('stroke', '#4C78A8')
                         .attr('stroke-width', 3)
                         .attr('stroke-linecap', 'round');
-                    break;
-                case 'cluster':
-                    group.append('polygon')
-                        .attr('points', '-12,-8 2,-12 14,-4 8,10 -10,6')
-                        .attr('fill', 'rgba(51, 51, 51, 0.12)')
-                        .attr('stroke', '#333333')
-                        .attr('stroke-width', 2)
-                        .attr('stroke-dasharray', '6,4');
                     break;
                 case 'selected':
                     group.append('line')

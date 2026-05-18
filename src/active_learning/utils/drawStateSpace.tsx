@@ -4,7 +4,14 @@ import * as vsup from 'vsup';
 
 import { UserDemoTrajectory } from '../../ActiveLearningContext';
 import { Color2D } from '../projection_utils/2dcolormaps';
-import { SelectedCluster, SelectedCoordinate, SelectedState, SelectionItem } from '../types/stateSequenceProjectionTypes';
+import {
+    ProjectionBackgroundMode,
+    ProjectionRegionAnnotation,
+    SelectedCluster,
+    SelectedCoordinate,
+    SelectedState,
+    SelectionItem,
+} from '../types/stateSequenceProjectionTypes';
 import { canvasImageCache } from './canvasCache';
 import { computeTrajectoryColors, getFallbackColor } from './trajectoryColors';
 import { buildGridAxesFromBounds } from './projectionGrid';
@@ -53,7 +60,27 @@ export interface DrawStateSpaceArgs {
     userTrajectoryCoordinateTransform?: { sx: number; sy: number; tx: number; ty: number } | null;
     gridPredictionImage: string | null;
     currentPhase: number;
+    latentPaintMode?: boolean;
+    projectionLassoMode?: boolean;
+    projectionBackgroundMode?: ProjectionBackgroundMode;
+    projectionRegionAnnotations?: ProjectionRegionAnnotation[];
+    onLatentTrajectoryPainted?: (coordinates: number[][]) => void;
+    onProjectionRegionLassoed?: (polygon: number[][]) => void;
+    onProjectionRegionAnnotationClicked?: (annotationId: string) => void;
 }
+
+const annotationPalette: Record<
+    ProjectionRegionAnnotation['intent'],
+    { fill: string; stroke: string; label: string }
+> = {
+    explore: { fill: 'rgba(46, 125, 50, 0.20)', stroke: '#2E7D32', label: 'Explore' },
+    avoid: { fill: 'rgba(198, 40, 40, 0.18)', stroke: '#C62828', label: 'Avoid' },
+    neutral: { fill: 'rgba(120, 144, 156, 0.16)', stroke: '#78909C', label: 'Neutral' },
+    high_reward: { fill: 'rgba(255, 179, 0, 0.22)', stroke: '#FFB300', label: 'Higher Reward' },
+    low_reward: { fill: 'rgba(94, 53, 177, 0.18)', stroke: '#5E35B1', label: 'Lower Reward' },
+    trust: { fill: 'rgba(0, 121, 107, 0.20)', stroke: '#00796B', label: 'Trust' },
+    distrust: { fill: 'rgba(239, 108, 0, 0.18)', stroke: '#EF6C00', label: 'Distrust' },
+};
 
 
 const drawTrajectory = (
@@ -111,6 +138,13 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         userTrajectoryCoordinateTransform = null,
         gridPredictionImage,
         currentPhase = 0,
+        latentPaintMode = false,
+        projectionLassoMode = false,
+        projectionBackgroundMode = 'policy',
+        projectionRegionAnnotations = [],
+        onLatentTrajectoryPainted,
+        onProjectionRegionLassoed,
+        onProjectionRegionAnnotationClicked,
     } = args;
 
 
@@ -460,6 +494,218 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         ctx.restore();
     }
 
+    function drawPolicyOccupancyBackground(ctx: CanvasRenderingContext2D) {
+        const binsX = 30;
+        const binsY = 30;
+        const binCounts = Array.from({ length: binsX * binsY }, () => 0);
+        const xSpan = Math.max(xDomain[1] - xDomain[0], 1e-6);
+        const ySpan = Math.max(yDomain[1] - yDomain[0], 1e-6);
+
+        processedData.forEach((point) => {
+            const xi = Math.max(0, Math.min(binsX - 1, Math.floor(((point[0] - xDomain[0]) / xSpan) * binsX)));
+            const yi = Math.max(0, Math.min(binsY - 1, Math.floor(((point[1] - yDomain[0]) / ySpan) * binsY)));
+            binCounts[yi * binsX + xi] += 1;
+        });
+
+        const maxCount = Math.max(...binCounts, 0);
+        if (maxCount <= 0) return;
+
+        const smoothedCounts = Array.from({ length: binsX * binsY }, () => 0);
+        const kernel = [
+            [1, 2, 1],
+            [2, 4, 2],
+            [1, 2, 1],
+        ];
+        const kernelWeight = 16;
+
+        for (let yi = 0; yi < binsY; yi++) {
+            for (let xi = 0; xi < binsX; xi++) {
+                let weightedSum = 0;
+                for (let ky = -1; ky <= 1; ky++) {
+                    for (let kx = -1; kx <= 1; kx++) {
+                        const nx = xi + kx;
+                        const ny = yi + ky;
+                        if (nx < 0 || nx >= binsX || ny < 0 || ny >= binsY) continue;
+                        weightedSum += binCounts[ny * binsX + nx] * kernel[ky + 1][kx + 1];
+                    }
+                }
+                smoothedCounts[yi * binsX + xi] = weightedSum / kernelWeight;
+            }
+        }
+
+        const maxSmoothedCount = Math.max(...smoothedCounts, 0);
+        if (maxSmoothedCount <= 0) return;
+
+        for (let yi = 0; yi < binsY; yi++) {
+            for (let xi = 0; xi < binsX; xi++) {
+                const count = smoothedCounts[yi * binsX + xi];
+                if (count <= 0) continue;
+
+                const intensity = Math.pow(count / maxSmoothedCount, 0.78);
+                const x0 = xDomain[0] + (xi / binsX) * xSpan;
+                const x1 = xDomain[0] + ((xi + 1) / binsX) * xSpan;
+                const y0 = yDomain[0] + (yi / binsY) * ySpan;
+                const y1 = yDomain[0] + ((yi + 1) / binsY) * ySpan;
+                const rectX = xScale(x0);
+                const rectY = yScale(y1);
+                const rectW = xScale(x1) - xScale(x0);
+                const rectH = yScale(y0) - yScale(y1);
+
+                ctx.fillStyle = `rgba(25, 118, 210, ${0.05 + intensity * 0.30})`;
+                ctx.fillRect(rectX, rectY, rectW, rectH);
+            }
+        }
+    }
+
+    function drawRewardModelFallback(ctx: CanvasRenderingContext2D) {
+        const cellSize = Math.max(10, Math.floor(processedData.length / 180));
+        for (let i = 0; i < processedData.length; i += cellSize) {
+            const point = processedData[i];
+            const cellWidth = Math.max(12, svgWidth * 0.02);
+            const cellHeight = Math.max(12, svgHeight * 0.02);
+            ctx.fillStyle = point_colors[i] || 'rgba(144, 164, 174, 0.3)';
+            ctx.globalAlpha = 0.16;
+            ctx.fillRect(xScale(point[0]) - cellWidth / 2, yScale(point[1]) - cellHeight / 2, cellWidth, cellHeight);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function drawWorldModelBackground(ctx: CanvasRenderingContext2D) {
+        const binsX = 20;
+        const binsY = 20;
+        const xSpan = Math.max(xDomain[1] - xDomain[0], 1e-6);
+        const ySpan = Math.max(yDomain[1] - yDomain[0], 1e-6);
+        const rewardRange = d3.extent(predicted_rewards) as [number | undefined, number | undefined];
+        const uncertaintyRange = d3.extent(predicted_uncertainties) as [number | undefined, number | undefined];
+        const rewardMin = rewardRange[0] ?? 0;
+        const rewardMax = rewardRange[1] ?? 1;
+        const uncertaintyMin = uncertaintyRange[0] ?? 0;
+        const uncertaintyMax = uncertaintyRange[1] ?? 1;
+
+        for (let yi = 0; yi < binsY; yi++) {
+            for (let xi = 0; xi < binsX; xi++) {
+                const nx = xi / Math.max(binsX - 1, 1);
+                const ny = yi / Math.max(binsY - 1, 1);
+                const x0 = xDomain[0] + (xi / binsX) * xSpan;
+                const x1 = xDomain[0] + ((xi + 1) / binsX) * xSpan;
+                const y0 = yDomain[0] + (yi / binsY) * ySpan;
+                const y1 = yDomain[0] + ((yi + 1) / binsY) * ySpan;
+                const centerX = (x0 + x1) / 2;
+                const centerY = (y0 + y1) / 2;
+                const nearest = quadTree.find(centerX, centerY);
+                const reward = nearest ? predicted_rewards[nearest[2]] ?? 0 : 0;
+                const uncertainty = nearest ? predicted_uncertainties[nearest[2]] ?? 0 : 0;
+                const rewardNorm = (reward - rewardMin) / Math.max(rewardMax - rewardMin, 1e-6);
+                const uncertaintyNorm = (uncertainty - uncertaintyMin) / Math.max(uncertaintyMax - uncertaintyMin, 1e-6);
+                const neighborhoodShift = Math.abs(Math.sin(nx * Math.PI * 3.2) * Math.cos(ny * Math.PI * 2.5));
+                const stability = Math.max(0, Math.min(1, 0.78 - neighborhoodShift * 0.42 + rewardNorm * 0.14 - uncertaintyNorm * 0.34));
+                const rectX = xScale(x0);
+                const rectY = yScale(y1);
+                const rectW = xScale(x1) - xScale(x0);
+                const rectH = yScale(y0) - yScale(y1);
+                const hue = 28 + stability * 138;
+                const alphaValue = 0.12 + stability * 0.28;
+                ctx.fillStyle = `hsla(${hue}, 70%, ${45 + stability * 18}%, ${alphaValue})`;
+                ctx.fillRect(rectX, rectY, rectW, rectH);
+            }
+        }
+    }
+
+    function drawProjectionRegionBlobs(ctx: CanvasRenderingContext2D) {
+        projectionRegionAnnotations
+            .filter((annotation) => annotation.mode === projectionBackgroundMode && annotation.polygon.length >= 3)
+            .forEach((annotation) => {
+                const palette = annotationPalette[annotation.intent];
+                ctx.beginPath();
+                annotation.polygon.forEach((point, index) => {
+                    const px = xScale(point[0]);
+                    const py = yScale(point[1]);
+                    if (index === 0) {
+                        ctx.moveTo(px, py);
+                    } else {
+                        ctx.lineTo(px, py);
+                    }
+                });
+                ctx.closePath();
+                ctx.fillStyle = palette.fill;
+                ctx.strokeStyle = palette.stroke;
+                ctx.lineWidth = 2.4 / Math.max(currentTransformRef.current?.k ?? 1, 0.2);
+                ctx.fill();
+                ctx.stroke();
+            });
+    }
+
+    function redrawProjectionRegionAnnotations() {
+        const lineGenerator = d3
+            .line<number[]>()
+            .x((d) => xScale(d[0]))
+            .y((d) => yScale(d[1]))
+            .curve(d3.curveLinearClosed);
+
+        const visibleAnnotations = projectionRegionAnnotations.filter(
+            (annotation) => annotation.mode === projectionBackgroundMode && annotation.polygon.length >= 3
+        );
+
+        const annotationGroups = projectionRegionLayer
+            .selectAll<SVGGElement, ProjectionRegionAnnotation>('g.projection-region-annotation')
+            .data(visibleAnnotations, (d: any) => d.id);
+
+        const annotationGroupsEnter = annotationGroups
+            .enter()
+            .append('g')
+            .attr('class', 'projection-region-annotation')
+            .attr('pointer-events', 'all')
+            .style('cursor', onProjectionRegionAnnotationClicked ? 'pointer' : 'default');
+
+        annotationGroupsEnter.append('path').attr('class', 'projection-region-fill');
+        annotationGroupsEnter.append('path').attr('class', 'projection-region-outline');
+        annotationGroupsEnter
+            .append('text')
+            .attr('class', 'projection-region-label')
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'middle')
+            .style('font-weight', 700)
+            .style('paint-order', 'stroke')
+            .style('stroke', 'rgba(255,255,255,0.92)')
+            .style('stroke-width', 3);
+
+        const mergedGroups = annotationGroupsEnter.merge(annotationGroups as any);
+
+        mergedGroups
+            .attr('pointer-events', 'all')
+            .style('cursor', onProjectionRegionAnnotationClicked ? 'pointer' : 'default')
+            .on('click', (event, d) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onProjectionRegionAnnotationClicked?.(d.id);
+            });
+
+        mergedGroups.select<SVGPathElement>('path.projection-region-fill')
+            .attr('d', (d) => lineGenerator(d.polygon) || '')
+            .attr('fill', (d) => annotationPalette[d.intent].fill)
+            .attr('opacity', 0.95)
+            .attr('pointer-events', 'fill');
+
+        mergedGroups.select<SVGPathElement>('path.projection-region-outline')
+            .attr('d', (d) => lineGenerator(d.polygon) || '')
+            .attr('fill', 'none')
+            .attr('stroke', (d) => annotationPalette[d.intent].stroke)
+            .attr('stroke-dasharray', '7,5')
+            .attr('stroke-width', Math.max(1.5, 2.8 / Math.max(currentTransformRef.current?.k ?? 1, 0.2)))
+            .attr('opacity', 0.95)
+            .attr('pointer-events', 'stroke');
+
+        mergedGroups.select<SVGTextElement>('text.projection-region-label')
+            .text((d) => annotationPalette[d.intent].label)
+            .attr('x', (d) => xScale(d3.polygonCentroid(d.polygon as [number, number][])[0]))
+            .attr('y', (d) => yScale(d3.polygonCentroid(d.polygon as [number, number][])[1]))
+            .style('font-size', `${Math.max(9, 12 / Math.max(currentTransformRef.current?.k ?? 1, 0.65))}px`)
+            .attr('fill', (d) => annotationPalette[d.intent].stroke)
+            .attr('pointer-events', 'all');
+
+        annotationGroups.exit().remove();
+    }
+
     let loggedFirstZoom = false;
 
     const zoom = d3
@@ -472,6 +718,8 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         .on('zoom', zoomed)
         // Filter function to distinguish between zoom and click
         .filter(function (event) {
+            if (latentPaintMode || projectionLassoMode) return false;
+
             // Allow wheel events (mousewheel zoom)
             if (event.type === 'wheel') return true;
 
@@ -520,6 +768,247 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
         .style('opacity', '0');
 
     const userTrajectoryLayer = view.append('g').attr('class', 'user-trajectory-layer');
+    const projectionRegionLayer = view.append('g').attr('class', 'projection-region-layer');
+    const latentPaintLayer = view.append('g').attr('class', 'latent-paint-layer');
+    const projectionLassoLayer = view.append('g').attr('class', 'projection-lasso-layer');
+    const modeCaptureRect = view
+        .append('rect')
+        .attr('class', 'projection-mode-capture')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('height', svgHeight)
+        .attr('width', svgWidth)
+        .style('opacity', '0')
+        .style('cursor', latentPaintMode || projectionLassoMode ? 'crosshair' : 'default')
+        .style('pointer-events', latentPaintMode || projectionLassoMode ? 'all' : 'none');
+    let isPaintingLatentTrajectory = false;
+    let paintedLatentCoordinates: number[][] = [];
+    let isDrawingProjectionLasso = false;
+    let projectionLassoCoordinates: number[][] = [];
+
+    view_rect.style('cursor', latentPaintMode || projectionLassoMode ? 'crosshair' : 'default');
+
+    const pointerToProjectionCoordinate = (event: any): [number, number] => {
+        const pointerTarget = (latentPaintMode || projectionLassoMode ? modeCaptureRect.node() : view_rect.node()) as any;
+        const mouse = d3.pointer(event, pointerTarget);
+        return [xScale.invert(mouse[0]), yScale.invert(mouse[1])];
+    };
+
+    const redrawPaintPreview = () => {
+        const lineGenerator = d3
+            .line<number[]>()
+            .x((d) => xScale(d[0]))
+            .y((d) => yScale(d[1]))
+            .curve(d3.curveCatmullRom.alpha(0.5));
+
+        const previewPath = latentPaintLayer
+            .selectAll<SVGPathElement, number[][]>('path.latent-paint-preview')
+            .data(paintedLatentCoordinates.length > 1 ? [paintedLatentCoordinates] : []);
+
+        previewPath
+            .enter()
+            .append('path')
+            .attr('class', 'latent-paint-preview')
+            .attr('fill', 'none')
+            .attr('stroke', '#9C27B0')
+            .attr('stroke-linecap', 'round')
+            .attr('stroke-linejoin', 'round')
+            .attr('pointer-events', 'none')
+            .merge(previewPath as any)
+            .attr('stroke-width', Math.max(2.5, 5 / Math.max(currentTransformRef.current?.k ?? 1, 0.2)))
+            .attr('opacity', 0.9)
+            .attr('d', (points) => lineGenerator(points) || '');
+
+        previewPath.exit().remove();
+
+        const previewPoints = latentPaintLayer
+            .selectAll<SVGCircleElement, number[]>('circle.latent-paint-point')
+            .data(paintedLatentCoordinates.filter((_, index) => index === 0 || index === paintedLatentCoordinates.length - 1));
+
+        previewPoints
+            .enter()
+            .append('circle')
+            .attr('class', 'latent-paint-point')
+            .attr('fill', '#9C27B0')
+            .attr('stroke', '#ffffff')
+            .attr('stroke-width', 1.4)
+            .attr('pointer-events', 'none')
+            .merge(previewPoints as any)
+            .attr('cx', (d) => xScale(d[0]))
+            .attr('cy', (d) => yScale(d[1]))
+            .attr('r', Math.max(3, 5 / Math.max(currentTransformRef.current?.k ?? 1, 0.2)));
+
+        previewPoints.exit().remove();
+    };
+
+    const appendPaintCoordinate = (event: any) => {
+        const coordinate = pointerToProjectionCoordinate(event);
+        const previous = paintedLatentCoordinates[paintedLatentCoordinates.length - 1];
+        if (previous) {
+            const dx = coordinate[0] - previous[0];
+            const dy = coordinate[1] - previous[1];
+            const minDistance = Math.max((xDomain[1] - xDomain[0]), (yDomain[1] - yDomain[0])) * 0.0025;
+            if (Math.sqrt(dx * dx + dy * dy) < minDistance) {
+                return;
+            }
+        }
+        paintedLatentCoordinates.push(coordinate);
+        redrawPaintPreview();
+    };
+
+    if (latentPaintMode) {
+        modeCaptureRect.raise();
+        modeCaptureRect
+            .on('pointerdown.latentPaint', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                try {
+                    (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+                } catch {}
+                isPaintingLatentTrajectory = true;
+                paintedLatentCoordinates = [];
+                latentPaintLayer.selectAll('*').remove();
+                appendPaintCoordinate(event);
+            })
+            .on('pointermove.latentPaint', function (event) {
+                if (!isPaintingLatentTrajectory) return;
+                event.preventDefault();
+                event.stopPropagation();
+                appendPaintCoordinate(event);
+            })
+            .on('pointerup.latentPaint pointerleave.latentPaint', function (event) {
+                if (!isPaintingLatentTrajectory) return;
+                event.preventDefault();
+                event.stopPropagation();
+                isPaintingLatentTrajectory = false;
+                try {
+                    (event.currentTarget as Element).releasePointerCapture?.(event.pointerId);
+                } catch {}
+
+                if (paintedLatentCoordinates.length >= 2 && onLatentTrajectoryPainted) {
+                    onLatentTrajectoryPainted(paintedLatentCoordinates.map((point) => [...point]));
+                }
+            });
+    } else {
+        modeCaptureRect.on('pointerdown.latentPaint pointermove.latentPaint pointerup.latentPaint pointerleave.latentPaint', null);
+    }
+
+    const redrawProjectionLassoPreview = () => {
+        const lineGenerator = d3
+            .line<number[]>()
+            .x((d) => xScale(d[0]))
+            .y((d) => yScale(d[1]))
+            .curve(d3.curveLinearClosed);
+
+        const preview = projectionLassoLayer
+            .selectAll<SVGPathElement, number[][]>('path.projection-lasso-preview')
+            .data(projectionLassoCoordinates.length > 2 ? [projectionLassoCoordinates] : []);
+
+        preview
+            .enter()
+            .append('path')
+            .attr('class', 'projection-lasso-preview')
+            .attr('fill', 'rgba(2,136,209,0.08)')
+            .attr('stroke', '#0288D1')
+            .attr('stroke-dasharray', '8,5')
+            .attr('pointer-events', 'none')
+            .merge(preview as any)
+            .attr('stroke-width', Math.max(1.5, 3 / Math.max(currentTransformRef.current?.k ?? 1, 0.2)))
+            .attr('d', (points) => lineGenerator(points) || '');
+
+        preview.exit().remove();
+    };
+
+    const appendLassoCoordinate = (event: any) => {
+        const coordinate = pointerToProjectionCoordinate(event);
+        const previous = projectionLassoCoordinates[projectionLassoCoordinates.length - 1];
+        if (previous) {
+            const dx = coordinate[0] - previous[0];
+            const dy = coordinate[1] - previous[1];
+            const minDistance = Math.max((xDomain[1] - xDomain[0]), (yDomain[1] - yDomain[0])) * 0.0025;
+            if (Math.sqrt(dx * dx + dy * dy) < minDistance) {
+                return;
+            }
+        }
+        projectionLassoCoordinates.push(coordinate);
+        redrawProjectionLassoPreview();
+    };
+
+    if (projectionLassoMode) {
+        modeCaptureRect.raise();
+        modeCaptureRect
+            .on('pointerdown.projectionLasso', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                try {
+                    (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+                } catch {}
+                isDrawingProjectionLasso = true;
+                projectionLassoCoordinates = [];
+                projectionLassoLayer.selectAll('*').remove();
+                appendLassoCoordinate(event);
+            })
+            .on('pointermove.projectionLasso', function (event) {
+                if (!isDrawingProjectionLasso) return;
+                event.preventDefault();
+                event.stopPropagation();
+                appendLassoCoordinate(event);
+            })
+            .on('pointerup.projectionLasso pointerleave.projectionLasso', function (event) {
+                if (!isDrawingProjectionLasso) return;
+                event.preventDefault();
+                event.stopPropagation();
+                isDrawingProjectionLasso = false;
+                try {
+                    (event.currentTarget as Element).releasePointerCapture?.(event.pointerId);
+                } catch {}
+
+                if (projectionLassoCoordinates.length < 3) {
+                    projectionLassoLayer.selectAll('*').remove();
+                    return;
+                }
+
+                if (onProjectionRegionLassoed) {
+                    onProjectionRegionLassoed(projectionLassoCoordinates.map((point) => [...point]));
+                    return;
+                }
+
+                const selectedIndices = processedData
+                    .map((point, index) => ({ point, index }))
+                    .filter(({ point }) => d3.polygonContains(projectionLassoCoordinates as [number, number][], [point[0], point[1]]))
+                    .map(({ index }) => index);
+
+                if (selectedIndices.length > 0) {
+                    const clusterInfo = {
+                        label: `Lasso Region (${selectedIndices.length})`,
+                        indices: selectedIndices,
+                    };
+                    setSelectedCluster(clusterInfo);
+                    selectedClusterRef.current = clusterInfo;
+                    setSelectedTrajectory(null);
+                    selectedTrajectoryRef.current = null;
+                    setSelectedState(null);
+                    selectedStateRef.current = null;
+                    setSelectedCoordinate({ x: null, y: null });
+                    selectedCoordinateRef.current = { x: null, y: null };
+                    activeLearningDispatch({
+                        type: 'SET_SELECTION',
+                        payload: [{ type: 'cluster', data: selectedIndices, label: 'Lasso Region' }],
+                    });
+
+                    const viewNode = view.node();
+                    if (viewNode) {
+                        const currentTransform = d3.zoomTransform(viewNode as Element);
+                        zoomed({ transform: currentTransform });
+                    }
+                }
+            });
+    } else {
+        modeCaptureRect.on(
+            'pointerdown.projectionLasso pointermove.projectionLasso pointerup.projectionLasso pointerleave.projectionLasso',
+            null
+        );
+    }
 
     // Add mouse events
     /*view_rect.on('mousemove', function (event) {
@@ -553,6 +1042,12 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
     });*/
 
     view_rect.on('click', function (event) {
+        if (latentPaintMode || projectionLassoMode) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+
         // Prevent default to avoid any interference
         event.preventDefault();
 
@@ -987,21 +1482,6 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     // Clear any existing coordinate marker
                     view.selectAll('.coordinate-marker').remove();
 
-                    // Reset all segment strokes
-                    segmentGroup.selectAll('.uncertainty-segment-hull')
-                        .attr('stroke', clusterHullStyles.defaultStroke)
-                        .attr('opacity', clusterHullStyles.defaultOpacity)
-                        .attr('stroke-width', clusterHullStyles.defaultWidth);
-
-                    // Highlight this segment's visible hull
-                    const parent = this.parentNode;
-                    if (parent) {
-                        d3.select(parent as unknown as Element)
-                            .select('.uncertainty-segment-hull')
-                            .attr('stroke-width', clusterHullStyles.selectedWidth)
-                            .attr('opacity', clusterHullStyles.selectedOpacity);
-                    }
-
                     // Get all indices belonging to this merged segment (precomputed)
                     const segmentIndices = topMergedSegments[index].globalIndices || [];
 
@@ -1030,30 +1510,6 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                         zoomed({ transform: currentTransform });
                     }
                 });
-
-            // Add visible dashed hull path on top
-            segmentElement
-                .append('path')
-                .attr('class', 'uncertainty-segment-hull')
-                .attr('d', 'M' + mappedHull.join('L') + 'Z')
-                .attr('fill', 'none')
-                .attr('stroke', (function () {
-                    const hl = feedbackHighlightsRef.current;
-                    const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
-                    return isHighlighted ? clusterHullStyles.feedbackStroke : clusterHullStyles.defaultStroke;
-                })())
-                .attr('stroke-width', (function () {
-                    const hl = feedbackHighlightsRef.current;
-                    const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
-                    return isHighlighted ? clusterHullStyles.feedbackWidth : clusterHullStyles.defaultWidth;
-                })())
-                .attr('stroke-dasharray', '10,5') // Dashed line
-                .attr('opacity', (function () {
-                    const hl = feedbackHighlightsRef.current;
-                    const isHighlighted = !!(hl && hl.clustersSignatures && hl.clustersSignatures.has(segmentSignature));
-                    return isHighlighted ? clusterHullStyles.feedbackOpacity : clusterHullStyles.defaultOpacity;
-                })())
-                .style('pointer-events', 'none'); // Don't interfere with clicking
 
             // Add merged segment label (H1, H2, etc. for "High uncertainty")
             const center = mergedSegment.centroid;
@@ -1208,15 +1664,17 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
 
         // First, draw the grid image to the canvas with proper transformation
         if (context) {
-            // Draw the appropriate image based on visualization mode
-            const imageKey = predictionCacheKey; // or uncertaintyCacheKey based on UI state
-            drawImageToCanvas(context, imageKey, transform, svgWidth, svgHeight);
+            const imageKey = projectionBackgroundMode === 'reward_model' ? predictionCacheKey : null;
+            context.clearRect(0, 0, svgWidth, svgHeight);
+            if (imageKey) {
+                drawImageToCanvas(context, imageKey, transform, svgWidth, svgHeight);
+            }
 
             // Draw additional items on top if needed
             if (isZoomEnd) {
                 const r = Math.round((3 / transform.k) * 100) / 100;
                 const width = Math.round((2.5 / transform.k) * 100) / 100;
-                const hasBackgroundMap = canvasImageCache.has(imageKey);
+                const hasBackgroundMap = imageKey ? canvasImageCache.has(imageKey) : false;
 
                 // Save current context
                 context.save();
@@ -1225,7 +1683,17 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                 context.translate(transform.x, transform.y);
                 context.scale(transform.k, transform.k);
 
-                if (hasBackgroundMap) {
+                if (projectionBackgroundMode === 'policy') {
+                    drawPolicyOccupancyBackground(context);
+                } else if (projectionBackgroundMode === 'reward_model' && !hasBackgroundMap) {
+                    drawRewardModelFallback(context);
+                } else if (projectionBackgroundMode === 'world_model') {
+                    drawWorldModelBackground(context);
+                }
+
+                drawProjectionRegionBlobs(context);
+
+                if (hasBackgroundMap || projectionBackgroundMode !== 'reward_model') {
                     drawProjectionCrossGrid(context, transform);
                 }
 
@@ -1267,6 +1735,12 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     context.restore();
 
                     userTrajectoryLayer.raise();
+                    projectionRegionLayer.raise();
+                    latentPaintLayer.raise();
+                    projectionLassoLayer.raise();
+                    if (latentPaintMode || projectionLassoMode) {
+                        modeCaptureRect.raise();
+                    }
 
                     const lineGenerator = d3
                         .line<number[]>()
@@ -1469,7 +1943,15 @@ export const drawStateSpaceVisualization = (args: DrawStateSpaceArgs) => {
                     userTrajectoryLayer.selectAll('.user-demo-point').remove();
                     userTrajectoryLayer.selectAll('.user-demo-start-glyph').remove();
                     userTrajectoryLayer.selectAll('.user-demo-end-glyph').remove();
+                    projectionRegionLayer.raise();
+                    latentPaintLayer.raise();
+                    projectionLassoLayer.raise();
+                    if (latentPaintMode || projectionLassoMode) {
+                        modeCaptureRect.raise();
+                    }
                 }
+
+                redrawProjectionRegionAnnotations();
 
                 // Batch draw points for better performance
                 //context.globalAlpha = 0.5;

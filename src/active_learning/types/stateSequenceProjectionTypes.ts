@@ -44,9 +44,28 @@ interface SelectedCluster {
 }
 
 interface SelectionItem {
-    type: "trajectory" | "cluster" | "coordinate" | "state" | "user_demo";
+    type: "trajectory" | "cluster" | "coordinate_cluster" | "coordinate" | "state" | "user_demo";
     data: any;
     label?: string;
+}
+
+type ProjectionBackgroundMode = "policy" | "reward_model" | "world_model";
+
+type ProjectionRegionIntent =
+    | "explore"
+    | "avoid"
+    | "neutral"
+    | "high_reward"
+    | "low_reward"
+    | "trust"
+    | "distrust";
+
+interface ProjectionRegionAnnotation {
+    id: string;
+    mode: ProjectionBackgroundMode;
+    intent: ProjectionRegionIntent;
+    polygon: number[][];
+    createdAt: number;
 }
 
 export type {
@@ -55,5 +74,8 @@ export type {
     SelectedState,
     SelectedCoordinate,
     SelectedCluster,
-    SelectionItem
+    SelectionItem,
+    ProjectionBackgroundMode,
+    ProjectionRegionIntent,
+    ProjectionRegionAnnotation,
 };

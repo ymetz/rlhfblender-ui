@@ -8,10 +8,13 @@ import {
     Tooltip,
     IconButton,
     Paper,
-    Chip
+    Chip,
+    Tabs,
+    Tab,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import BrushIcon from '@mui/icons-material/Brush';
+import SelectAllIcon from '@mui/icons-material/SelectAll';
 //import RebaseEditIcon from '@mui/icons-material/RebaseEdit';
 import { styled, useTheme, alpha } from '@mui/material/styles';
 import * as d3 from 'd3';
@@ -24,7 +27,10 @@ import {
     SelectedState,
     SelectedCoordinate,
     SelectedCluster,
-    SelectionItem
+    SelectionItem,
+    ProjectionBackgroundMode,
+    ProjectionRegionIntent,
+    ProjectionRegionAnnotation,
 } from './types/stateSequenceProjectionTypes';
 import {
     extractSegments,
@@ -71,6 +77,46 @@ const EmbeddingContainer = styled(Box)(({ theme }) => ({
     minWidth: '400px',  // Fallback minimum width
 }));
 
+const PROJECTION_MODE_LABELS: Record<ProjectionBackgroundMode, string> = {
+    policy: 'Policy',
+    reward_model: 'Reward Model',
+    world_model: 'World Model',
+};
+
+const DEFAULT_INTENT_BY_MODE: Record<ProjectionBackgroundMode, ProjectionRegionIntent> = {
+    policy: 'explore',
+    reward_model: 'high_reward',
+    world_model: 'trust',
+};
+
+const INTENT_CYCLE_BY_MODE: Record<
+    ProjectionBackgroundMode,
+    Array<{ value: ProjectionRegionIntent; label: string }>
+> = {
+    policy: [
+        { value: 'explore', label: 'Explore' },
+        { value: 'avoid', label: 'Avoid' },
+        { value: 'neutral', label: 'Neutral' },
+    ],
+    reward_model: [
+        { value: 'high_reward', label: 'Higher Reward' },
+        { value: 'low_reward', label: 'Lower Reward' },
+        { value: 'neutral', label: 'Neutral' },
+    ],
+    world_model: [
+        { value: 'trust', label: 'Trust' },
+        { value: 'distrust', label: 'Distrust' },
+        { value: 'neutral', label: 'Neutral' },
+    ],
+};
+
+const mapBackgroundMode = (value?: string): ProjectionBackgroundMode => {
+    if (value === 'reward_model' || value === 'world_model' || value === 'policy') {
+        return value;
+    }
+    return 'policy';
+};
+
 const StateSequenceProjection = (props: any) => {
     // Get state and dispatch from context
     const activeLearningState = useActiveLearningState();
@@ -93,6 +139,17 @@ const StateSequenceProjection = (props: any) => {
     const [selectedUserTrajectoryId, setSelectedUserTrajectoryId] = useState<string | null>(null);
     const selectedUserTrajectoryIdRef = useRef<string | null>(null);
     const [selectedUserDemo, setSelectedUserDemo] = useState<UserDemoTrajectory | null>(null);
+    const [latentPaintMode, setLatentPaintMode] = useState(false);
+    const [projectionLassoMode, setProjectionLassoMode] = useState(false);
+    const [isSavingPaintedTrajectory, setIsSavingPaintedTrajectory] = useState(false);
+    const [isSamplingLassoRegion, setIsSamplingLassoRegion] = useState(false);
+    const [projectionBackgroundMode, setProjectionBackgroundMode] = useState<ProjectionBackgroundMode>(
+        mapBackgroundMode(activeLearningState.backgroundColorMode)
+    );
+    const [projectionRegionIntent, setProjectionRegionIntent] = useState<ProjectionRegionIntent>(
+        DEFAULT_INTENT_BY_MODE[mapBackgroundMode(activeLearningState.backgroundColorMode)]
+    );
+    const [projectionRegionAnnotations, setProjectionRegionAnnotations] = useState<ProjectionRegionAnnotation[]>([]);
     const [multiSelectMode, setMultiSelectMode] = useState(false);
     const multiSelectModeRef = useRef(false);
     const currentSelectionRef = useRef<SelectionItem[]>([]);
@@ -154,6 +211,17 @@ const StateSequenceProjection = (props: any) => {
     const feedbackHighlights = (activeLearningState as any).feedbackHighlights;
     const highlightedEpisodesSet: Set<number> | undefined = feedbackHighlights?.episodes;
     const correctionEpisodesSet: Set<number> | undefined = feedbackHighlights?.correctionEpisodes;
+    const activeIntentCycle = INTENT_CYCLE_BY_MODE[projectionBackgroundMode];
+    const currentIntentLabel = activeIntentCycle.find((option) => option.value === projectionRegionIntent)?.label ?? 'Neutral';
+    const projectionLegendTitle =
+        projectionBackgroundMode === 'policy'
+            ? 'Occupancy / State Visitation'
+            : projectionBackgroundMode === 'world_model'
+                ? 'World Model Stability'
+                : 'Predicted Reward / Uncertainty';
+    const projectionRegionAnnotationSignature = projectionRegionAnnotations
+        .map((annotation) => `${annotation.id}:${annotation.mode}:${annotation.intent}:${annotation.polygon.length}`)
+        .join('|');
     
 
 
@@ -188,6 +256,14 @@ const StateSequenceProjection = (props: any) => {
     useEffect(() => {
         multiSelectModeRef.current = multiSelectMode;
     }, [multiSelectMode]);
+
+    useEffect(() => {
+        const modeFromState = mapBackgroundMode(activeLearningState.backgroundColorMode);
+        if (modeFromState !== projectionBackgroundMode) {
+            setProjectionBackgroundMode(modeFromState);
+            setProjectionRegionIntent(DEFAULT_INTENT_BY_MODE[modeFromState]);
+        }
+    }, [activeLearningState.backgroundColorMode, projectionBackgroundMode]);
 
     // Hold-to-multiselect behavior: Shift key enables additive selection temporarily.
     useEffect(() => {
@@ -401,6 +477,191 @@ const StateSequenceProjection = (props: any) => {
         },
         [activeLearningDispatch]
     );
+
+    const handleLatentTrajectoryPainted = useCallback(
+        async (coordinates: number[][]) => {
+            const cleanedCoordinates = coordinates
+                .map((point) => [Number(point?.[0]), Number(point?.[1])])
+                .filter((point) => point.every((value) => Number.isFinite(value)));
+
+            if (cleanedCoordinates.length < 2 || isSavingPaintedTrajectory) {
+                return;
+            }
+
+            setIsSavingPaintedTrajectory(true);
+            setError(null);
+
+            try {
+                const response = await axios.post('/demo_generation/paint_latent_trajectory', {
+                    coordinates: cleanedCoordinates,
+                    env_id: appState.selectedExperiment?.env_id,
+                    exp_id: appState.selectedExperiment?.id ?? props.benchmarkId,
+                    checkpoint: props.checkpointStep,
+                    projection_method: 'PCA',
+                    session_id: appState.sessionId,
+                    world_model: 'inverse_state_projection',
+                });
+
+                const data = response.data || {};
+                const palette = ['#FF6B35', '#FFB703', '#8338EC', '#3A86FF', '#219EBC'];
+                const color = palette[(activeLearningState.userGeneratedTrajectories.length) % palette.length];
+                const trajectory: UserDemoTrajectory = {
+                    id: data.trajectory_id || `painted_${Date.now()}`,
+                    projection: (data.projection || cleanedCoordinates).map((pt: number[]) => [...pt]),
+                    episodeIndices: data.episode_indices || cleanedCoordinates.map(() => 0),
+                    rewards: data.rewards || cleanedCoordinates.map(() => 0),
+                    dones: data.dones || cleanedCoordinates.map((_, index) => index === cleanedCoordinates.length - 1),
+                    videoPath: data.video_path || null,
+                    metadata: {
+                        ...(data.metadata || {}),
+                        source: 'latent_painter',
+                        color,
+                        artifactFile: data.artifact_file,
+                        latentStatesFile: data.latent_states_file,
+                        stateKeys: data.state_keys || [],
+                        worldModel: data.world_model,
+                    },
+                    projectionFile: data.artifact_file || null,
+                    source: 'latent_painter',
+                    phase: activeLearningState.currentPhase,
+                };
+
+                activeLearningDispatch({ type: 'ADD_USER_GENERATED_TRAJECTORY', payload: trajectory });
+                activeLearningDispatch({
+                    type: 'SET_SELECTION',
+                    payload: [{ type: 'user_demo', data: { trajectoryId: trajectory.id } }],
+                });
+                setLatentPaintMode(false);
+            } catch (err: any) {
+                const detail = err?.response?.data?.detail || err?.message || 'Failed to save painted latent trajectory.';
+                setError(String(detail));
+            } finally {
+                setIsSavingPaintedTrajectory(false);
+            }
+        },
+        [
+            activeLearningDispatch,
+            activeLearningState.currentPhase,
+            activeLearningState.userGeneratedTrajectories.length,
+            appState.selectedExperiment,
+            appState.sessionId,
+            isSavingPaintedTrajectory,
+            props.benchmarkId,
+            props.checkpointStep,
+        ]
+    );
+
+    const handleProjectionRegionLassoed = useCallback(
+        async (polygon: number[][]) => {
+            const cleanedPolygon = polygon
+                .map((point) => [Number(point?.[0]), Number(point?.[1])])
+                .filter((point) => point.every((value) => Number.isFinite(value)));
+
+            if (cleanedPolygon.length < 3 || isSamplingLassoRegion) {
+                return;
+            }
+
+            const regionAnnotation: ProjectionRegionAnnotation = {
+                id: `region-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                mode: projectionBackgroundMode,
+                intent: projectionRegionIntent,
+                polygon: cleanedPolygon,
+                createdAt: Date.now(),
+            };
+
+            setProjectionRegionAnnotations((current) => [...current, regionAnnotation]);
+            setError(null);
+
+            if (projectionBackgroundMode !== 'policy') {
+                setProjectionLassoMode(false);
+                return;
+            }
+
+            setIsSamplingLassoRegion(true);
+
+            try {
+                const response = await axios.post('/demo_generation/sample_latent_region', {
+                    polygon: cleanedPolygon,
+                    sample_count: 12,
+                    env_id: appState.selectedExperiment?.env_id,
+                    exp_id: appState.selectedExperiment?.id ?? props.benchmarkId,
+                    checkpoint: props.checkpointStep,
+                    projection_method: 'PCA',
+                    session_id: appState.sessionId,
+                    seed: Date.now(),
+                });
+
+                const data = response.data || {};
+                const coordinates = Array.isArray(data.coordinates) ? data.coordinates : [];
+                activeLearningDispatch({
+                    type: 'SET_SELECTION',
+                    payload: [{
+                        type: 'coordinate_cluster',
+                        label:
+                            projectionRegionIntent === 'avoid'
+                                ? `Avoid Region (${coordinates.length})`
+                                : projectionRegionIntent === 'neutral'
+                                    ? `Region (${coordinates.length})`
+                                    : `Explore Region (${coordinates.length})`,
+                        data: {
+                            clusterId: data.cluster_id,
+                            coordinates,
+                            polygon: data.polygon || cleanedPolygon,
+                            renderFrames: data.render_frames || [],
+                            artifactFile: data.artifact_file || null,
+                            metadata: {
+                                ...(data.metadata || {}),
+                                annotationIntent: projectionRegionIntent,
+                                annotationMode: projectionBackgroundMode,
+                            },
+                        },
+                    }],
+                });
+                setProjectionLassoMode(false);
+            } catch (err: any) {
+                const detail = err?.response?.data?.detail || err?.message || 'Failed to sample lasso region.';
+                setError(String(detail));
+            } finally {
+                setIsSamplingLassoRegion(false);
+            }
+        },
+        [
+            activeLearningDispatch,
+            appState.selectedExperiment,
+            appState.sessionId,
+            isSamplingLassoRegion,
+            projectionBackgroundMode,
+            projectionRegionIntent,
+            props.benchmarkId,
+            props.checkpointStep,
+        ]
+    );
+
+    const cycleProjectionRegionIntent = useCallback(() => {
+        const options = INTENT_CYCLE_BY_MODE[projectionBackgroundMode];
+        const currentIndex = options.findIndex((option) => option.value === projectionRegionIntent);
+        const nextOption = options[(currentIndex + 1 + options.length) % options.length];
+        setProjectionRegionIntent(nextOption.value);
+    }, [projectionBackgroundMode, projectionRegionIntent]);
+
+    const handleProjectionRegionAnnotationClicked = useCallback((annotationId: string) => {
+        setProjectionRegionAnnotations((current) =>
+            current.map((annotation) => {
+                if (annotation.id !== annotationId) {
+                    return annotation;
+                }
+
+                const options = INTENT_CYCLE_BY_MODE[annotation.mode];
+                const currentIndex = options.findIndex((option) => option.value === annotation.intent);
+                const nextOption = options[(currentIndex + 1 + options.length) % options.length];
+
+                return {
+                    ...annotation,
+                    intent: nextOption.value,
+                };
+            })
+        );
+    }, []);
 
     const handleEpisodeTileClick = useCallback((ep: number, event?: React.MouseEvent<HTMLElement>) => {
         const episodeIndices = activeLearningState.episodeIndices || [];
@@ -916,7 +1177,7 @@ const StateSequenceProjection = (props: any) => {
                 };
                 lastUserTrajectorySignatureRef.current = computeUserTrajectorySignature(
                     activeLearningState.userGeneratedTrajectories || []
-                ) + `|phase:${activeLearningState.currentPhase}`;
+                ) + `|phase:${activeLearningState.currentPhase}|paint:${latentPaintMode}|lasso:${projectionLassoMode}|bg:${projectionBackgroundMode}|regions:${projectionRegionAnnotationSignature}`;
 
                 setIsLoading(false);
             })
@@ -925,7 +1186,7 @@ const StateSequenceProjection = (props: any) => {
                 setError("Failed to load data. Please try again.");
                 setIsLoading(false);
             });
-    }, [props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkId, props.checkpointStep, props.embeddingSettings, props.benchmarkedModels, props.infos, props.timeStamp, embeddingSequenceLength, activeLearningDispatch, drawChart, viewMode, segmentSize]);
+    }, [props.embeddingMethod, props.reproject, props.appendTimestamp, props.benchmarkId, props.checkpointStep, props.embeddingSettings, props.benchmarkedModels, props.infos, props.timeStamp, embeddingSequenceLength, activeLearningDispatch, drawChart, viewMode, segmentSize, activeLearningState.userGeneratedTrajectories, activeLearningState.currentPhase, latentPaintMode, projectionLassoMode, projectionBackgroundMode, projectionRegionAnnotationSignature]);
 
     // Auto-load projection once per session after resetSampler (defined after loadData to avoid TDZ)
     useEffect(() => {
@@ -989,6 +1250,13 @@ const StateSequenceProjection = (props: any) => {
             userTrajectoryCoordinateTransform: userTrajectoryCoordinateTransformRef.current,
             gridPredictionImage: activeLearningState.grid_prediction_image || null,
             currentPhase: activeLearningState.currentPhase,
+            latentPaintMode,
+            projectionLassoMode,
+            projectionBackgroundMode,
+            projectionRegionAnnotations,
+            onLatentTrajectoryPainted: handleLatentTrajectoryPainted,
+            onProjectionRegionLassoed: handleProjectionRegionLassoed,
+            onProjectionRegionAnnotationClicked: handleProjectionRegionAnnotationClicked,
         });
     }, [
         props,
@@ -997,6 +1265,13 @@ const StateSequenceProjection = (props: any) => {
         activeLearningState.userGeneratedTrajectories,
         activeLearningState.currentPhase,
         handleUserTrajectorySelection,
+        handleLatentTrajectoryPainted,
+        handleProjectionRegionLassoed,
+        handleProjectionRegionAnnotationClicked,
+        latentPaintMode,
+        projectionLassoMode,
+        projectionBackgroundMode,
+        projectionRegionAnnotations,
         maxUncertaintySegments,
     ]);
 
@@ -1007,7 +1282,7 @@ const StateSequenceProjection = (props: any) => {
 
         const signature = computeUserTrajectorySignature(
             activeLearningState.userGeneratedTrajectories || []
-        ) + `|phase:${activeLearningState.currentPhase}`;
+        ) + `|phase:${activeLearningState.currentPhase}|paint:${latentPaintMode}|lasso:${projectionLassoMode}|bg:${projectionBackgroundMode}|regions:${projectionRegionAnnotationSignature}`;
 
         if (signature === lastUserTrajectorySignatureRef.current) {
             return;
@@ -1026,7 +1301,7 @@ const StateSequenceProjection = (props: any) => {
             params.predictedUncertainties,
             params.segments
         );
-    }, [activeLearningState.userGeneratedTrajectories, drawStateSpace]);
+    }, [activeLearningState.userGeneratedTrajectories, activeLearningState.currentPhase, drawStateSpace, latentPaintMode, projectionLassoMode, projectionBackgroundMode, projectionRegionAnnotationSignature]);
 
     return (
         <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -1062,6 +1337,80 @@ const StateSequenceProjection = (props: any) => {
 
                 <Box
                     position="absolute"
+                    top="14px"
+                    left="50%"
+                    sx={{
+                        transform: 'translateX(-50%)',
+                        zIndex: 12,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 1,
+                        visibility: isLoading ? 'hidden' : 'visible',
+                        pointerEvents: 'none',
+                    }}
+                >
+                    <Paper
+                        elevation={0}
+                        sx={{
+                            pointerEvents: 'auto',
+                            px: 1.25,
+                            py: 0.5,
+                            borderRadius: 2,
+                            bgcolor: alpha(theme.palette.background.paper, 0.8),
+                            border: `1px solid ${alpha(theme.palette.divider, 0.6)}`,
+                            backdropFilter: 'blur(10px)',
+                            boxShadow: `0 10px 28px ${alpha(theme.palette.common.black, 0.14)}`,
+                        }}
+                    >
+                        <Tabs
+                            value={projectionBackgroundMode}
+                            onChange={(_, value: ProjectionBackgroundMode) => {
+                                setProjectionBackgroundMode(value);
+                                setProjectionRegionIntent(DEFAULT_INTENT_BY_MODE[value]);
+                                activeLearningDispatch({
+                                    type: 'SET_BACKGROUND_COLOR_MODE',
+                                    payload: value,
+                                });
+                                if (value !== 'policy') {
+                                    setLatentPaintMode(false);
+                                }
+                            }}
+                            textColor="inherit"
+                            indicatorColor="secondary"
+                            variant="standard"
+                            sx={{
+                                minHeight: 34,
+                                '& .MuiTabs-flexContainer': {
+                                    columnGap: 0.75,
+                                },
+                                '& .MuiTabs-indicator': {
+                                    height: 3,
+                                    borderRadius: 1,
+                                },
+                                '& .MuiTab-root': {
+                                    minHeight: 34,
+                                    minWidth: 0,
+                                    px: 1.9,
+                                    fontSize: '0.8rem',
+                                    textTransform: 'none',
+                                    color: 'text.secondary',
+                                },
+                                '& .Mui-selected': {
+                                    color: 'text.primary',
+                                },
+                            }}
+                        >
+                            {(Object.keys(PROJECTION_MODE_LABELS) as ProjectionBackgroundMode[]).map((mode) => (
+                                <Tab key={mode} value={mode} label={PROJECTION_MODE_LABELS[mode]} disableRipple />
+                            ))}
+                        </Tabs>
+                    </Paper>
+
+                </Box>
+
+                <Box
+                    position="absolute"
                     bottom="20px"
                     left="50%"
                     sx={{
@@ -1072,10 +1421,11 @@ const StateSequenceProjection = (props: any) => {
                     }}
                 >
                     {/* Fixed-width control group to prevent layout shift */}
-                    <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1.25 }}>
                         <Tooltip title="Clear Selection">
                             <IconButton
                                 color="default"
+                                disabled={isSamplingLassoRegion}
                                 sx={(theme) => ({
                                     width: 52,
                                     height: 52,
@@ -1091,9 +1441,12 @@ const StateSequenceProjection = (props: any) => {
                                     '& .MuiSvgIcon-root': { fontSize: 24 },
                                 })}
                                 onClick={() => {
-                    activeLearningDispatch({
-                        type: 'SET_SELECTION',
-                        payload: []
+                                    if (projectionRegionAnnotations.length > 0) {
+                                        setProjectionRegionAnnotations([]);
+                                    }
+                                    activeLearningDispatch({
+                                        type: 'SET_SELECTION',
+                                        payload: []
                                     });
                                     // Clear local selection state
                                     setSelectedState(null);
@@ -1111,73 +1464,151 @@ const StateSequenceProjection = (props: any) => {
                             </IconButton>
                         </Tooltip>
 
-                        <OnboardingHighlight stepId="multi-select-mode" pulse={true}>
-                            <Tooltip title={multiSelectMode ? "Shift pressed: Multi-Select active" : "Hold Shift to Multi-Select"}>
-                                <Box
-                                    sx={(theme) => {
-                                        const activeColor = theme.palette.primary.main;
-                                        return {
-                                            width: 52,
-                                            height: 52,
-                                            borderRadius: '50%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            backgroundColor: multiSelectMode
-                                                ? alpha(activeColor, 0.95)
-                                                : alpha(theme.palette.primary.main, 0.15),
-                                            color: multiSelectMode ? theme.palette.common.white : theme.palette.primary.main,
-                                            border: `1px solid ${alpha(activeColor, multiSelectMode ? 0.6 : 0.35)}`,
-                                            boxShadow: multiSelectMode
-                                                ? `0 3px 10px ${alpha(activeColor, 0.35)}`
-                                                : `0 2px 8px ${alpha(theme.palette.grey[700], 0.25)}`,
-                                            transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
-                                            '& .MuiSvgIcon-root': { fontSize: 24 },
-                                        };
+                        <Tooltip title={latentPaintMode ? "Latent painter active" : "Paint latent trajectory"}>
+                            <span>
+                                <IconButton
+                                    color="default"
+                                    disabled={isSavingPaintedTrajectory || projectionBackgroundMode !== 'policy'}
+                                    sx={(theme) => ({
+                                        width: 52,
+                                        height: 52,
+                                        backgroundColor: latentPaintMode
+                                            ? alpha(theme.palette.secondary.main, 0.95)
+                                            : alpha(theme.palette.secondary.main, 0.15),
+                                        color: latentPaintMode ? theme.palette.common.white : theme.palette.secondary.main,
+                                        border: `1px solid ${alpha(theme.palette.secondary.main, latentPaintMode ? 0.65 : 0.35)}`,
+                                        boxShadow: latentPaintMode
+                                            ? `0 3px 10px ${alpha(theme.palette.secondary.main, 0.35)}`
+                                            : `0 2px 8px ${alpha(theme.palette.grey[700], 0.25)}`,
+                                        transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
+                                        '& .MuiSvgIcon-root': { fontSize: 24 },
+                                    })}
+                                    onClick={() => {
+                                        setLatentPaintMode((active) => !active);
+                                        setProjectionLassoMode(false);
+                                        setMultiSelectMode(false);
                                     }}
                                 >
-                                    <AddIcon />
-                                </Box>
-                            </Tooltip>
-                        </OnboardingHighlight>
+                                    {isSavingPaintedTrajectory ? <CircularProgress size={20} /> : <BrushIcon />}
+                                </IconButton>
+                            </span>
+                        </Tooltip>
 
-                        {multiSelectMode && (
-                            <Typography
-                                variant="caption"
+                        <Tooltip title={projectionLassoMode ? "Lasso active" : "Lasso region"}>
+                            <IconButton
+                                color="default"
+                                sx={(theme) => ({
+                                    width: 52,
+                                    height: 52,
+                                    backgroundColor: projectionLassoMode
+                                        ? alpha(theme.palette.info.main, 0.95)
+                                        : alpha(theme.palette.info.main, 0.15),
+                                    color: projectionLassoMode ? theme.palette.common.white : theme.palette.info.main,
+                                    border: `1px solid ${alpha(theme.palette.info.main, projectionLassoMode ? 0.65 : 0.35)}`,
+                                    boxShadow: projectionLassoMode
+                                        ? `0 3px 10px ${alpha(theme.palette.info.main, 0.35)}`
+                                        : `0 2px 8px ${alpha(theme.palette.grey[700], 0.25)}`,
+                                    transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
+                                    '& .MuiSvgIcon-root': { fontSize: 24 },
+                                })}
+                                onClick={() => {
+                                    setProjectionLassoMode((active) => !active);
+                                    setLatentPaintMode(false);
+                                    setMultiSelectMode(false);
+                                }}
+                            >
+                                {isSamplingLassoRegion ? <CircularProgress size={20} /> : <SelectAllIcon />}
+                            </IconButton>
+                        </Tooltip>
+
+                        {!multiSelectMode && !latentPaintMode && !projectionLassoMode && (
+                            <Box
                                 sx={{
-                                    position: 'absolute',
-                                    left: 'calc(100% + 8px)',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
                                     px: 1,
-                                    py: 0.3,
+                                    py: 0.5,
                                     borderRadius: 1,
                                     bgcolor: 'rgba(25,118,210,0.08)',
                                     color: 'text.secondary',
-                                    whiteSpace: 'nowrap'
+                                    whiteSpace: 'nowrap',
+                                    display: 'flex',
+                                    alignItems: 'center',
                                 }}
                             >
-                                Shift held: click trajectory to add (Selected: {selectedTrajectoriesCount})
-                            </Typography>
+                                <Typography variant="caption">
+                                    Projection interaction ready
+                                </Typography>
+                            </Box>
                         )}
-                        {!multiSelectMode && (
-                            <Typography
-                                variant="caption"
+                        {latentPaintMode && (
+                            <Box
                                 sx={{
-                                    position: 'absolute',
-                                    left: 'calc(100% + 8px)',
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
                                     px: 1,
-                                    py: 0.3,
+                                    py: 0.5,
                                     borderRadius: 1,
-                                    bgcolor: 'rgba(25,118,210,0.08)',
+                                    bgcolor: 'rgba(156,39,176,0.08)',
                                     color: 'text.secondary',
-                                    whiteSpace: 'nowrap'
+                                    whiteSpace: 'nowrap',
+                                    display: 'flex',
+                                    alignItems: 'center',
                                 }}
                             >
-                                Hold Shift + click to add more episodes
-                            </Typography>
+                                <Typography variant="caption">
+                                    Drag to paint latent trajectory on the occupancy map
+                                </Typography>
+                            </Box>
+                        )}
+                        {projectionLassoMode && (
+                            <Box
+                                sx={{
+                                    px: 1.1,
+                                    py: 0.45,
+                                    borderRadius: 1,
+                                    bgcolor: 'rgba(2,136,209,0.08)',
+                                    color: 'text.secondary',
+                                    whiteSpace: 'nowrap',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 0.75,
+                                    pointerEvents: 'auto',
+                                }}
+                            >
+                                <Typography variant="caption">
+                                    Drag to mark
+                                </Typography>
+                                <Box
+                                    component="button"
+                                    type="button"
+                                    onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                    }}
+                                    onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        cycleProjectionRegionIntent();
+                                    }}
+                                    sx={{
+                                        border: 'none',
+                                        background: alpha(theme.palette.info.main, 0.12),
+                                        color: theme.palette.info.dark,
+                                        px: 0.9,
+                                        py: 0.25,
+                                        borderRadius: 1,
+                                        cursor: 'pointer',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 700,
+                                        lineHeight: 1.2,
+                                        '&:hover': {
+                                            background: alpha(theme.palette.info.main, 0.18),
+                                        },
+                                    }}
+                                >
+                                    {currentIntentLabel}
+                                </Box>
+                                <Typography variant="caption">
+                                    {projectionBackgroundMode === 'policy' ? 'and sample states' : 'region'}
+                                </Typography>
+                            </Box>
                         )}
                     </Box>
                 </Box>
@@ -1219,7 +1650,7 @@ const StateSequenceProjection = (props: any) => {
                         {isLoading ? 'Loading...' : 'Load Data'}
                     </Button>
                     {/* Episodes overview and quick select */}
-                    <Box sx={{
+                    {false && <Box sx={{
                         backgroundColor: 'transparent',
                         padding: 0.5,
                         borderRadius: 1,
@@ -1321,20 +1752,19 @@ const StateSequenceProjection = (props: any) => {
                                 );
                             })}
                         </Box>
-                    </Box>
+                    </Box>}
                     
                 </Box>
 
                 {/* Legend for object color */}
-                {minMaxScale && (
-                    <ObjectLegend>
-                        <ColorLegend
-                            minMax={minMaxScale}
-                            width={240}
-                            title="Predicted Reward/Uncertainty"
-                        />
-                    </ObjectLegend>
-                )}
+                <ObjectLegend>
+                    <ColorLegend
+                        minMax={minMaxScale}
+                        width={240}
+                        title={projectionLegendTitle}
+                        mode={projectionBackgroundMode}
+                    />
+                </ObjectLegend>
 
                 {/* Glyph legend */}
                 <GlyphLegend>
