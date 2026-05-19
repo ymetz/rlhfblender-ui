@@ -40,6 +40,8 @@ import WebRTCDemoComponent from './WebRTCDemoComponent';
 import TimelineComponent from './TimelineComponent';
 import { OnboardingHighlight, useOnboarding } from './OnboardingSystem';
 
+const MujocoTrajectoryViewer = React.lazy(() => import('./MujocoTrajectoryViewer'));
+
 // ————————————————————————————————————————————————————————————
 // Visual helpers
 // ————————————————————————————————————————————————————————————
@@ -1458,12 +1460,38 @@ const MergedSelectionFeedback = () => {
         const correctionStepDisplay = effectiveCorrectionStep !== null
           ? effectiveCorrectionStep
           : '–';
+        const updateSelectedStep = (nextStep: number) => {
+          const clamped = clampStep(nextStep);
+          if (clamped !== selectedStep) {
+            setSelectedStep(clamped);
+          }
+          if (selectionData.type === 'state') {
+            const baseStep = typeof currentStateData?.step === 'number'
+              ? currentStateData.step
+              : clamped;
+            const baseIndex = typeof currentStateData?.index === 'number'
+              ? currentStateData.index
+              : baseStep;
+            const updatedSelection = [{
+              type: 'state',
+              data: {
+                episode: episodeIdx,
+                step: clamped,
+                coords: currentStateData?.coords || [0, 0],
+                x: currentStateData?.x || 0,
+                y: currentStateData?.y || 0,
+                index: baseIndex + (clamped - baseStep),
+              },
+            }];
+            activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection });
+          }
+        };
 
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" sx={{ mb: 2 }}>{title}</Typography>
 
-            {/* Video */}
+            {/* Browser-side MuJoCo preview when compatible state data exists; video remains the fallback. */}
             <Box sx={{
               display: 'flex',
               justifyContent: 'center',
@@ -1471,7 +1499,17 @@ const MergedSelectionFeedback = () => {
               minHeight: showCorrectionInterface && useWebRTCCorrection ? 'min(200px, 25vh)' : 'min(280px, 35vh)',
               mb: 2
             }}>
-              <Box sx={{ width: '100%' }}>{getVideoElement(episode, episodeIdx, false, true, selectedStep, episodeLength)}</Box>
+              <Box sx={{ width: '100%' }}>
+                <React.Suspense fallback={getVideoElement(episode, episodeIdx, false, true, selectedStep, episodeLength)}>
+                  <MujocoTrajectoryViewer
+                    episode={episode}
+                    backgroundEpisodes={allEpisodes}
+                    selectedStep={selectedStep}
+                    onStepChange={updateSelectedStep}
+                    fallback={getVideoElement(episode, episodeIdx, false, true, selectedStep, episodeLength)}
+                  />
+                </React.Suspense>
+              </Box>
             </Box>
 
             {/* Timeline controls */}
@@ -1515,58 +1553,13 @@ const MergedSelectionFeedback = () => {
                   onClose={() => { /* inline usage: no-op */ }}
                   onStepHover={(newStep) => {
                     if (showCorrectionInterface) return;
-                    const clamped = clampStep(newStep);
-                    if (clamped !== selectedStep) {
-                      setSelectedStep(clamped);
-                    }
-                    if (selectionData.type === 'state') {
-                      const baseStep = typeof currentStateData?.step === 'number'
-                        ? currentStateData.step
-                        : clamped;
-                      const baseIndex = typeof currentStateData?.index === 'number'
-                        ? currentStateData.index
-                        : baseStep;
-                      const updatedSelection = [{
-                        type: 'state',
-                        data: {
-                          episode: episodeIdx,
-                          step: clamped,
-                          coords: currentStateData?.coords || [0, 0],
-                          x: currentStateData?.x || 0,
-                          y: currentStateData?.y || 0,
-                          index: baseIndex + (clamped - baseStep),
-                        },
-                      }];
-                      activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection });
-                    }
+                    updateSelectedStep(newStep);
                   }}
                   onCorrectionStepSelect={(newStep) => {
                     const clamped = clampStep(newStep);
                     setCorrectionStep(clamped);
                     setIsCorrectionStepManual(true);
-                    if (clamped !== selectedStep) {
-                      setSelectedStep(clamped);
-                    }
-                    if (selectionData.type === 'state') {
-                      const baseStep = typeof currentStateData?.step === 'number'
-                        ? currentStateData.step
-                        : clamped;
-                      const baseIndex = typeof currentStateData?.index === 'number'
-                        ? currentStateData.index
-                        : baseStep;
-                      const updatedSelection = [{
-                        type: 'state',
-                        data: {
-                          episode: episodeIdx,
-                          step: clamped,
-                          coords: currentStateData?.coords || [0, 0],
-                          x: currentStateData?.x || 0,
-                          y: currentStateData?.y || 0,
-                          index: baseIndex + (clamped - baseStep),
-                        },
-                      }];
-                      activeLearningDispatch({ type: 'SET_SELECTION', payload: updatedSelection });
-                    }
+                    updateSelectedStep(clamped);
                   }}
                   width={Math.max(280, timelineWidth)}
                   height={140}
@@ -1577,7 +1570,7 @@ const MergedSelectionFeedback = () => {
                   variant="caption"
                   sx={{ display: 'block', mt: 0.5, textAlign: 'center', color: 'text.secondary' }}
                 >
-                  Video step: {selectedStep} / {maxEpisodeStep}
+                  Trajectory step: {selectedStep} / {maxEpisodeStep}
                 </Typography>
               </Box>
             </Box>

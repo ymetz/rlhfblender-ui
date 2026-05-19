@@ -5,7 +5,15 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 const app = express();
 
 // Frontend
-app.use(express.static("dist"));
+app.use(
+  express.static("dist", {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".wasm")) {
+        res.setHeader("Content-Type", "application/wasm");
+      }
+    },
+  }),
+);
 // Proxy requests to the backend
 app.use(
   "/",
