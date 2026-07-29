@@ -20,6 +20,11 @@ interface VideoPlaybackContainerProps {
   onFeatureSelect: () => void;
   useCorrectiveFeedback: boolean;
   videoRef: React.RefObject<HTMLVideoElement>;
+  toolControls?: React.ReactNode;
+  overlayContent?: React.ReactNode;
+  onPlaybackStepChange?: (step: number) => void;
+  timelineInteractionLocked?: boolean;
+  correctionStep?: number | null;
 }
 
 const VideoPlaybackContainer: React.FC<VideoPlaybackContainerProps> = React.memo(({
@@ -38,6 +43,11 @@ const VideoPlaybackContainer: React.FC<VideoPlaybackContainerProps> = React.memo
   onFeatureSelect,
   useCorrectiveFeedback,
   videoRef,
+  toolControls,
+  overlayContent,
+  onPlaybackStepChange,
+  timelineInteractionLocked = false,
+  correctionStep = null,
 }) => {
   // Local state for video playback - isolated from parent component
   const [playing, setPlaying] = useState(false);
@@ -108,6 +118,24 @@ const VideoPlaybackContainer: React.FC<VideoPlaybackContainerProps> = React.memo
     }
   }, [videoRef]);
 
+  useEffect(() => {
+    if (!onPlaybackStepChange) return;
+    const dataLength = Math.max(rewards.length, actions.length, 0);
+    if (dataLength <= 0 || videoDuration <= 0) {
+      onPlaybackStepChange(0);
+      return;
+    }
+    const normalized = Math.max(0, Math.min(1, videoSliderValue / videoDuration));
+    const step = Math.max(0, Math.min(dataLength - 1, Math.round(normalized * (dataLength - 1))));
+    onPlaybackStepChange(step);
+  }, [
+    onPlaybackStepChange,
+    rewards.length,
+    actions.length,
+    videoDuration,
+    videoSliderValue,
+  ]);
+
   return (
     <>
       {/* We preserve the original gridArea layout */}
@@ -122,6 +150,8 @@ const VideoPlaybackContainer: React.FC<VideoPlaybackContainerProps> = React.memo
         videoSliderHandler={videoSliderHandler}
         playing={playing}
         mission={mission}
+        toolControls={toolControls}
+        overlayContent={overlayContent}
       />
       
       <TimelineSection
@@ -137,6 +167,8 @@ const VideoPlaybackContainer: React.FC<VideoPlaybackContainerProps> = React.memo
         onCorrectionClick={onCorrectionClick}
         hasCorrectiveFeedback={hasCorrectiveFeedback}
         useCorrectiveFeedback={useCorrectiveFeedback}
+        interactionLocked={timelineInteractionLocked}
+        correctionStep={correctionStep}
       />
     </>
   );

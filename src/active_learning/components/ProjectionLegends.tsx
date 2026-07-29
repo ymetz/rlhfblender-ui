@@ -4,6 +4,7 @@ import { styled } from '@mui/material/styles';
 import * as d3 from 'd3';
 import * as vsup from 'vsup';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { interpolateBrightCividis } from '../utils/vsupColors';
 
 interface ColorLegendProps {
     minMax: [number, number] | null;
@@ -50,7 +51,7 @@ export const ColorLegend: React.FC<ColorLegendProps> = ({ minMax, width, title }
             .attr('transform', `translate(${margin.left},${margin.top})`);
 
         const quantization = vsup.quantization().branching(2).layers(4).valueDomain([minMax[0], minMax[1]]).uncertaintyDomain([1.0, 0.01]);
-        const scale = vsup.scale().quantize(quantization).range(d3.interpolateCividis);
+        const scale = vsup.scale().quantize(quantization).range(interpolateBrightCividis);
 
         const arcLegend = vsup.legend.arcmapLegend()
             .size(160)

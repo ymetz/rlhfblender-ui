@@ -3,6 +3,7 @@ import axios from "axios";
 import { useAppDispatch, useAppState } from "./AppStateContext";
 import { useSetupConfigDispatch, useSetupConfigState } from "./SetupConfigContext";
 import { IDfromEpisode } from "./id";
+import { limitEpisodesForCheckpoint } from "./trajectoryDisplayLimit";
 
 export const useConfigBasedSampling = () => {
   const dispatch = useAppDispatch();
@@ -13,16 +14,34 @@ export const useConfigBasedSampling = () => {
   const isProcessing = useRef(false);
   const isInitialized = useRef(false);
 
+  const getCheckpointEpisodePool = useCallback(() => {
+    const allEpisodes = state.episodeIDsChronologically ?? [];
+    const selectedCheckpointValue = Number(state.selectedCheckpoint);
+    if (!Number.isFinite(selectedCheckpointValue) || selectedCheckpointValue < 0) {
+      return allEpisodes;
+    }
+
+    const filteredEpisodes = limitEpisodesForCheckpoint(
+      allEpisodes,
+      selectedCheckpointValue,
+    );
+
+    return filteredEpisodes.length > 0
+      ? filteredEpisodes
+      : allEpisodes;
+  }, [state.episodeIDsChronologically, state.selectedCheckpoint]);
+
   const isReadyToProgress = useCallback(() => {
+    const checkpointEpisodes = getCheckpointEpisodePool();
     return (
       configState.uiConfigSequence?.length > 0 &&
-      state.episodeIDsChronologically?.length > 0 &&
+      checkpointEpisodes.length > 0 &&
       state.selectedExperiment.id !== -1
     );
   }, [
     configState.uiConfigSequence,
-    state.episodeIDsChronologically,
     state.selectedExperiment.id,
+    getCheckpointEpisodePool,
   ]);
 
   const sampleEpisodes = useCallback(async (stepNumber: number) => {
@@ -49,9 +68,10 @@ export const useConfigBasedSampling = () => {
         return;
       }
 
-      const currentBatchEpisodes = currentSequenceElement.batch.map(
-        (index) => state.episodeIDsChronologically[index]
-      );
+      const checkpointEpisodes = getCheckpointEpisodePool();
+      const currentBatchEpisodes = currentSequenceElement.batch
+        .map((index) => checkpointEpisodes[index])
+        .filter(Boolean);
 
       if (!currentBatchEpisodes?.length) {
         return;
@@ -80,12 +100,12 @@ export const useConfigBasedSampling = () => {
       isProcessing.current = false;
     }
   }, [
-    state.episodeIDsChronologically,
     configState.uiConfigSequence,
     configState.allUIConfigs,
     dispatch,
     configDispatch,
     isReadyToProgress,
+    getCheckpointEpisodePool,
   ]);
 
   const advanceToNextStep = useCallback(async () => {
@@ -113,9 +133,7 @@ export const useConfigBasedSampling = () => {
         await dispatch({ type: "SET_END_MODAL_OPEN" });
         
         try {
-          await axios.post("/data/submit_session", {
-            sessionId: state.sessionId,
-          });
+          await axios.post(`/data/submit_session?session_id=${state.sessionId}`);
         } catch (error) {
           console.error("Error submitting session:", error);
         }

@@ -14,7 +14,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
-import { Box } from "@mui/material";
+import { Box, Chip } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { RatingInfoContext } from "../rating-info-context";
 import { useAppDispatch, useAppState } from "../AppStateContext";
@@ -30,8 +30,8 @@ import { ProgressHeader } from "./feedbackinterface/progress-header";
 import DroppableColumn from "./feedbackinterface/droppable-column";
 import BestOfKColumn from "./feedbackinterface/best-of-k-column";
 import ScrollableEpisodeList from "./feedbackinterface/scrollable-episode-list";
-import DemoModal from "./modals/demo-modal";
 import { useFeedbackShortcuts } from "./feedbackinterface/hooks/useShortcuts";
+import { limitEpisodesForCheckpoint } from "../trajectoryDisplayLimit";
 
 // Add new type for feedback mode
 type FeedbackMode = "ranking" | "bestOfK" | "annotation";
@@ -47,13 +47,13 @@ const FeedbackInterface: React.FC = () => {
     episodeIDsChronologically,
     rankeableEpisodeIDs,
     selectedExperiment,
+    selectedCheckpoint,
     actionLabels,
     sessionId,
     scheduledFeedback,
   } = state;
   const { activeUIConfig, uiConfigSequence } = useSetupConfigState();
 
-  const [demoModalOpen, setDemoModalOpen] = useState({ open: false, seed: 0 });
   const [isOnSubmit, setIsOnSubmit] = useState(false);
   const [evalFeedback, setEvalFeedback] = useState({});
 
@@ -63,6 +63,41 @@ const FeedbackInterface: React.FC = () => {
     : "ranking";
   const horizontalDrag =
     activeUIConfig.uiComponents.horizontalRanking && feedbackMode === "ranking";
+  const checkpointProgress = useMemo(() => {
+    const checkpoints = selectedExperiment?.checkpoint_list ?? [];
+    const total = checkpoints.length;
+    if (total === 0) {
+      return { current: 0, total: 0 };
+    }
+
+    const numericSelectedCheckpoint = Number(selectedCheckpoint);
+    let index = Number.isFinite(numericSelectedCheckpoint)
+      ? checkpoints.findIndex((checkpoint) => Number(checkpoint) === numericSelectedCheckpoint)
+      : -1;
+    if (index < 0) {
+      index = checkpoints.findIndex(
+        (checkpoint) => String(checkpoint) === String(selectedCheckpoint),
+      );
+    }
+    if (index < 0) {
+      index = 0;
+    }
+
+    return { current: index + 1, total };
+  }, [selectedCheckpoint, selectedExperiment?.checkpoint_list]);
+  const showCheckpointProgress =
+    state.app_mode === "study" && checkpointProgress.total > 1;
+  const checkpointEpisodeIDs = useMemo(() => {
+    const selectedCheckpointValue = Number(selectedCheckpoint);
+    if (!Number.isFinite(selectedCheckpointValue) || selectedCheckpointValue < 0) {
+      return episodeIDsChronologically;
+    }
+    const limitedEpisodes = limitEpisodesForCheckpoint(
+      episodeIDsChronologically,
+      selectedCheckpointValue,
+    );
+    return limitedEpisodes.length > 0 ? limitedEpisodes : episodeIDsChronologically;
+  }, [episodeIDsChronologically, selectedCheckpoint]);
 
   const { columnOrder, setColumnOrder, ranks, setRanks } =
     useFeedbackState(rankeableEpisodeIDs);
@@ -125,14 +160,27 @@ const FeedbackInterface: React.FC = () => {
     // Only run initial sampling once when conditions are met
     if (
       !isInitialized.current &&
-      episodeIDsChronologically.length > 0 &&
+      checkpointEpisodeIDs.length > 0 &&
       uiConfigSequence.length > 0
     ) {
       isInitialized.current = true;
       sampleEpisodes(0); // Start with step 0
       setSelectedColumn(null);
     }
-  }, [episodeIDsChronologically, sampleEpisodes, uiConfigSequence]);
+  }, [checkpointEpisodeIDs, sampleEpisodes, uiConfigSequence]);
+
+  useEffect(() => {
+    // Ensure best-of-k selection UI resets when moving to a new sampled step
+    // even if one episode ID remains the same between consecutive batches.
+    setSelectedColumn(null);
+  }, [currentStep, activeUIConfig.id, rankeableEpisodeIDs]);
+
+  const handleSubmitFeedback = useCallback(async () => {
+    const hasNextStep = await submitFeedback(scheduledFeedback, state.sessionId);
+    if (hasNextStep) {
+      setSelectedColumn(null);
+    }
+  }, [scheduledFeedback, state.sessionId, submitFeedback]);
 
   const sensors = useSensors(useSensor(PointerSensor));
 
@@ -306,11 +354,15 @@ const FeedbackInterface: React.FC = () => {
 
   const hasFeedback = useCallback(
     (episode: Episode, feedbackType: FeedbackType) => {
+      const episodeId = IDfromEpisode(episode);
       return scheduledFeedback.some(
         (feedback) =>
           feedback.feedback_type === feedbackType &&
           feedback.targets?.some(
-            (target) => target.target_id === IDfromEpisode(episode),
+            (target) =>
+              target.target_id === episodeId ||
+              (target.reference !== undefined &&
+                IDfromEpisode(target.reference as Episode) === episodeId),
           ),
       );
     },
@@ -327,10 +379,6 @@ const FeedbackInterface: React.FC = () => {
 
   // Feedback shortcuts
 
-  const handleDemoRequest = useCallback(() => {
-    setDemoModalOpen({ open: true, seed: Math.random() });
-  }, []);
-
   const handleFeatureAnnotation = useCallback((episodeId: string) => {
     console.log("Feature annotation for episode", episodeId);
   }, []);
@@ -340,7 +388,7 @@ const FeedbackInterface: React.FC = () => {
     feedbackMode,
     onEvalFeedback: updateEvalFeedback,
     onBestOfKSelection: handleBestOfKSelection,
-    onDemoRequest: handleDemoRequest,
+    onDemoRequest: undefined,
     onFeatureAnnotation: handleFeatureAnnotation,
     uiConfigFeedbackComponents: activeUIConfig.feedbackComponents,
   });
@@ -349,10 +397,10 @@ const FeedbackInterface: React.FC = () => {
     <RatingInfoContext.Provider value={ratingInfoValue}>
       <ProgressHeader
         showProgressBar={activeUIConfig.uiComponents.progressBar}
-        numEpisodes={episodeIDsChronologically.length}
+        numEpisodes={checkpointEpisodeIDs.length}
         currentStep={currentStep}
         progressSteps={configState.uiConfigSequence.length}
-        onSubmit={() => submitFeedback(scheduledFeedback, state.sessionId)}
+        onSubmit={handleSubmitFeedback}
         onSubmitHover={setIsOnSubmit}
       />
       <Box
@@ -363,8 +411,27 @@ const FeedbackInterface: React.FC = () => {
           width: "100%",
           overflow: "scroll",
           boxSizing: "border-box",
+          position: "relative",
         }}
       >
+        {showCheckpointProgress && (
+          <Box
+            sx={{
+              position: "absolute",
+              top: 10,
+              left: 10,
+              zIndex: 5,
+              pointerEvents: "none",
+            }}
+          >
+            <Chip
+              label={`Checkpoint ${checkpointProgress.current}/${checkpointProgress.total}`}
+              size="small"
+              color="primary"
+              variant="outlined"
+            />
+          </Box>
+        )}
         {feedbackMode === "ranking" ? (
           <DndContext sensors={sensors} onDragEnd={onDragEnd}>
             <Box
@@ -380,7 +447,7 @@ const FeedbackInterface: React.FC = () => {
             >
               {activeUIConfig.uiComponents.interactiveEpisodeSelect && (
                 <ScrollableEpisodeList
-                  episodeIDs={episodeIDsChronologically}
+                  episodeIDs={checkpointEpisodeIDs}
                   rankeableEpisodeIDs={rankeableEpisodeIDs}
                 />
               )}
@@ -404,7 +471,9 @@ const FeedbackInterface: React.FC = () => {
                       maxRank={columnOrder.length}
                       evalFeedback={evalFeedback}
                       updateEvalFeedback={updateEvalFeedback}
-                      setDemoModalOpen={setDemoModalOpen}
+                      experimentId={selectedExperiment?.id ?? 0}
+                      environmentId={selectedExperiment?.env_id ?? ""}
+                      checkpoint={selectedCheckpoint}
                       onMouseEnter={handleEpisodeHover}
                       onMouseLeave={() => handleEpisodeHover(null)}
                       isHovered={hoveredEpisodeId === columnId}
@@ -434,27 +503,15 @@ const FeedbackInterface: React.FC = () => {
               actionLabels={actionLabels}
               evalFeedback={evalFeedback}
               updateEvalFeedback={updateEvalFeedback}
-              setDemoModalOpen={setDemoModalOpen}
+              experimentId={selectedExperiment?.id ?? 0}
+              environmentId={selectedExperiment?.env_id ?? ""}
+              checkpoint={selectedCheckpoint}
               onMouseEnter={handleEpisodeHover}
               onMouseLeave={() => handleEpisodeHover(null)}
               isHovered={hoveredEpisodeId === selectedColumn}
             />
           </Box>
         )}
-        <DemoModal
-          open={demoModalOpen.open}
-          onClose={() => setDemoModalOpen({ open: false, seed: 0 })}
-          onCloseSubmit={(feedback) => {
-            scheduleFeedback(feedback);
-            setDemoModalOpen({ open: false, seed: 0 });
-          }}
-          custom_input={activeUIConfig.customInput}
-          activeExpId={selectedExperiment?.id ?? ""}
-          activeEnvId={selectedExperiment?.env_id ?? ""}
-          sessionId={sessionId}
-          inputProps={{}}
-          seed={demoModalOpen.seed}
-        />
       </Box>
     </RatingInfoContext.Provider>
   );

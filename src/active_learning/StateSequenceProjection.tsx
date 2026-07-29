@@ -36,7 +36,10 @@ import { ColorLegend, GlyphLegend, Legend, ObjectLegend } from './components/Pro
 import { drawStateSpaceVisualization } from './utils/drawStateSpace';
 import { clearCanvasImageCache } from './utils/canvasCache';
 import { computeUserTrajectorySignature } from './utils/trajectorySignature';
+import { interpolateBrightCividis } from './utils/vsupColors';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import { buildEpisodeKeepMask } from '../trajectoryDisplayLimit';
+import { postCached } from '../utils/cachedPostRequests';
 
 type LastDrawParams = {
     data: number[][];
@@ -112,6 +115,7 @@ const StateSequenceProjection = (props: any) => {
     } | null>(null);
     const lastDrawParamsRef = useRef<LastDrawParams | null>(null);
     const lastUserTrajectorySignatureRef = useRef<string>('');
+    const userTrajectoryCoordinateTransformRef = useRef<{ sx: number; sy: number; tx: number; ty: number } | null>(null);
     
     // Count currently selected trajectories (unique episodes) for multi-select helper text
     const selectedTrajectoriesCount = React.useMemo(() => {
@@ -184,6 +188,33 @@ const StateSequenceProjection = (props: any) => {
     useEffect(() => {
         multiSelectModeRef.current = multiSelectMode;
     }, [multiSelectMode]);
+
+    // Hold-to-multiselect behavior: Shift key enables additive selection temporarily.
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Shift') {
+                setMultiSelectMode(true);
+            }
+        };
+        const handleKeyUp = (event: KeyboardEvent) => {
+            if (event.key === 'Shift') {
+                setMultiSelectMode(false);
+            }
+        };
+        const handleWindowBlur = () => {
+            setMultiSelectMode(false);
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        window.addEventListener('blur', handleWindowBlur);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            window.removeEventListener('blur', handleWindowBlur);
+        };
+    }, []);
 
     // Keep currentSelectionRef in sync with activeLearningState.selection
     useEffect(() => {
@@ -371,7 +402,7 @@ const StateSequenceProjection = (props: any) => {
         [activeLearningDispatch]
     );
 
-    const handleEpisodeTileClick = useCallback((ep: number) => {
+    const handleEpisodeTileClick = useCallback((ep: number, event?: React.MouseEvent<HTMLElement>) => {
         const episodeIndices = activeLearningState.episodeIndices || [];
         const episodeStartIndex = episodeIndices.indexOf(ep);
 
@@ -411,7 +442,9 @@ const StateSequenceProjection = (props: any) => {
 
         let nextSelection = currentSelection;
 
-        if (multiSelectMode) {
+        const isAdditiveSelection = multiSelectMode || Boolean(event?.shiftKey);
+
+        if (isAdditiveSelection) {
             if (!alreadySelected) {
                 nextSelection = [...currentSelection, newStateSelection];
                 activeLearningDispatch({
@@ -512,8 +545,9 @@ const StateSequenceProjection = (props: any) => {
         
         // Clear image cache
         clearCanvasImageCache();
+        userTrajectoryCoordinateTransformRef.current = null;
 
-        const embedding_method = props.embeddingMethod;
+        const embedding_method = 'PCA';
         const use_one_d_embedding = 0;
         const reproject = props.reproject ? 1 : 0;
         const append_time = props.appendTimestamp ? 1 : 0;
@@ -551,27 +585,168 @@ const StateSequenceProjection = (props: any) => {
 
         // Load all projection data
         Promise.all([
-            axios.post(`${url}?${queryString}`, {
+            postCached<any>(`${url}?${queryString}`, {
                 benchmarks: props.benchmarkedModels,
                 embedding_props: props.embeddingSettings
             }),
-            axios.post(`${grid_projection_url}?${queryString}`),
-            axios.post(`${grid_projection_url}?${uncertainty_grid_projection_queryString}`),
+            postCached<any>(`${grid_projection_url}?${queryString}`),
+            postCached<any>(`${grid_projection_url}?${uncertainty_grid_projection_queryString}`),
         ])
             .then(([projectionRes, gridRes, gridUncertaintyRes]) => {
                 const data = projectionRes.data;
                 const grid_data = gridRes.data;
                 const grid_uncertainty_data = gridUncertaintyRes.data;
 
+                const forwardProjection = Array.isArray(data?.projection) ? data.projection : [];
+                const gridProjection = Array.isArray(grid_data?.original_coordinates)
+                    ? grid_data.original_coordinates
+                    : [];
+                const forwardEpisodeIndices = Array.isArray(data?.episode_indices) ? data.episode_indices : [];
+                const gridEpisodeIndices = Array.isArray(grid_data?.episode_indices) ? grid_data.episode_indices : [];
+                const forwardDones = Array.isArray(data?.dones) ? data.dones : [];
+                const gridDones = Array.isArray(grid_data?.dones) ? grid_data.dones : [];
+
+                // Use grid-provided coordinates only when they can be aligned with sequence metadata.
+                // Some prediction files contain dense grid-like "original_coordinates" without episode
+                // sequencing, which should not replace trajectory coordinates for rendering.
+                const gridProjectionMatchesSequence =
+                    gridProjection.length > 0 &&
+                    (
+                        gridEpisodeIndices.length === gridProjection.length ||
+                        gridDones.length === gridProjection.length ||
+                        forwardProjection.length === gridProjection.length
+                    );
+                const effectiveProjection = gridProjectionMatchesSequence ? gridProjection : forwardProjection;
+
+                if (gridProjection.length > 0 && !gridProjectionMatchesSequence) {
+                    console.warn(
+                        "Ignoring grid original_coordinates for trajectory rendering because sequence metadata does not align.",
+                        {
+                            gridProjectionLength: gridProjection.length,
+                            gridEpisodeIndicesLength: gridEpisodeIndices.length,
+                            gridDonesLength: gridDones.length,
+                            forwardProjectionLength: forwardProjection.length,
+                        }
+                    );
+                }
+
+                const effectiveEpisodeIndices =
+                    gridEpisodeIndices.length === effectiveProjection.length
+                        ? gridEpisodeIndices
+                        : forwardEpisodeIndices.length === effectiveProjection.length
+                            ? forwardEpisodeIndices
+                                : gridEpisodeIndices.length === forwardProjection.length
+                                    ? gridEpisodeIndices
+                                    : forwardEpisodeIndices;
+
+                const effectiveDones =
+                    gridDones.length === effectiveProjection.length
+                        ? gridDones
+                        : forwardDones.length === effectiveProjection.length
+                            ? forwardDones
+                            : gridDones.length === forwardProjection.length
+                                ? gridDones
+                                : forwardDones;
+
+                let normalizedEpisodeIndices = effectiveEpisodeIndices;
+                if (normalizedEpisodeIndices.length !== effectiveProjection.length) {
+                    if (effectiveDones.length === effectiveProjection.length) {
+                        const rebuilt: number[] = [];
+                        let currentEpisode = 0;
+                        effectiveDones.forEach((doneFlag: any) => {
+                            rebuilt.push(currentEpisode);
+                            if (Boolean(doneFlag)) {
+                                currentEpisode += 1;
+                            }
+                        });
+                        normalizedEpisodeIndices = rebuilt;
+                    } else if (effectiveProjection.length > 0) {
+                        normalizedEpisodeIndices = Array.from({ length: effectiveProjection.length }, () => 0);
+                    }
+                }
+
+                const projectionPoints: number[][] = Array.isArray(effectiveProjection)
+                    ? effectiveProjection as number[][]
+                    : [];
+                const episodeIndexList: number[] = Array.isArray(normalizedEpisodeIndices)
+                    ? normalizedEpisodeIndices as number[]
+                    : [];
+                const doneList: any[] = Array.isArray(effectiveDones) ? effectiveDones : [];
+                const labelList: any[] = Array.isArray(data?.labels) ? data.labels : [];
+                const actionList: any[] = Array.isArray(data?.actions) ? data.actions : [];
+                const rewardList: number[] = Array.isArray(grid_data?.original_predictions)
+                    ? grid_data.original_predictions as number[]
+                    : [];
+                const uncertaintyList: number[] = Array.isArray(grid_data?.original_uncertainties)
+                    ? grid_data.original_uncertainties as number[]
+                    : [];
+
+                const projectionKeepMask = episodeIndexList.length === projectionPoints.length
+                    ? buildEpisodeKeepMask(episodeIndexList)
+                    : Array.from({ length: projectionPoints.length }, () => true);
+                const applyKeepMask = <T,>(values: T[]): T[] => {
+                    if (!Array.isArray(values) || values.length !== projectionKeepMask.length) {
+                        return values;
+                    }
+                    return values.filter((_, index) => projectionKeepMask[index]);
+                };
+
+                const limitedProjection = applyKeepMask(projectionPoints);
+                const limitedEpisodeIndices = applyKeepMask(episodeIndexList);
+                const limitedDones = applyKeepMask(doneList);
+                const limitedLabels = applyKeepMask(labelList);
+                const limitedActions = applyKeepMask(actionList);
+                const limitedPredictedRewards = applyKeepMask(rewardList);
+                const limitedPredictedUncertainties = applyKeepMask(uncertaintyList);
+
+                const computeExtent = (points: number[][], axis: 0 | 1): [number, number] | null => {
+                    if (!Array.isArray(points) || points.length === 0) return null;
+                    const values = points
+                        .map((point) => Number(point?.[axis]))
+                        .filter((value) => Number.isFinite(value));
+                    if (values.length === 0) return null;
+                    return [Math.min(...values), Math.max(...values)];
+                };
+
+                const sourceXExtent = computeExtent(forwardProjection as number[][], 0);
+                const sourceYExtent = computeExtent(forwardProjection as number[][], 1);
+                const targetXExtent = computeExtent(projectionPoints, 0);
+                const targetYExtent = computeExtent(projectionPoints, 1);
+
+                if (sourceXExtent && sourceYExtent && targetXExtent && targetYExtent) {
+                    const sourceXRange = sourceXExtent[1] - sourceXExtent[0];
+                    const sourceYRange = sourceYExtent[1] - sourceYExtent[0];
+                    const targetXRange = targetXExtent[1] - targetXExtent[0];
+                    const targetYRange = targetYExtent[1] - targetYExtent[0];
+
+                    const safeSourceXRange = Math.abs(sourceXRange) < 1e-9 ? 1 : sourceXRange;
+                    const safeSourceYRange = Math.abs(sourceYRange) < 1e-9 ? 1 : sourceYRange;
+
+                    const sx = targetXRange / safeSourceXRange;
+                    const sy = targetYRange / safeSourceYRange;
+                    const tx = targetXExtent[0] - sx * sourceXExtent[0];
+                    const ty = targetYExtent[0] - sy * sourceYExtent[0];
+
+                    userTrajectoryCoordinateTransformRef.current = { sx, sy, tx, ty };
+                } else {
+                    userTrajectoryCoordinateTransformRef.current = null;
+                }
+
+                if (gridProjection.length === 0 && effectiveProjection.length > 0) {
+                    console.warn(
+                        "grid original_coordinates unavailable; falling back to generate_projection output."
+                    );
+                }
+
                 console.log("Loaded projection data:", grid_data.x_range, grid_data.y_range);
-                const xs = data.projection.map((p: number[]) => p[0]);
-                const ys = data.projection.map((p: number[]) => p[1]);
+                const xs = limitedProjection.map((p: number[]) => p[0]);
+                const ys = limitedProjection.map((p: number[]) => p[1]);
 
                 // get min/max
-                const minX = Math.min(...xs);
-                const maxX = Math.max(...xs);
-                const minY = Math.min(...ys);
-                const maxY = Math.max(...ys);
+                const minX = xs.length > 0 ? Math.min(...xs) : 0;
+                const maxX = xs.length > 0 ? Math.max(...xs) : 0;
+                const minY = ys.length > 0 ? Math.min(...ys) : 0;
+                const maxY = ys.length > 0 ? Math.max(...ys) : 0;
 
                 console.log({ minX, maxX, minY, maxY });
 
@@ -580,7 +755,7 @@ const StateSequenceProjection = (props: any) => {
 
                 // Set projectionStates to be used across the UI (timeline, selections)
                 // Use the API projection (expected to be joint/global if available)
-                activeLearningDispatch({ type: 'SET_PROJECTION_STATES', payload: data.projection });
+                activeLearningDispatch({ type: 'SET_PROJECTION_STATES', payload: limitedProjection });
 
                 // Update grid image data
                 activeLearningDispatch({ type: 'SET_GRID_PREDICTION_IMAGE', payload: grid_data.image });
@@ -594,7 +769,7 @@ const StateSequenceProjection = (props: any) => {
                     : [];
 
                 // Update global state - projection data
-                activeLearningDispatch({ type: 'SET_EMBEDDING_LABELS', payload: data.labels });
+                activeLearningDispatch({ type: 'SET_EMBEDDING_LABELS', payload: limitedLabels });
                 activeLearningDispatch({ type: 'SET_CLUSTER_CENTROIDS', payload: data.centroids });
                 activeLearningDispatch({ type: 'SET_MERGED_POINTS', payload: data.merged_points });
                 activeLearningDispatch({ type: 'SET_POINT_CONNECTIONS', payload: data.connections });
@@ -604,15 +779,15 @@ const StateSequenceProjection = (props: any) => {
                 activeLearningDispatch({ type: 'SET_LAST_DATA_UPDATE_TIMESTAMP', payload: dataTimestamp });
                 activeLearningDispatch({ type: 'SET_SELECTED_POINTS', payload: selected_points });
                 activeLearningDispatch({ type: 'SET_HIGHLIGHTED_POINTS', payload: highlighted_points });
-                activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: data.episode_indices || [] });
-                activeLearningDispatch({ type: 'SET_PREDICTED_REWARDS', payload: grid_data.original_predictions || [] });
-                activeLearningDispatch({ type: 'SET_PREDICTED_UNCERTAINTIES', payload: grid_data.original_uncertainties || [] });
+                activeLearningDispatch({ type: 'SET_EPISODE_INDICES', payload: limitedEpisodeIndices || [] });
+                activeLearningDispatch({ type: 'SET_PREDICTED_REWARDS', payload: limitedPredictedRewards || [] });
+                activeLearningDispatch({ type: 'SET_PREDICTED_UNCERTAINTIES', payload: limitedPredictedUncertainties || [] });
 
                 // Compute and store per-episode stats once on data load
                 try {
-                    const epiIdx = data.episode_indices || [];
-                    const preds = grid_data.original_predictions || [];
-                    const uncs = grid_data.original_uncertainties || [];
+                    const epiIdx = limitedEpisodeIndices || [];
+                    const preds = limitedPredictedRewards || [];
+                    const uncs = limitedPredictedUncertainties || [];
                     const statsMap = new Map<number, { avgReward: number | null; avgUncertainty: number | null; count: number }>();
                     const uniqueEpisodes = Array.from(new Set(epiIdx)) as number[];
                     uniqueEpisodes.forEach((ep: number) => {
@@ -632,8 +807,8 @@ const StateSequenceProjection = (props: any) => {
                 }
 
                 // Calculate and set global ranges for consistent timeline scaling
-                const rewards = grid_data.original_predictions || [];
-                const uncertainties = grid_data.original_uncertainties || [];
+                const rewards = limitedPredictedRewards || [];
+                const uncertainties = limitedPredictedUncertainties || [];
                 
                 if (rewards.length > 0) {
                     const rewardRange: [number, number] = [
@@ -675,14 +850,14 @@ const StateSequenceProjection = (props: any) => {
 
                 // Process segments with the loaded data
                 let processedSegments: any[] = [];
-                if (data.projection && data.episode_indices) {
+                if (limitedProjection && limitedEpisodeIndices && limitedProjection.length > 0) {
                     const episodeToPaths = new Map();
-                    data.episode_indices.forEach((episodeIdx: number, i: number) => {
+                    limitedEpisodeIndices.forEach((episodeIdx: number, i: number) => {
                         if (!episodeToPaths.has(episodeIdx)) {
                             episodeToPaths.set(episodeIdx, []);
                         }
-                        if (i < data.projection.length) {
-                            episodeToPaths.get(episodeIdx).push(data.projection[i]);
+                        if (i < limitedProjection.length) {
+                            episodeToPaths.get(episodeIdx).push(limitedProjection[i]);
                         }
                     });
                     
@@ -704,18 +879,18 @@ const StateSequenceProjection = (props: any) => {
 
                 // Draw the chart with all data including segments
                 // Use API projection coordinates (should be joint/global if available)
-                const coordsForOverlay = data.projection;
+                const coordsForOverlay = limitedProjection;
 
                 drawChart(
                     viewMode,
                     coordsForOverlay,
-                    data.labels,
-                    data.actions,
-                    data.dones,
-                    data.episode_indices,
+                    limitedLabels,
+                    limitedActions,
+                    limitedDones,
+                    limitedEpisodeIndices,
                     [],
-                    grid_data.original_predictions,
-                    grid_data.original_uncertainties,
+                    limitedPredictedRewards,
+                    limitedPredictedUncertainties,
                     {
                         "prediction_image": grid_prediction_image_path,
                         "uncertainty_image": grid_uncertainty_image_path,
@@ -726,17 +901,17 @@ const StateSequenceProjection = (props: any) => {
 
                 lastDrawParamsRef.current = {
                     data: coordsForOverlay,
-                    labels: data.labels || [],
-                    doneData: data.dones || [],
+                    labels: limitedLabels || [],
+                    doneData: limitedDones || [],
                     labelInfos: [],
-                    episodeIndices: data.episode_indices || [],
+                    episodeIndices: limitedEpisodeIndices || [],
                     gridData: {
                         prediction_image: grid_prediction_image_path,
                         uncertainty_image: grid_uncertainty_image_path,
                         bounds: grid_data.projection_bounds,
                     },
-                    predictedRewards: grid_data.original_predictions || [],
-                    predictedUncertainties: grid_data.original_uncertainties || [],
+                    predictedRewards: limitedPredictedRewards || [],
+                    predictedUncertainties: limitedPredictedUncertainties || [],
                     segments: processedSegments,
                 };
                 lastUserTrajectorySignatureRef.current = computeUserTrajectorySignature(
@@ -811,6 +986,7 @@ const StateSequenceProjection = (props: any) => {
             setSelectedCluster,
             maxUncertaintySegments,
             userGeneratedTrajectories: activeLearningState.userGeneratedTrajectories || [],
+            userTrajectoryCoordinateTransform: userTrajectoryCoordinateTransformRef.current,
             gridPredictionImage: activeLearningState.grid_prediction_image || null,
             currentPhase: activeLearningState.currentPhase,
         });
@@ -915,9 +1091,9 @@ const StateSequenceProjection = (props: any) => {
                                     '& .MuiSvgIcon-root': { fontSize: 24 },
                                 })}
                                 onClick={() => {
-                                    activeLearningDispatch({
-                                        type: 'SET_SELECTION',
-                                        payload: []
+                    activeLearningDispatch({
+                        type: 'SET_SELECTION',
+                        payload: []
                                     });
                                     // Clear local selection state
                                     setSelectedState(null);
@@ -927,7 +1103,7 @@ const StateSequenceProjection = (props: any) => {
                                     setSelectedUserTrajectoryId(null);
                                     setSelectedUserDemo(null);
                                     selectedUserTrajectoryIdRef.current = null;
-                                    // Reset multi-select mode when clearing selection
+                                    // Ensure hold-to-multiselect visual state is reset
                                     setMultiSelectMode(false);
                                 }}
                             >
@@ -936,14 +1112,17 @@ const StateSequenceProjection = (props: any) => {
                         </Tooltip>
 
                         <OnboardingHighlight stepId="multi-select-mode" pulse={true}>
-                            <Tooltip title={multiSelectMode ? "Multi-Select Mode: ON" : "Multi-Select Mode: OFF"}>
-                                <IconButton
-                                    color={multiSelectMode ? "primary" : "default"}
+                            <Tooltip title={multiSelectMode ? "Shift pressed: Multi-Select active" : "Hold Shift to Multi-Select"}>
+                                <Box
                                     sx={(theme) => {
                                         const activeColor = theme.palette.primary.main;
                                         return {
                                             width: 52,
                                             height: 52,
+                                            borderRadius: '50%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
                                             backgroundColor: multiSelectMode
                                                 ? alpha(activeColor, 0.95)
                                                 : alpha(theme.palette.primary.main, 0.15),
@@ -953,22 +1132,12 @@ const StateSequenceProjection = (props: any) => {
                                                 ? `0 3px 10px ${alpha(activeColor, 0.35)}`
                                                 : `0 2px 8px ${alpha(theme.palette.grey[700], 0.25)}`,
                                             transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
-                                            '&:hover': {
-                                                backgroundColor: multiSelectMode
-                                                    ? activeColor
-                                                    : alpha(theme.palette.primary.light, 0.3),
-                                            },
                                             '& .MuiSvgIcon-root': { fontSize: 24 },
                                         };
                                     }}
-                                    onClick={() => {
-                                        if (selectedTrajectory || selectedState) {
-                                            setMultiSelectMode(!multiSelectMode);
-                                        }
-                                    }}
                                 >
                                     <AddIcon />
-                                </IconButton>
+                                </Box>
                             </Tooltip>
                         </OnboardingHighlight>
 
@@ -988,10 +1157,10 @@ const StateSequenceProjection = (props: any) => {
                                     whiteSpace: 'nowrap'
                                 }}
                             >
-                                Click Trajectory to Add (Already Selected: {selectedTrajectoriesCount})
+                                Shift held: click trajectory to add (Selected: {selectedTrajectoriesCount})
                             </Typography>
                         )}
-                        {!multiSelectMode && selectedTrajectoriesCount > 0 && (
+                        {!multiSelectMode && (
                             <Typography
                                 variant="caption"
                                 sx={{
@@ -1007,7 +1176,7 @@ const StateSequenceProjection = (props: any) => {
                                     whiteSpace: 'nowrap'
                                 }}
                             >
-                                Activate Multi-Select to Compare Multiple Episodes
+                                Hold Shift + click to add more episodes
                             </Typography>
                         )}
                     </Box>
@@ -1084,7 +1253,7 @@ const StateSequenceProjection = (props: any) => {
                                     const [uMin, uMax] = activeLearningState.globalUncertaintyRange;
                                     const rNorm = (rMax > rMin) ? Math.min(1, Math.max(0, (avgR - rMin) / (rMax - rMin))) : 0.5;
                                     const uNorm = (uMax > uMin) ? Math.min(1, Math.max(0, (avgU - uMin) / (uMax - uMin))) : 0.5;
-                                    const scale = vsup.scale().quantize(vsup.quantization().branching(2).layers(4).valueDomain([0, 1]).uncertaintyDomain([1.0, 0.01])).range(d3.interpolateCividis);
+                                    const scale = vsup.scale().quantize(vsup.quantization().branching(2).layers(4).valueDomain([0, 1]).uncertaintyDomain([1.0, 0.01])).range(interpolateBrightCividis);
                                     indicatorColor = scale(rNorm, uNorm);
                                 }
 
@@ -1109,7 +1278,7 @@ const StateSequenceProjection = (props: any) => {
                                         arrow
                                     >
                                         <Box
-                                            onClick={() => handleEpisodeTileClick(ep)}
+                                            onClick={(event) => handleEpisodeTileClick(ep, event)}
                                             sx={{
                                                 cursor: 'pointer',
                                                 border: '2px solid',
