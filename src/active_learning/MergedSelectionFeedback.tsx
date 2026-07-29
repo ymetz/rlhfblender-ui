@@ -1778,16 +1778,12 @@ const MergedSelectionFeedback = () => {
                     const clamped = clampStep(newStep);
                     setCorrectionStep(clamped);
                     setIsCorrectionStepManual(true);
-<<<<<<< HEAD
-                    updateSelectedStep(clamped);
-=======
                     if (clamped !== selectedStep) {
                       setSelectedStep(clamped);
                     }
                     if (selectionData.type === 'state') {
                       scheduleStateSelectionSync(episodeIdx, clamped, currentStateData, true);
                     }
->>>>>>> 27d07b1422242fa8221e89f91c293c8be32fdb5a
                   }}
                   width={Math.max(280, timelineWidth)}
                   height={140}
