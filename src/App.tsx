@@ -1,6 +1,12 @@
 // App.tsx
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { Box, IconButton, Chip, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -29,9 +35,7 @@ import {
   useSetupConfigState,
   useSetupConfigDispatch,
 } from "./SetupConfigContext";
-import {
-  ActiveLearningProvider
-} from "./ActiveLearningContext";
+import { ActiveLearningProvider } from "./ActiveLearningContext";
 import getDesignTokens from "./theme";
 import { EpisodeFromID } from "./id";
 import {
@@ -45,15 +49,29 @@ import {
 } from "./types";
 import { ShortcutsProvider } from "./ShortCutProvider";
 import StudyCodeModal from "./components/modals/study-code-modal";
-import StudyPhaseTransitionModal from "./components/modals/study-phase-transition-modal";
+import StudyPhaseTransitionModal, {
+  StudyPhaseKind,
+} from "./components/modals/study-phase-transition-modal";
+import StudyPhaseSurveyScreen, {
+  StudySurveyResponses,
+} from "./components/study/study-phase-survey-screen";
+import ExperimentCompletionScreen from "./components/study/experiment-completion-screen";
 import { limitEpisodesForCheckpoint } from "./trajectoryDisplayLimit";
-import { clearCachedPostRequests, postCached } from "./utils/cachedPostRequests";
+import {
+  clearCachedPostRequests,
+  postCached,
+} from "./utils/cachedPostRequests";
 
-const DEFAULT_STUDY_SURVEY_URL =
-  "https://docs.google.com/forms/d/e/1FAIpQLSc0TvdTw_9UigBODvQra2zdG9z6EmdlrTTYjiZpH7nxr-oVoQ/viewform?usp=dialog";
+const DEFAULT_COMPLETION_CODE = "RLHF-COMPLETE";
 
 type ComparativePhaseKind = "baseline" | "mixed" | "active-learning";
-type ComparativeStudyStage = "intro" | "between" | "complete";
+type ComparativeStudyStage =
+  | "intro"
+  | "between"
+  | "demographics"
+  | "survey"
+  | "final-survey"
+  | "complete";
 type SampleSelectionMode = "first" | "random";
 type RandomFn = () => number;
 
@@ -131,7 +149,10 @@ const normalizeSelectionMode = (value?: string): SampleSelectionMode => {
 };
 
 const parseBatchSize = (uiConfig: UIConfig): number => {
-  const parsed = Number.parseInt(String(uiConfig?.max_ranking_elements ?? 1), 10);
+  const parsed = Number.parseInt(
+    String(uiConfig?.max_ranking_elements ?? 1),
+    10,
+  );
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return 1;
   }
@@ -144,9 +165,10 @@ const buildBatchIndices = (
   limit: number,
   episodeCount: number,
 ): number[] => {
-  const raw = Array.from({ length: batchSize }, (_, offset) => startIndex + offset).filter(
-    (value) => value < limit,
-  );
+  const raw = Array.from(
+    { length: batchSize },
+    (_, offset) => startIndex + offset,
+  ).filter((value) => value < limit);
   if (episodeCount <= 0) {
     return [];
   }
@@ -238,11 +260,11 @@ const buildConfigSequenceWithElementCounts = (
           selectionMode === "random"
             ? buildRandomBatch(batchSize, episodeCount, random)
             : buildBatchIndices(
-              counters[index],
-              batchSize,
-              limits[index],
-              episodeCount,
-            );
+                counters[index],
+                batchSize,
+                limits[index],
+                episodeCount,
+              );
         if (!batch.length) {
           counters[index] = limits[index];
           continue;
@@ -293,7 +315,8 @@ const buildDeterministicSequenceForSingleConfig = (
     if (allPairs.length === 0) {
       return [];
     }
-    const sourcePairs = selectionMode === "random" ? shuffleArray(allPairs, random) : allPairs;
+    const sourcePairs =
+      selectionMode === "random" ? shuffleArray(allPairs, random) : allPairs;
     const chosenPairs: number[][] = sourcePairs.slice(
       0,
       Math.min(safeTargetInstances, sourcePairs.length),
@@ -337,9 +360,9 @@ const App: React.FC = () => {
   const pendingResetParamsRef = useRef<ResetParams | null>(null);
   const resetInFlightRef = useRef<Promise<void> | null>(null);
   const isApplyingSetupRef = useRef<boolean>(false);
-  const projectionUncertaintyCacheRef = useRef<Map<string, Map<number, number[]>>>(
-    new Map(),
-  );
+  const projectionUncertaintyCacheRef = useRef<
+    Map<string, Map<number, number[]>>
+  >(new Map());
   const projectionUncertaintyPendingRef = useRef<
     Map<string, Promise<Map<number, number[]>>>
   >(new Map());
@@ -364,26 +387,30 @@ const App: React.FC = () => {
     useState<boolean>(false);
   const [phaseTransitionLoading, setPhaseTransitionLoading] =
     useState<boolean>(false);
-  const [phaseTransitionError, setPhaseTransitionError] = useState<string | null>(
-    null,
-  );
+  const [phaseTransitionError, setPhaseTransitionError] = useState<
+    string | null
+  >(null);
   const [currentComparativePhaseIndex, setCurrentComparativePhaseIndex] =
     useState<number>(-1);
   const [nextComparativePhaseIndex, setNextComparativePhaseIndex] =
     useState<number>(-1);
-  const [comparativeSurveyUrl, setComparativeSurveyUrl] = useState<string>(
-    DEFAULT_STUDY_SURVEY_URL,
+  const [completionCode, setCompletionCode] = useState<string>(
+    DEFAULT_COMPLETION_CODE,
   );
+  const [demographicsSubmitted, setDemographicsSubmitted] =
+    useState<boolean>(false);
   const [baselineSelectionMode, setBaselineSelectionMode] =
     useState<SampleSelectionMode>("random");
   const [mixedSelectionMode, setMixedSelectionMode] =
     useState<SampleSelectionMode>("random");
   const hasHandledPhaseEndRef = useRef<boolean>(false);
+  const hasHandledStandalonePhaseEndRef = useRef<boolean>(false);
+  const hasAppliedStudyPreviewRef = useRef<boolean>(false);
   const hasInitializedRef = useRef<boolean>(false);
   const isComparativeStudyMode = comparativeStudyPhases.length > 0;
   const currentComparativePhaseKind =
     isComparativeStudyMode && currentComparativePhaseIndex >= 0
-      ? comparativeStudyPhases[currentComparativePhaseIndex]?.kind ?? "none"
+      ? (comparativeStudyPhases[currentComparativePhaseIndex]?.kind ?? "none")
       : "none";
   const currentSetupSignature = useMemo(() => {
     const selectedUiIds = (
@@ -416,9 +443,8 @@ const App: React.FC = () => {
     }
 
     if (ArrayBuffer.isView(data)) {
-      return Array.from(
-        data as unknown as ArrayLike<number>,
-        (value) => Number(value),
+      return Array.from(data as unknown as ArrayLike<number>, (value) =>
+        Number(value),
       );
     }
 
@@ -441,7 +467,10 @@ const App: React.FC = () => {
         rawValues: number[],
       ): Map<number, number[]> => {
         const byEpisode = new Map<number, number[]>();
-        const sharedLength = Math.min(rawEpisodeIndices.length, rawValues.length);
+        const sharedLength = Math.min(
+          rawEpisodeIndices.length,
+          rawValues.length,
+        );
         for (let i = 0; i < sharedLength; i += 1) {
           const rawEpisodeNum = rawEpisodeIndices[i];
           const rawValue = rawValues[i];
@@ -457,14 +486,18 @@ const App: React.FC = () => {
       };
 
       for (const projectionMethod of methodCandidates) {
-        const projectionDataResponse = await postCached("/projection/load_grid_projection_data", null, {
-          params: {
-            benchmark_id: episodeRef.benchmark_id,
-            checkpoint_step: episodeRef.checkpoint_step,
-            projection_method: projectionMethod,
-            allow_missing: true,
+        const projectionDataResponse = await postCached(
+          "/projection/load_grid_projection_data",
+          null,
+          {
+            params: {
+              benchmark_id: episodeRef.benchmark_id,
+              checkpoint_step: episodeRef.checkpoint_step,
+              projection_method: projectionMethod,
+              allow_missing: true,
+            },
           },
-        });
+        );
 
         const predictionPayload = projectionDataResponse.data as {
           episode_indices?: unknown;
@@ -480,14 +513,18 @@ const App: React.FC = () => {
         }
 
         if (episodeIndices.length === 0) {
-          const projectionResponse = await postCached("/projection/generate_projection", null, {
-            params: {
-              benchmark_id: episodeRef.benchmark_id,
-              checkpoint_step: episodeRef.checkpoint_step,
-              projection_method: projectionMethod,
-              sequence_length: 1,
+          const projectionResponse = await postCached(
+            "/projection/generate_projection",
+            null,
+            {
+              params: {
+                benchmark_id: episodeRef.benchmark_id,
+                checkpoint_step: episodeRef.checkpoint_step,
+                projection_method: projectionMethod,
+                sequence_length: 1,
+              },
             },
-          });
+          );
           const projectionPayload = projectionResponse.data as {
             episode_indices?: unknown;
           };
@@ -532,7 +569,10 @@ const App: React.FC = () => {
     }
 
     if (!baseName) {
-      const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[^0-9]/g, "")
+        .slice(0, 14);
       const seed = comparativeStudyPhases[0]?.studyCode || "session";
       const safeSeed = seed.replace(/[^a-zA-Z0-9_-]/g, "-");
       baseName = `${safeSeed}_${timestamp}`;
@@ -549,6 +589,34 @@ const App: React.FC = () => {
     comparativeStudyPhases,
     currentComparativePhaseIndex,
     isComparativeStudyMode,
+  ]);
+
+  const resolveSurveyParticipantId = useCallback((): string => {
+    const url = new URL(window.location.href);
+    const crowdParticipantIdKeys = [
+      "participant_id",
+      "PROLIFIC_PID",
+      "prolific_pid",
+      "WORKER_ID",
+      "worker_id",
+      "mturk_worker_id",
+    ];
+
+    for (const key of crowdParticipantIdKeys) {
+      const value = url.searchParams.get(key)?.trim();
+      if (value) {
+        return value;
+      }
+    }
+
+    return (
+      resolveComparativeSessionBaseName() ||
+      (state.sessionId !== "-" ? state.sessionId : state.studyCode)
+    );
+  }, [
+    resolveComparativeSessionBaseName,
+    state.sessionId,
+    state.studyCode,
   ]);
 
   const getProjectionUncertaintyByEpisode = useCallback(
@@ -657,16 +725,23 @@ const App: React.FC = () => {
         return pending;
       }
 
-      const requestPromise = postCached("/projection/generate_projection", null, {
+      const requestPromise = postCached(
+        "/projection/generate_projection",
+        null,
+        {
           params: {
             benchmark_id: benchmarkId,
             checkpoint_step: checkpointStep,
             projection_method: "PCA",
             sequence_length: 1,
           },
-        })
+        },
+      )
         .then((response) => {
-          const payload = response.data as { labels?: unknown[]; episode_indices?: unknown[] };
+          const payload = response.data as {
+            labels?: unknown[];
+            episode_indices?: unknown[];
+          };
           const labels = Array.isArray(payload.labels) ? payload.labels : [];
           const episodeIndices = Array.isArray(payload.episode_indices)
             ? payload.episode_indices
@@ -683,12 +758,16 @@ const App: React.FC = () => {
                 continue;
               }
               const labelEntry = labels[i];
-              const labelValue = Array.isArray(labelEntry) ? labelEntry[0] : labelEntry;
+              const labelValue = Array.isArray(labelEntry)
+                ? labelEntry[0]
+                : labelEntry;
               uniqueLabels.add(String(labelValue));
             }
           } else {
             for (const labelEntry of labels) {
-              const labelValue = Array.isArray(labelEntry) ? labelEntry[0] : labelEntry;
+              const labelValue = Array.isArray(labelEntry)
+                ? labelEntry[0]
+                : labelEntry;
               uniqueLabels.add(String(labelValue));
             }
           }
@@ -746,9 +825,10 @@ const App: React.FC = () => {
       return null;
     }
 
-    const surveyUrl =
-      getParamValue(["survey_url", "study_survey"]) || DEFAULT_STUDY_SURVEY_URL;
-    const sharedSelectionMode = getParamValue(["selection_mode", "sampling_mode"]);
+    const sharedSelectionMode = getParamValue([
+      "selection_mode",
+      "sampling_mode",
+    ]);
     const baselineSelectionRaw =
       getParamValue(["baseline_selection_mode", "baseline_sampling_mode"]) ||
       sharedSelectionMode;
@@ -759,7 +839,7 @@ const App: React.FC = () => {
     const basePhases: ComparativeStudyPhase[] = [
       {
         kind: "baseline",
-        label: "Preference-Only Feedback",
+        label: "Preference-Only Baseline",
         description:
           "Baseline interface with pairwise-preference feedback only.",
         studyCode: baselineCode,
@@ -768,14 +848,13 @@ const App: React.FC = () => {
       {
         kind: "mixed",
         label: "Mixed Feedback (Alternating)",
-        description:
-          "A sequence of five alternating feedback types.",
+        description: "A sequence of five alternating feedback types.",
         studyCode: mixedCode,
         appMode: "study",
       },
       {
         kind: "active-learning",
-        label: "Visual Interactive Feedback Generation for RL",
+        label: "Visual Interactive Feedback Generation",
         description:
           "Visual interface with active sample selection and multiple feedback types.",
         studyCode: activeLearningCode,
@@ -807,13 +886,15 @@ const App: React.FC = () => {
         );
       }
     } catch (error) {
-      console.warn("Could not persist randomized comparative study order:", error);
+      console.warn(
+        "Could not persist randomized comparative study order:",
+        error,
+      );
       orderedPhases = shuffleArray(basePhases, Math.random);
     }
 
     return {
       orderedPhases,
-      surveyUrl,
       baselineSelectionMode: normalizeSelectionMode(baselineSelectionRaw),
       mixedSelectionMode: normalizeSelectionMode(mixedSelectionRaw),
     };
@@ -828,18 +909,25 @@ const App: React.FC = () => {
     const initializeData = () => {
       const url = new URL(window.location.href);
       const comparativeStudy = buildComparativeStudyFromUrl(url);
+      const requestedCompletionCode =
+        url.searchParams.get("completion_code") ||
+        url.searchParams.get("prolific_code") ||
+        url.searchParams.get("mturk_code");
+      setCompletionCode(
+        requestedCompletionCode?.trim().slice(0, 128) ||
+          DEFAULT_COMPLETION_CODE,
+      );
 
       if (comparativeStudy) {
         setComparativeStudyPhases(comparativeStudy.orderedPhases);
-        setComparativeSurveyUrl(comparativeStudy.surveyUrl);
         setBaselineSelectionMode(comparativeStudy.baselineSelectionMode);
         setMixedSelectionMode(comparativeStudy.mixedSelectionMode);
         setCurrentComparativePhaseIndex(-1);
         setNextComparativePhaseIndex(0);
-        setComparativeStudyStage("intro");
+        setComparativeStudyStage(null);
         setPhaseTransitionError(null);
-        setPhaseTransitionModalOpen(true);
-        dispatch({ type: "SET_START_MODAL_OPEN", payload: false });
+        setPhaseTransitionModalOpen(false);
+        dispatch({ type: "SET_START_MODAL_OPEN", payload: true });
         dispatch({ type: "SET_APP_MODE", payload: "study" });
       } else {
         const study_mode = url.searchParams.get("study_mode") || "";
@@ -847,7 +935,10 @@ const App: React.FC = () => {
         if (study_mode === "active-learning") {
           if (study_code !== "") {
             dispatch({ type: "SET_STUDY_CODE", payload: study_code });
-            dispatch({ type: "SET_APP_MODE", payload: "study-active-learning" });
+            dispatch({
+              type: "SET_APP_MODE",
+              payload: "study-active-learning",
+            });
           } else {
             dispatch({ type: "SET_APP_MODE", payload: "active-learning" });
           }
@@ -989,14 +1080,19 @@ const App: React.FC = () => {
           return predictedRewards;
         }
       } catch (error) {
-        console.warn("Projection reward fetch failed, falling back to file rewards:", error);
+        console.warn(
+          "Projection reward fetch failed, falling back to file rewards:",
+          error,
+        );
       }
 
       try {
         const response = await axios.get("data/get_rewards", {
           params: EpisodeFromID(episodeId),
         });
-        const rewards = toNumberArray(response.data).filter((v) => Number.isFinite(v));
+        const rewards = toNumberArray(response.data).filter((v) =>
+          Number.isFinite(v),
+        );
         dispatch({
           type: "SET_REWARDS_CACHE",
           payload: { [episodeId]: rewards },
@@ -1029,7 +1125,10 @@ const App: React.FC = () => {
           return predictedUncertainty;
         }
       } catch (error) {
-        console.warn("Projection uncertainty fetch failed, falling back to file uncertainty:", error);
+        console.warn(
+          "Projection uncertainty fetch failed, falling back to file uncertainty:",
+          error,
+        );
       }
 
       try {
@@ -1040,7 +1139,9 @@ const App: React.FC = () => {
           Number.isFinite(v),
         );
         if (uncertainty.length === 0) {
-          throw new Error("Empty uncertainty payload from /data/get_uncertainty");
+          throw new Error(
+            "Empty uncertainty payload from /data/get_uncertainty",
+          );
         }
         dispatch({
           type: "SET_UNCERTAINTY_CACHE",
@@ -1052,7 +1153,12 @@ const App: React.FC = () => {
       }
       return undefined;
     },
-    [state.uncertaintyCache, dispatch, toNumberArray, getProjectionUncertaintyByEpisode],
+    [
+      state.uncertaintyCache,
+      dispatch,
+      toNumberArray,
+      getProjectionUncertaintyByEpisode,
+    ],
   );
 
   const getterContextValue = useMemo(
@@ -1066,210 +1172,225 @@ const App: React.FC = () => {
   );
 
   // Fetch action labels
-  const getActionLabels = useCallback(async (envId: string) => {
-    try {
-      const response = await axios.post("/data/get_action_label_urls", {
-        envId,
-      });
-      dispatch({ type: "SET_ACTION_LABELS", payload: response.data });
-    } catch (error) {
-      console.error("Error fetching action labels:", error);
-    }
-  }, [dispatch]);
-
-  const generateUiConfigSequence = useCallback(async (episodes: any[]) => {
-    const selectedUiConfigs = configState.activeBackendConfig.selectedUiConfigs;
-    const selectedUiConfigIdsKey = selectedUiConfigs
-      .map((config) => config.id)
-      .join(",");
-    let uiConfigSequence: SequenceElement[] = [];
-    const fallbackUiConfig = configState.activeUIConfig;
-    let resolvedAllUiConfigs = configState.allUIConfigs;
-    const episodeCount = Math.max(episodes.length || 0, 1);
-    const sampledEpisodeCount = Math.min(episodeCount, 10);
-    const mode =
-      selectedUiConfigs.length === 0
-        ? "sequential"
-        : configState.activeBackendConfig.uiConfigMode;
-    let relevantUiConfigs: UIConfig[] = [];
-    const activeComparativePhaseKind =
-      currentComparativePhaseKind !== "none"
-        ? currentComparativePhaseKind
-        : null;
-    const episodeSeedKey = episodes
-      .slice(0, sampledEpisodeCount)
-      .map((episode, index) => {
-        if (typeof episode === "string" || typeof episode === "number") {
-          return String(episode);
-        }
-        if (episode && typeof episode === "object") {
-          const candidate = episode as {
-            id?: string | number;
-            episode_id?: string | number;
-          };
-          if (candidate.episode_id !== undefined) {
-            return String(candidate.episode_id);
-          }
-          if (candidate.id !== undefined) {
-            return String(candidate.id);
-          }
-        }
-        return String(index);
-      })
-      .join("|");
-    const sequenceSeed = [
-      String(state.selectedExperiment.id),
-      String(state.selectedCheckpoint),
-      currentComparativePhaseKind,
-      configState.activeBackendConfig.id || "no-backend-id",
-      configState.activeBackendConfig.uiConfigMode || "no-ui-mode",
-      selectedUiConfigIdsKey || "no-selected-ui",
-      baselineSelectionMode,
-      mixedSelectionMode,
-      String(sampledEpisodeCount),
-      episodeSeedKey || "no-episodes",
-    ].join("::");
-    const seededRandom = createSeededRandom(sequenceSeed);
-
-    if (selectedUiConfigs.length > 0) {
-      const selectedUiConfigIds = selectedUiConfigs.map((config) => config.id);
-      const hasAllSelectedUiConfigs =
-        selectedUiConfigIds.length === 0 ||
-        selectedUiConfigIds.every((id) =>
-          resolvedAllUiConfigs.some((config) => config.id === id),
-        );
-
-      if (!hasAllSelectedUiConfigs) {
-        try {
-          const uiConfigsResponse = await axios.get("/ui_configs");
-          const fetchedUiConfigs = Array.isArray(uiConfigsResponse.data)
-            ? uiConfigsResponse.data
-            : [];
-          if (fetchedUiConfigs.length > 0) {
-            resolvedAllUiConfigs = fetchedUiConfigs;
-            configDispatch({
-              type: "SET_ALL_UI_CONFIGS",
-              payload: fetchedUiConfigs,
-            });
-          }
-        } catch (error) {
-          console.warn("Could not refresh UI configs before sequence generation:", error);
-        }
+  const getActionLabels = useCallback(
+    async (envId: string) => {
+      try {
+        const response = await axios.post("/data/get_action_label_urls", {
+          envId,
+        });
+        dispatch({ type: "SET_ACTION_LABELS", payload: response.data });
+      } catch (error) {
+        console.error("Error fetching action labels:", error);
       }
-    }
+    },
+    [dispatch],
+  );
 
-    if (selectedUiConfigs.length === 0) {
-      const relevantUiConfigsFromList = resolvedAllUiConfigs.filter(
-        (c) => c.id === configState.activeUIConfig.id,
-      );
-      relevantUiConfigs =
-        relevantUiConfigsFromList.length > 0
-          ? relevantUiConfigsFromList
-          : [fallbackUiConfig];
-    } else {
-      const relevantUiConfigsFromList = resolvedAllUiConfigs.filter((c) =>
-        selectedUiConfigs.map((c) => c.id).includes(c.id),
-      );
-      relevantUiConfigs =
-        relevantUiConfigsFromList.length > 0
-          ? relevantUiConfigsFromList
-          : [fallbackUiConfig];
-    }
-
-    if (
-      activeComparativePhaseKind === "baseline" &&
-      relevantUiConfigs.length === 1
-    ) {
-      uiConfigSequence = buildDeterministicSequenceForSingleConfig(
-        relevantUiConfigs[0],
-        sampledEpisodeCount,
-        6,
-        baselineSelectionMode,
-        seededRandom,
-      );
-      await configDispatch({
-        type: "SET_UI_CONFIG_SEQUENCE",
-        payload: uiConfigSequence,
-      });
-      return;
-    }
-
-    if (activeComparativePhaseKind === "mixed" && relevantUiConfigs.length > 0) {
-      const fixedCountByConfig = new Map<string, number>();
-      for (const uiConfig of relevantUiConfigs) {
-        const batchSize = parseBatchSize(uiConfig);
-        fixedCountByConfig.set(uiConfig.id, Math.max(1, batchSize) * 2);
-      }
-      uiConfigSequence = buildConfigSequenceWithElementCounts(
-        relevantUiConfigs,
-        fixedCountByConfig,
-        mode,
-        sampledEpisodeCount,
-        mixedSelectionMode,
-        seededRandom,
-      );
-      await configDispatch({
-        type: "SET_UI_CONFIG_SEQUENCE",
-        payload: uiConfigSequence,
-      });
-      return;
-    }
-
-    const elementCountByConfigId = new Map<string, number>();
-    await Promise.all(
-      relevantUiConfigs.map(async (uiConfig) => {
-        let elementCount = episodeCount;
-        if (uiConfig.feedbackComponents.clusterRating) {
-          const checkpointStep = Number(state.selectedCheckpoint);
-          if (
-            Number.isFinite(checkpointStep) &&
-            Number.isFinite(state.selectedExperiment.id) &&
-            state.selectedExperiment.id !== -1
-          ) {
-            const clusterCount = await getProjectionClusterCount(
-              state.selectedExperiment.id,
-              checkpointStep,
-              episodeCount,
-            );
-            if (clusterCount > 0) {
-              elementCount = Math.min(clusterCount, sampledEpisodeCount);
+  const generateUiConfigSequence = useCallback(
+    async (episodes: any[]) => {
+      const selectedUiConfigs =
+        configState.activeBackendConfig.selectedUiConfigs;
+      const selectedUiConfigIdsKey = selectedUiConfigs
+        .map((config) => config.id)
+        .join(",");
+      let uiConfigSequence: SequenceElement[] = [];
+      const fallbackUiConfig = configState.activeUIConfig;
+      let resolvedAllUiConfigs = configState.allUIConfigs;
+      const episodeCount = Math.max(episodes.length || 0, 1);
+      const sampledEpisodeCount = Math.min(episodeCount, 10);
+      const mode =
+        selectedUiConfigs.length === 0
+          ? "sequential"
+          : configState.activeBackendConfig.uiConfigMode;
+      let relevantUiConfigs: UIConfig[] = [];
+      const activeComparativePhaseKind =
+        currentComparativePhaseKind !== "none"
+          ? currentComparativePhaseKind
+          : null;
+      const episodeSeedKey = episodes
+        .slice(0, sampledEpisodeCount)
+        .map((episode, index) => {
+          if (typeof episode === "string" || typeof episode === "number") {
+            return String(episode);
+          }
+          if (episode && typeof episode === "object") {
+            const candidate = episode as {
+              id?: string | number;
+              episode_id?: string | number;
+            };
+            if (candidate.episode_id !== undefined) {
+              return String(candidate.episode_id);
+            }
+            if (candidate.id !== undefined) {
+              return String(candidate.id);
             }
           }
+          return String(index);
+        })
+        .join("|");
+      const sequenceSeed = [
+        String(state.selectedExperiment.id),
+        String(state.selectedCheckpoint),
+        currentComparativePhaseKind,
+        configState.activeBackendConfig.id || "no-backend-id",
+        configState.activeBackendConfig.uiConfigMode || "no-ui-mode",
+        selectedUiConfigIdsKey || "no-selected-ui",
+        baselineSelectionMode,
+        mixedSelectionMode,
+        String(sampledEpisodeCount),
+        episodeSeedKey || "no-episodes",
+      ].join("::");
+      const seededRandom = createSeededRandom(sequenceSeed);
+
+      if (selectedUiConfigs.length > 0) {
+        const selectedUiConfigIds = selectedUiConfigs.map(
+          (config) => config.id,
+        );
+        const hasAllSelectedUiConfigs =
+          selectedUiConfigIds.length === 0 ||
+          selectedUiConfigIds.every((id) =>
+            resolvedAllUiConfigs.some((config) => config.id === id),
+          );
+
+        if (!hasAllSelectedUiConfigs) {
+          try {
+            const uiConfigsResponse = await axios.get("/ui_configs");
+            const fetchedUiConfigs = Array.isArray(uiConfigsResponse.data)
+              ? uiConfigsResponse.data
+              : [];
+            if (fetchedUiConfigs.length > 0) {
+              resolvedAllUiConfigs = fetchedUiConfigs;
+              configDispatch({
+                type: "SET_ALL_UI_CONFIGS",
+                payload: fetchedUiConfigs,
+              });
+            }
+          } catch (error) {
+            console.warn(
+              "Could not refresh UI configs before sequence generation:",
+              error,
+            );
+          }
         }
-        elementCountByConfigId.set(uiConfig.id, Math.max(1, elementCount));
-      }),
-    );
+      }
 
-    uiConfigSequence = buildConfigSequenceWithElementCounts(
-      relevantUiConfigs,
-      elementCountByConfigId,
-      mode,
-      sampledEpisodeCount,
-      "first",
-      seededRandom,
-    );
+      if (selectedUiConfigs.length === 0) {
+        const relevantUiConfigsFromList = resolvedAllUiConfigs.filter(
+          (c) => c.id === configState.activeUIConfig.id,
+        );
+        relevantUiConfigs =
+          relevantUiConfigsFromList.length > 0
+            ? relevantUiConfigsFromList
+            : [fallbackUiConfig];
+      } else {
+        const relevantUiConfigsFromList = resolvedAllUiConfigs.filter((c) =>
+          selectedUiConfigs.map((c) => c.id).includes(c.id),
+        );
+        relevantUiConfigs =
+          relevantUiConfigsFromList.length > 0
+            ? relevantUiConfigsFromList
+            : [fallbackUiConfig];
+      }
 
-    await configDispatch({
-      type: "SET_UI_CONFIG_SEQUENCE",
-      payload: uiConfigSequence,
-    });
-  }, [
-    configState.activeBackendConfig.selectedUiConfigs,
-    configState.activeBackendConfig.id,
-    configState.allUIConfigs,
-    configState.activeUIConfig.id,
-    configState.activeBackendConfig.uiConfigMode,
-    getProjectionClusterCount,
-    isComparativeStudyMode,
-    currentComparativePhaseIndex,
-    comparativeStudyPhases,
-    currentComparativePhaseKind,
-    baselineSelectionMode,
-    mixedSelectionMode,
-    configDispatch,
-    state.selectedCheckpoint,
-    state.selectedExperiment.id,
-  ]);
+      if (
+        activeComparativePhaseKind === "baseline" &&
+        relevantUiConfigs.length === 1
+      ) {
+        uiConfigSequence = buildDeterministicSequenceForSingleConfig(
+          relevantUiConfigs[0],
+          sampledEpisodeCount,
+          6,
+          baselineSelectionMode,
+          seededRandom,
+        );
+        await configDispatch({
+          type: "SET_UI_CONFIG_SEQUENCE",
+          payload: uiConfigSequence,
+        });
+        return;
+      }
+
+      if (
+        activeComparativePhaseKind === "mixed" &&
+        relevantUiConfigs.length > 0
+      ) {
+        const fixedCountByConfig = new Map<string, number>();
+        for (const uiConfig of relevantUiConfigs) {
+          const batchSize = parseBatchSize(uiConfig);
+          fixedCountByConfig.set(uiConfig.id, Math.max(1, batchSize) * 2);
+        }
+        uiConfigSequence = buildConfigSequenceWithElementCounts(
+          relevantUiConfigs,
+          fixedCountByConfig,
+          mode,
+          sampledEpisodeCount,
+          mixedSelectionMode,
+          seededRandom,
+        );
+        await configDispatch({
+          type: "SET_UI_CONFIG_SEQUENCE",
+          payload: uiConfigSequence,
+        });
+        return;
+      }
+
+      const elementCountByConfigId = new Map<string, number>();
+      await Promise.all(
+        relevantUiConfigs.map(async (uiConfig) => {
+          let elementCount = episodeCount;
+          if (uiConfig.feedbackComponents.clusterRating) {
+            const checkpointStep = Number(state.selectedCheckpoint);
+            if (
+              Number.isFinite(checkpointStep) &&
+              Number.isFinite(state.selectedExperiment.id) &&
+              state.selectedExperiment.id !== -1
+            ) {
+              const clusterCount = await getProjectionClusterCount(
+                state.selectedExperiment.id,
+                checkpointStep,
+                episodeCount,
+              );
+              if (clusterCount > 0) {
+                elementCount = Math.min(clusterCount, sampledEpisodeCount);
+              }
+            }
+          }
+          elementCountByConfigId.set(uiConfig.id, Math.max(1, elementCount));
+        }),
+      );
+
+      uiConfigSequence = buildConfigSequenceWithElementCounts(
+        relevantUiConfigs,
+        elementCountByConfigId,
+        mode,
+        sampledEpisodeCount,
+        "first",
+        seededRandom,
+      );
+
+      await configDispatch({
+        type: "SET_UI_CONFIG_SEQUENCE",
+        payload: uiConfigSequence,
+      });
+    },
+    [
+      configState.activeBackendConfig.selectedUiConfigs,
+      configState.activeBackendConfig.id,
+      configState.allUIConfigs,
+      configState.activeUIConfig.id,
+      configState.activeBackendConfig.uiConfigMode,
+      getProjectionClusterCount,
+      isComparativeStudyMode,
+      currentComparativePhaseIndex,
+      comparativeStudyPhases,
+      currentComparativePhaseKind,
+      baselineSelectionMode,
+      mixedSelectionMode,
+      configDispatch,
+      state.selectedCheckpoint,
+      state.selectedExperiment.id,
+    ],
+  );
 
   const getEpisodeIDsChronologically = useCallback(async () => {
     try {
@@ -1380,9 +1501,11 @@ const App: React.FC = () => {
         // Get episodes first and store the result
         const episodes = await getEpisodeIDsChronologically();
         const selectedCheckpointValue = Number(state.selectedCheckpoint);
-        const checkpointEpisodes = Number.isFinite(selectedCheckpointValue) && selectedCheckpointValue >= 0
-          ? limitEpisodesForCheckpoint(episodes, selectedCheckpointValue)
-          : episodes;
+        const checkpointEpisodes =
+          Number.isFinite(selectedCheckpointValue) &&
+          selectedCheckpointValue >= 0
+            ? limitEpisodesForCheckpoint(episodes, selectedCheckpointValue)
+            : episodes;
 
         // Generate UI config sequence with the fetched episodes
         await generateUiConfigSequence(
@@ -1396,7 +1519,12 @@ const App: React.FC = () => {
       } catch (error) {
         console.error("Error in resetSampler:", error);
       } finally {
-        if (areResetParamsEqual(pendingResetParamsRef.current, requestedResetParams)) {
+        if (
+          areResetParamsEqual(
+            pendingResetParamsRef.current,
+            requestedResetParams,
+          )
+        ) {
           pendingResetParamsRef.current = null;
         }
       }
@@ -1443,8 +1571,10 @@ const App: React.FC = () => {
       projectionUncertaintyPendingRef.current.clear();
 
       const stepResponse = await axios.post(
-        "/data/step_sampler?session_id=" + state.sessionId + '&experiment_id=' +
-        state.selectedExperiment.id
+        "/data/step_sampler?session_id=" +
+          state.sessionId +
+          "&experiment_id=" +
+          state.selectedExperiment.id,
       );
 
       // Log step as meta feedback
@@ -1456,15 +1586,16 @@ const App: React.FC = () => {
         timestamp: Date.now(),
         targets: [],
         meta_action: "step",
-      }
+      };
       axios.post("/data/give_feedback", [stepFeedback]);
 
       // Get episodes first and store the result
       const episodes = await getEpisodeIDsChronologically();
       const selectedCheckpointValue = Number(state.selectedCheckpoint);
-      const checkpointEpisodes = Number.isFinite(selectedCheckpointValue) && selectedCheckpointValue >= 0
-        ? limitEpisodesForCheckpoint(episodes, selectedCheckpointValue)
-        : episodes;
+      const checkpointEpisodes =
+        Number.isFinite(selectedCheckpointValue) && selectedCheckpointValue >= 0
+          ? limitEpisodesForCheckpoint(episodes, selectedCheckpointValue)
+          : episodes;
 
       // Generate UI config sequence with the fetched episodes
       await generateUiConfigSequence(
@@ -1508,7 +1639,12 @@ const App: React.FC = () => {
     }
 
     void resetSampler();
-  }, [state.selectedExperiment.id, state.selectedCheckpoint, resetSampler, currentSetupSignature]);
+  }, [
+    state.selectedExperiment.id,
+    state.selectedCheckpoint,
+    resetSampler,
+    currentSetupSignature,
+  ]);
 
   const loadStudySetup = useCallback(
     async (studyCode: string, appMode: AppMode): Promise<LoadedSetupResult> => {
@@ -1530,13 +1666,19 @@ const App: React.FC = () => {
         if (data.message === "Setup not found.") {
           throw new Error(`Setup '${studyCode}' not found.`);
         }
-        if (!data.project || !data.experiment || data.checkpoint === undefined) {
+        if (
+          !data.project ||
+          !data.experiment ||
+          data.checkpoint === undefined
+        ) {
           throw new Error(`Invalid setup payload for study '${studyCode}'.`);
         }
 
         let resolvedUiConfigs = [...configState.allUIConfigs];
         const selectedUiConfigIds =
-          data.backend_config?.selectedUiConfigs?.map((uiConfig) => uiConfig.id) ?? [];
+          data.backend_config?.selectedUiConfigs?.map(
+            (uiConfig) => uiConfig.id,
+          ) ?? [];
         const hasAllSelectedUiConfigs =
           selectedUiConfigIds.length === 0 ||
           selectedUiConfigIds.every((id) =>
@@ -1565,7 +1707,9 @@ const App: React.FC = () => {
           payload: Number(data.checkpoint),
         });
         const parsedCheckpoint = Number(data.checkpoint);
-        loadedCheckpoint = Number.isFinite(parsedCheckpoint) ? parsedCheckpoint : null;
+        loadedCheckpoint = Number.isFinite(parsedCheckpoint)
+          ? parsedCheckpoint
+          : null;
         if (data.ui_config) {
           const hasUiConfig = resolvedUiConfigs.some(
             (cfg) => cfg.id === data.ui_config?.id,
@@ -1615,26 +1759,13 @@ const App: React.FC = () => {
         isApplyingSetupRef.current = false;
       }
     },
-    [configDispatch, configState.allBackendConfigs, configState.allUIConfigs, dispatch],
+    [
+      configDispatch,
+      configState.allBackendConfigs,
+      configState.allUIConfigs,
+      dispatch,
+    ],
   );
-
-  const handleExperimentStartClose = async () => {
-    if (
-      (state.app_mode === "study" || state.app_mode === "study-active-learning") &&
-      state.studyCode &&
-      state.selectedExperiment?.id === -1
-    ) {
-      try {
-        const mode: AppMode =
-          state.app_mode === "study-active-learning"
-            ? "study-active-learning"
-            : "study";
-        await loadStudySetup(state.studyCode, mode);
-      } catch (error) {
-        console.error("Error loading setup:", error);
-      }
-    }
-  };
 
   const startComparativePhase = useCallback(
     async (phaseIndex: number) => {
@@ -1644,6 +1775,9 @@ const App: React.FC = () => {
         return;
       }
 
+      setNextComparativePhaseIndex(phaseIndex);
+      setComparativeStudyStage(phaseIndex === 0 ? "intro" : "between");
+      setPhaseTransitionModalOpen(true);
       setPhaseTransitionLoading(true);
       setPhaseTransitionError(null);
 
@@ -1651,7 +1785,10 @@ const App: React.FC = () => {
       setCurrentComparativePhaseIndex(phaseIndex);
 
       try {
-        const loadedSetup = await loadStudySetup(phase.studyCode, phase.appMode);
+        const loadedSetup = await loadStudySetup(
+          phase.studyCode,
+          phase.appMode,
+        );
         if (loadedSetup.checkpoint !== null) {
           await dispatch({
             type: "SET_SELECTED_CHECKPOINT",
@@ -1660,15 +1797,13 @@ const App: React.FC = () => {
         }
         await dispatch({
           type: "SET_START_MODAL_OPEN",
-          payload: phaseIndex === 0,
+          payload: false,
         });
-        if (state.endModalOpen) {
-          await dispatch({ type: "SET_END_MODAL_OPEN" });
-        }
         hasHandledPhaseEndRef.current = false;
         setNextComparativePhaseIndex(-1);
-        setComparativeStudyStage(null);
-        setPhaseTransitionModalOpen(false);
+        if (phaseIndex === 0 && !demographicsSubmitted) {
+          setComparativeStudyStage("demographics");
+        }
       } catch (error) {
         setCurrentComparativePhaseIndex(previousPhaseIndex);
         const message = error instanceof Error ? error.message : String(error);
@@ -1680,26 +1815,95 @@ const App: React.FC = () => {
     [
       comparativeStudyPhases,
       currentComparativePhaseIndex,
+      demographicsSubmitted,
       dispatch,
       loadStudySetup,
-      state.endModalOpen,
     ],
   );
 
-  const handlePhaseTransitionContinue = useCallback(() => {
-    if (comparativeStudyStage === "complete") {
-      setPhaseTransitionModalOpen(false);
+  const loadStandaloneStudyPhase = useCallback(async () => {
+    if (
+      (state.app_mode !== "study" &&
+        state.app_mode !== "study-active-learning") ||
+      !state.studyCode
+    ) {
       return;
     }
 
-    if (nextComparativePhaseIndex < 0) {
+    const mode: AppMode =
+      state.app_mode === "study-active-learning"
+        ? "study-active-learning"
+        : "study";
+
+    setComparativeStudyStage("intro");
+    setPhaseTransitionModalOpen(true);
+    setPhaseTransitionLoading(true);
+    setPhaseTransitionError(null);
+
+    try {
+      await loadStudySetup(state.studyCode, mode);
+      if (!demographicsSubmitted) {
+        setComparativeStudyStage("demographics");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPhaseTransitionError(`Could not load the task setup: ${message}`);
+    } finally {
+      setPhaseTransitionLoading(false);
+    }
+  }, [demographicsSubmitted, loadStudySetup, state.app_mode, state.studyCode]);
+
+  const handleExperimentStartClose = useCallback(() => {
+    if (
+      isComparativeStudyMode &&
+      currentComparativePhaseIndex < 0 &&
+      nextComparativePhaseIndex >= 0
+    ) {
+      void startComparativePhase(nextComparativePhaseIndex);
       return;
     }
 
-    void startComparativePhase(nextComparativePhaseIndex);
+    if (
+      (state.app_mode === "study" ||
+        state.app_mode === "study-active-learning") &&
+      state.studyCode &&
+      state.selectedExperiment?.id === -1
+    ) {
+      void loadStandaloneStudyPhase();
+    }
   }, [
-    comparativeStudyStage,
+    currentComparativePhaseIndex,
+    isComparativeStudyMode,
+    loadStandaloneStudyPhase,
     nextComparativePhaseIndex,
+    startComparativePhase,
+    state.app_mode,
+    state.selectedExperiment?.id,
+    state.studyCode,
+  ]);
+
+  const handlePhaseTransitionContinue = useCallback(() => {
+    if (phaseTransitionLoading) {
+      return;
+    }
+
+    if (phaseTransitionError) {
+      if (isComparativeStudyMode && nextComparativePhaseIndex >= 0) {
+        void startComparativePhase(nextComparativePhaseIndex);
+      } else {
+        void loadStandaloneStudyPhase();
+      }
+      return;
+    }
+
+    setPhaseTransitionModalOpen(false);
+    setComparativeStudyStage(null);
+  }, [
+    isComparativeStudyMode,
+    loadStandaloneStudyPhase,
+    nextComparativePhaseIndex,
+    phaseTransitionError,
+    phaseTransitionLoading,
     startComparativePhase,
   ]);
 
@@ -1734,7 +1938,9 @@ const App: React.FC = () => {
           currentCheckpointIndex < checkpoints.length - 1;
 
         if (hasNextCheckpoint) {
-          const nextCheckpoint = Number(checkpoints[currentCheckpointIndex + 1]);
+          const nextCheckpoint = Number(
+            checkpoints[currentCheckpointIndex + 1],
+          );
           if (Number.isFinite(nextCheckpoint)) {
             await dispatch({
               type: "SET_SELECTED_CHECKPOINT",
@@ -1747,13 +1953,10 @@ const App: React.FC = () => {
       }
 
       setPhaseTransitionError(null);
-      if (nextIndex < comparativeStudyPhases.length) {
-        setNextComparativePhaseIndex(nextIndex);
-        setComparativeStudyStage("between");
-      } else {
-        setNextComparativePhaseIndex(-1);
-        setComparativeStudyStage("complete");
-      }
+      setNextComparativePhaseIndex(
+        nextIndex < comparativeStudyPhases.length ? nextIndex : -1,
+      );
+      setComparativeStudyStage("survey");
       setPhaseTransitionModalOpen(true);
     };
 
@@ -1767,6 +1970,227 @@ const App: React.FC = () => {
     state.selectedCheckpoint,
     state.selectedExperiment.checkpoint_list,
   ]);
+
+  useEffect(() => {
+    const isStandaloneStudy =
+      !isComparativeStudyMode &&
+      (state.app_mode === "study" ||
+        state.app_mode === "study-active-learning");
+
+    if (!isStandaloneStudy) {
+      return;
+    }
+
+    if (!state.endModalOpen) {
+      hasHandledStandalonePhaseEndRef.current = false;
+      return;
+    }
+
+    if (hasHandledStandalonePhaseEndRef.current) {
+      return;
+    }
+
+    hasHandledStandalonePhaseEndRef.current = true;
+    const showStandaloneSurvey = async () => {
+      await dispatch({ type: "SET_END_MODAL_OPEN" });
+      setPhaseTransitionError(null);
+      setComparativeStudyStage("survey");
+      setPhaseTransitionModalOpen(true);
+    };
+
+    void showStandaloneSurvey();
+  }, [dispatch, isComparativeStudyMode, state.app_mode, state.endModalOpen]);
+
+  useEffect(() => {
+    if (
+      !import.meta.env.DEV ||
+      hasAppliedStudyPreviewRef.current
+    ) {
+      return;
+    }
+
+    const previewStage = new URL(window.location.href).searchParams.get(
+      "preview_stage",
+    );
+    if (
+      previewStage !== "demographics" &&
+      previewStage !== "survey" &&
+      previewStage !== "final-survey" &&
+      previewStage !== "complete"
+    ) {
+      return;
+    }
+
+    if (
+      previewStage === "final-survey" &&
+      comparativeStudyPhases.length === 0
+    ) {
+      return;
+    }
+
+    hasAppliedStudyPreviewRef.current = true;
+    dispatch({ type: "SET_START_MODAL_OPEN", payload: false });
+    if (previewStage === "final-survey" && comparativeStudyPhases.length > 0) {
+      setCurrentComparativePhaseIndex(comparativeStudyPhases.length - 1);
+      setNextComparativePhaseIndex(-1);
+      setComparativeStudyStage("final-survey");
+    } else {
+      setComparativeStudyStage(
+        previewStage === "complete"
+          ? "complete"
+          : previewStage === "demographics"
+            ? "demographics"
+            : "survey",
+      );
+    }
+    setPhaseTransitionModalOpen(true);
+  }, [comparativeStudyPhases.length, dispatch]);
+
+  const handleStudySurveySubmit = useCallback(
+    async (responses: StudySurveyResponses) => {
+      const comparativePhase =
+        currentComparativePhaseIndex >= 0
+          ? comparativeStudyPhases[currentComparativePhaseIndex]
+          : undefined;
+      const phaseIndex = comparativePhase
+        ? currentComparativePhaseIndex + 1
+        : 1;
+      const totalPhases = isComparativeStudyMode
+        ? comparativeStudyPhases.length
+        : 1;
+      const phaseLabel =
+        comparativePhase?.label ||
+        configState.activeUIConfig.name ||
+        configState.activeBackendConfig.name ||
+        state.selectedExperiment.exp_name ||
+        "Feedback Task";
+      const submittedAt = new Date().toISOString();
+      const surveyParticipantId = resolveSurveyParticipantId();
+      const surveySubmission =
+        comparativeStudyStage === "demographics"
+          ? {
+              participant_id: surveyParticipantId,
+              session_id: state.sessionId,
+              survey_schema: "rlhfblender-study-survey-v1",
+              survey_type: "demographics",
+              submitted_at: submittedAt,
+              responses: {
+                "What is your age?": responses.age,
+                "Please indicate your gender.": responses.gender,
+                "Do you have any visual impairments (for example a color vision deficiency) that may affect your ability to participate in this study? If yes, please state the kind of visual impairment.":
+                  responses.visualImpairments,
+                "How much experience do you have in Reinforcement Learning/RLHF?":
+                  responses.reinforcementLearningExperience,
+                "How much experience do you have with information visualization?":
+                  responses.visualizationExperience,
+              },
+            }
+          : comparativeStudyStage === "final-survey"
+            ? {
+                participant_id: surveyParticipantId,
+                session_id: state.sessionId,
+                survey_schema: "rlhfblender-study-survey-v1",
+                survey_type: "overall",
+                submitted_at: submittedAt,
+                responses: {
+                  "Which phases did you like the most?":
+                    responses.favoritePhase,
+                  "Which phases felt most impactful?":
+                    responses.mostImpactfulPhase,
+                  "Which phases felt most transparent?":
+                    responses.mostTransparentPhase,
+                  "Imagine you are tasked with collecting feedback for a domain application you are working on? Can you imagine to deploy a version of Visual Interactive Feedback Generation for this domain? (Optional)":
+                    responses.visualInteractiveDeployment,
+                  "Additional Comments": responses.additionalComments,
+                },
+              }
+            : {
+                participant_id: surveyParticipantId,
+                session_id: state.sessionId,
+                survey_schema: "rlhfblender-study-survey-v1",
+                survey_type: "phase",
+                submitted_at: submittedAt,
+                phase: {
+                  index: phaseIndex,
+                  total: totalPhases,
+                  phase_type:
+                    comparativePhase?.kind === "baseline"
+                      ? "preference-only"
+                      : comparativePhase?.kind === "mixed"
+                        ? "mixed-feedback"
+                        : comparativePhase?.kind === "active-learning" ||
+                            state.app_mode === "study-active-learning"
+                          ? "visual-interactive-feedback"
+                          : "standard",
+                  phase_kind: comparativePhase?.kind ?? "standard",
+                  label: phaseLabel,
+                },
+                responses: {
+                  "Which section did you just complete?": phaseLabel,
+                  "The user interface is easy to use.": responses.interfaceEase,
+                  "The generated feedback felt impactful":
+                    responses.feedbackImpact,
+                  "The feedback generation process was frustrating":
+                    responses.feedbackFrustration,
+                },
+              };
+
+      setPhaseTransitionLoading(true);
+      setPhaseTransitionError(null);
+      try {
+        await axios.post("/data/save_survey_response", surveySubmission);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setPhaseTransitionError(
+          `Could not save your survey responses: ${message}`,
+        );
+        setPhaseTransitionLoading(false);
+        return;
+      }
+      setPhaseTransitionLoading(false);
+
+      if (comparativeStudyStage === "demographics") {
+        setDemographicsSubmitted(true);
+        setComparativeStudyStage("intro");
+        setPhaseTransitionModalOpen(true);
+        return;
+      }
+
+      if (comparativeStudyStage === "final-survey") {
+        setComparativeStudyStage("complete");
+        setPhaseTransitionModalOpen(true);
+        return;
+      }
+
+      if (isComparativeStudyMode && nextComparativePhaseIndex >= 0) {
+        await startComparativePhase(nextComparativePhaseIndex);
+        return;
+      }
+
+      if (isComparativeStudyMode) {
+        setComparativeStudyStage("final-survey");
+        setPhaseTransitionModalOpen(true);
+        return;
+      }
+
+      setComparativeStudyStage("complete");
+      setPhaseTransitionModalOpen(true);
+    },
+    [
+      comparativeStudyPhases,
+      comparativeStudyStage,
+      configState.activeBackendConfig.name,
+      configState.activeUIConfig.name,
+      currentComparativePhaseIndex,
+      isComparativeStudyMode,
+      nextComparativePhaseIndex,
+      resolveSurveyParticipantId,
+      startComparativePhase,
+      state.app_mode,
+      state.selectedExperiment.exp_name,
+      state.sessionId,
+    ],
+  );
 
   useEffect(() => {
     if (!state.setupComplete) {
@@ -1811,6 +2235,119 @@ const App: React.FC = () => {
       : undefined;
   const upcomingComparativePhaseNumber =
     nextComparativePhaseIndex >= 0 ? nextComparativePhaseIndex + 1 : undefined;
+  const phaseShownOnDivider =
+    currentComparativePhaseIndex >= 0
+      ? comparativeStudyPhases[currentComparativePhaseIndex]
+      : upcomingComparativePhase;
+  const enabledStandaloneFeedbackTypes = useMemo(() => {
+    const selectedUiConfigIds =
+      configState.activeBackendConfig.selectedUiConfigs?.map(
+        (uiConfig) => uiConfig.id,
+      ) ?? [];
+    const phaseUiConfigs =
+      selectedUiConfigIds.length > 0
+        ? configState.allUIConfigs.filter((uiConfig) =>
+            selectedUiConfigIds.includes(uiConfig.id),
+          )
+        : [configState.activeUIConfig];
+    const enabledTypes = new Set<string>();
+
+    phaseUiConfigs.forEach((uiConfig) => {
+      Object.entries(uiConfig.feedbackComponents ?? {}).forEach(
+        ([feedbackType, enabled]) => {
+          if (enabled) {
+            enabledTypes.add(feedbackType);
+          }
+        },
+      );
+    });
+
+    return Array.from(enabledTypes);
+  }, [
+    configState.activeBackendConfig.selectedUiConfigs,
+    configState.activeUIConfig,
+    configState.allUIConfigs,
+  ]);
+  const dividerPhaseKind: StudyPhaseKind = phaseShownOnDivider
+    ? phaseShownOnDivider.kind
+    : state.app_mode === "study-active-learning"
+      ? "active-learning"
+      : "standard";
+  const standalonePhaseLabel =
+    state.app_mode === "study-active-learning"
+      ? "Visual Interactive Feedback Generation"
+      : configState.activeUIConfig.name ||
+        configState.activeBackendConfig.name ||
+        state.selectedExperiment.exp_name ||
+        "Feedback Task";
+  const phaseDividerVisible =
+    phaseTransitionModalOpen && comparativeStudyStage !== null;
+  const phaseLabelForDivider =
+    phaseShownOnDivider?.label ?? standalonePhaseLabel;
+  const phaseNumberForDivider = isComparativeStudyMode
+    ? currentComparativePhaseIndex >= 0
+      ? currentComparativePhaseIndex + 1
+      : upcomingComparativePhaseNumber
+    : 1;
+  const totalPhaseCount = isComparativeStudyMode
+    ? comparativeStudyPhases.length
+    : 1;
+  const phaseDivider = !phaseDividerVisible ? null : comparativeStudyStage ===
+    "demographics" ? (
+    <StudyPhaseSurveyScreen
+      key={`demographics-survey-${state.studyCode}`}
+      surveyKind="demographics"
+      loading={phaseTransitionLoading}
+      errorMessage={phaseTransitionError}
+      onSubmit={handleStudySurveySubmit}
+    />
+  ) : comparativeStudyStage === "survey" ? (
+    <StudyPhaseSurveyScreen
+      key={`phase-survey-${currentComparativePhaseIndex}-${state.studyCode}`}
+      surveyKind="phase"
+      phaseLabel={phaseLabelForDivider}
+      phaseIndex={phaseNumberForDivider ?? 1}
+      totalPhases={totalPhaseCount}
+      loading={phaseTransitionLoading}
+      errorMessage={phaseTransitionError}
+      onSubmit={handleStudySurveySubmit}
+    />
+  ) : comparativeStudyStage === "final-survey" ? (
+    <StudyPhaseSurveyScreen
+      key={`overall-survey-${state.studyCode}`}
+      surveyKind="overall"
+      phaseOptions={comparativeStudyPhases.map((phase) => phase.label)}
+      loading={phaseTransitionLoading}
+      errorMessage={phaseTransitionError}
+      onSubmit={handleStudySurveySubmit}
+    />
+  ) : comparativeStudyStage === "complete" ? (
+    <ExperimentCompletionScreen completionCode={completionCode} />
+  ) : (
+    <StudyPhaseTransitionModal
+      open
+      phaseKind={dividerPhaseKind}
+      phaseLabel={phaseLabelForDivider}
+      phaseDescription={
+        phaseShownOnDivider?.description ||
+        configState.activeUIConfig.description ||
+        configState.activeBackendConfig.description
+      }
+      phaseIndex={isComparativeStudyMode ? phaseNumberForDivider : undefined}
+      totalPhases={totalPhaseCount}
+      feedbackTypes={
+        isComparativeStudyMode ? undefined : enabledStandaloneFeedbackTypes
+      }
+      loading={phaseTransitionLoading}
+      errorMessage={phaseTransitionError}
+      onContinue={handlePhaseTransitionContinue}
+    />
+  );
+  const introductionVisible =
+    state.startModalOpen &&
+    (state.app_mode === "study" ||
+      state.app_mode === "study-active-learning" ||
+      state.app_mode === "active-learning");
 
   return (
     <ThemeProvider
@@ -1874,32 +2411,47 @@ const App: React.FC = () => {
                     onClick={() =>
                       dispatch({ type: "SET_START_MODAL_OPEN", payload: true })
                     }
-                    sx={{ marginTop: "0.2vh", marginRight: "20px", float: "right" }}
+                    sx={{
+                      marginTop: "0.2vh",
+                      marginRight: "20px",
+                      float: "right",
+                    }}
                   >
                     <HelpIcon />
                   </IconButton>
-
                 </>
               )}
             </Box>
           </Box>
-          {state.app_mode === "active-learning" || state.app_mode === "study-active-learning" ? (
+          {state.app_mode === "active-learning" ||
+          state.app_mode === "study-active-learning" ? (
             <ActiveLearningProvider>
               <OnboardingProvider>
                 <>
-                  <ActiveLearningInterface stepSampler={stepSampler} />
-                  <ExperimentStartModal onClose={handleExperimentStartClose} />
-                  {!isComparativeStudyMode && (
-                    <ExperimentEndModal open={state.endModalOpen} />
+                  {introductionVisible ? (
+                    <ExperimentStartModal
+                      onClose={handleExperimentStartClose}
+                    />
+                  ) : phaseDividerVisible ? (
+                    phaseDivider
+                  ) : (
+                    <ActiveLearningInterface stepSampler={stepSampler} />
                   )}
+                  {!isComparativeStudyMode &&
+                    state.app_mode === "active-learning" && (
+                      <ExperimentEndModal open={state.endModalOpen} />
+                    )}
                 </>
               </OnboardingProvider>
             </ActiveLearningProvider>
           ) : (
             <>
-              {state.selectedProject?.id >= 0 ? <FeedbackInterface /> : null}
-              {state.app_mode === "study" ? (
+              {introductionVisible ? (
                 <ExperimentStartModal onClose={handleExperimentStartClose} />
+              ) : phaseDividerVisible ? (
+                phaseDivider
+              ) : state.selectedProject?.id >= 0 ? (
+                <FeedbackInterface />
               ) : null}
             </>
           )}
@@ -1920,20 +2472,6 @@ const App: React.FC = () => {
             onClose={() => dispatch({ type: "TOGGLE_STUDY_CODE" })}
             studyCode={state.studyCode}
           />
-          {isComparativeStudyMode && comparativeStudyStage && (
-            <StudyPhaseTransitionModal
-              open={phaseTransitionModalOpen}
-              stage={comparativeStudyStage}
-              phaseLabel={upcomingComparativePhase?.label}
-              phaseDescription={upcomingComparativePhase?.description}
-              phaseIndex={upcomingComparativePhaseNumber}
-              totalPhases={comparativeStudyPhases.length}
-              surveyUrl={comparativeSurveyUrl}
-              loading={phaseTransitionLoading}
-              errorMessage={phaseTransitionError}
-              onContinue={handlePhaseTransitionContinue}
-            />
-          )}
         </Box>
       </GetterContext.Provider>
     </ThemeProvider>

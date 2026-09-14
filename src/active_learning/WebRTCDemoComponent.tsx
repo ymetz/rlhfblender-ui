@@ -14,8 +14,10 @@ import {
 } from '@mui/material';
 import { Close, Fullscreen, FullscreenExit, KeyboardArrowDown, KeyboardArrowUp } from '@mui/icons-material';
 import { useWebRTC } from './useWebRTC';
-import { isDashDrivingEnvironment } from './demoEnvironment';
+import { isBrowserMujocoEnvironment, isDashDrivingEnvironment } from './demoEnvironment';
 import DashIframeDemoComponent from './DashIframeDemoComponent';
+
+const MujocoDemoComponent = React.lazy(() => import('./MujocoDemoComponent'));
 
 export interface WebRTCFooterControls {
   connected: boolean;
@@ -31,8 +33,11 @@ export interface WebRTCDemoComponentProps {
   environmentId: string;
   coordinate?: { x: number; y: number };
   checkpoint?: number;
+  benchmarkId?: number;
   episodeNum?: number;
   step?: number;
+  initialStateMode?: 'reset';
+  initialCameraPreset?: 'corner-video';
   onSubmit: (payload?: Record<string, any>) => void | Promise<void>;
   onCancel: () => void;
   isSubmitting?: boolean;
@@ -45,13 +50,39 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   environmentId,
   coordinate,
   checkpoint,
+  benchmarkId,
   episodeNum,
   step,
+  initialStateMode,
+  initialCameraPreset,
   onSubmit,
   onCancel,
   isSubmitting = false,
   footerContent,
 }) => {
+  if (isBrowserMujocoEnvironment(environmentId)) {
+    return (
+      <React.Suspense fallback={<CircularProgress size={24} />}>
+        <MujocoDemoComponent
+          sessionId={sessionId}
+          experimentId={experimentId}
+          environmentId={environmentId}
+          coordinate={coordinate}
+          checkpoint={checkpoint}
+          benchmarkId={benchmarkId}
+          episodeNum={episodeNum}
+          step={step}
+          initialStateMode={initialStateMode}
+          initialCameraPreset={initialCameraPreset}
+          onSubmit={onSubmit}
+          onCancel={onCancel}
+          isSubmitting={isSubmitting}
+          footerContent={footerContent}
+        />
+      </React.Suspense>
+    );
+  }
+
   if (isDashDrivingEnvironment(environmentId)) {
     return (
       <DashIframeDemoComponent

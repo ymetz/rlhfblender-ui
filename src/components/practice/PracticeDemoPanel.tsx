@@ -9,6 +9,7 @@ import {
   UserDemoTrajectory,
 } from '../../ActiveLearningContext';
 import WebRTCDemoComponent from '../../active_learning/WebRTCDemoComponent';
+import { getDemoSaveEndpoint } from '../../active_learning/demoEnvironment';
 import { computeTrajectoryColors, getFallbackColor } from '../../active_learning/utils/trajectoryColors';
 import { Legend } from '../../active_learning/components/ProjectionLegends';
 
@@ -23,14 +24,15 @@ const PracticeDemoPanel: React.FC = () => {
   const [canvasSize, setCanvasSize] = useState(DEFAULT_CANVAS_SIZE);
   const [demoInstance, setDemoInstance] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [localPracticeTrajectories, setLocalPracticeTrajectories] = useState<UserDemoTrajectory[]>([]);
 
   const appState = useAppState();
   const activeLearningState = useOptionalActiveLearningState();
   const activeLearningDispatch = useOptionalActiveLearningDispatch();
 
   const userTrajectories = useMemo(() => {
-    return activeLearningState?.userGeneratedTrajectories ?? [];
-  }, [activeLearningState?.userGeneratedTrajectories]);
+    return activeLearningState?.userGeneratedTrajectories ?? localPracticeTrajectories;
+  }, [activeLearningState?.userGeneratedTrajectories, localPracticeTrajectories]);
 
   useEffect(() => {
     const element = canvasWrapperRef.current;
@@ -149,9 +151,12 @@ const PracticeDemoPanel: React.FC = () => {
 
   const sessionId = appState.sessionId && appState.sessionId !== '-' ? appState.sessionId : 'practice-session';
   const checkpoint = Number(appState.selectedCheckpoint ?? 0);
-  const userTrajectoryCount = activeLearningState?.userGeneratedTrajectories?.length ?? 0;
+  const userTrajectoryCount = userTrajectories.length;
 
-  const handleSaveDemo = useCallback(async (practiceSessionId: string) => {
+  const handleSaveDemo = useCallback(async (
+    practiceSessionId: string,
+    submitPayload?: Record<string, any>,
+  ) => {
 
     setIsSaving(true);
 
@@ -159,12 +164,13 @@ const PracticeDemoPanel: React.FC = () => {
       const payload: Record<string, any> = {
         session_id: practiceSessionId,
         projection_method: 'PCA',
+        ...submitPayload,
       };
       if (!Number.isNaN(checkpoint)) {
         payload.checkpoint = Number(checkpoint);
       }
 
-      const response = await axios.post('/demo_generation/save_webrtc_demo', payload);
+      const response = await axios.post(getDemoSaveEndpoint(payload), payload);
       const data = response.data;
 
       if (data?.success && data.artifacts) {
@@ -189,6 +195,8 @@ const PracticeDemoPanel: React.FC = () => {
 
         if (activeLearningDispatch) {
           activeLearningDispatch({ type: 'ADD_USER_GENERATED_TRAJECTORY', payload: trajectory });
+        } else {
+          setLocalPracticeTrajectories((current) => [...current, trajectory]);
         }
       } else {
       }
@@ -198,7 +206,7 @@ const PracticeDemoPanel: React.FC = () => {
     } finally {
       setIsSaving(false);
     }
-  }, [activeLearningDispatch, checkpoint, userTrajectoryCount]);
+  }, [activeLearningDispatch, activeLearningState?.currentPhase, checkpoint, userTrajectoryCount]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -214,9 +222,13 @@ const PracticeDemoPanel: React.FC = () => {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: 'minmax(280px, 360px) minmax(320px, 1fr)' },
+          gridTemplateColumns: { xs: '1fr', md: 'minmax(260px, 330px) minmax(360px, 560px)' },
           gap: 3,
           alignItems: 'stretch',
+          justifyContent: 'center',
+          width: '100%',
+          maxWidth: 930,
+          mx: 'auto',
         }}
       >
         <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
@@ -247,12 +259,10 @@ const PracticeDemoPanel: React.FC = () => {
               experimentId={PRACTICE_EXPERIMENT_ID}
               environmentId={PRACTICE_ENVIRONMENT_ID}
               checkpoint={Number.isNaN(checkpoint) ? undefined : checkpoint}
-              episodeNum={0}
-              step={0}
-              onSubmit={() => { /* no-op: practice mode */ }}
+              initialStateMode="reset"
+              onSubmit={(payload) => handleSaveDemo(`${sessionId}_practice`, payload)}
               onCancel={() => { setDemoInstance((prev) => prev + 1); }}
-              footerContent={({ connected, reset }) => {
-                const practiceSessionId = `${sessionId}_practice`;
+              footerContent={({ connected, reset, onSubmit: submitLocalDemo }) => {
                 const handleReset = () => {
                   void reset();
                   setDemoInstance((prev) => prev + 1);
@@ -267,8 +277,8 @@ const PracticeDemoPanel: React.FC = () => {
                       <Button
                         variant="contained"
                         size="small"
-                        disabled={!connected || isSaving || !activeLearningDispatch}
-                        onClick={() => { void handleSaveDemo(practiceSessionId); }}
+                        disabled={!connected || isSaving}
+                        onClick={() => { void submitLocalDemo(); }}
                       >
                         {isSaving ? <CircularProgress size={16} sx={{ color: 'white' }} /> : 'UPDATE PREVIEW'}
                       </Button>

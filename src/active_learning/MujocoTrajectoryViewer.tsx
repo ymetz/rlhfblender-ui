@@ -7,17 +7,17 @@ import loadMujoco, { MainModule } from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import type { Episode } from '../types';
 
-type MujocoTrajectoryState = {
+export type MujocoTrajectoryState = {
   qpos: number[];
   qvel: number[];
 };
 
-type MujocoTrajectoryResponse = {
+export type MujocoTrajectoryResponse = {
   env_name: string;
   states: MujocoTrajectoryState[];
 };
 
-type MujocoModelManifest = {
+export type MujocoModelManifest = {
   env_name: string;
   root_xml: string;
   files: string[];
@@ -29,17 +29,44 @@ type MujocoTrajectoryViewerProps = {
   selectedStep: number;
   onStepChange?: (step: number) => void;
   fallback: React.ReactNode;
+  trajectoryColor?: string;
+  getBackgroundTrajectoryColor?: (episode: Episode) => string;
 };
 
 let mujocoPromise: Promise<MainModule> | null = null;
 
-const getMujoco = () => {
+export const getMujoco = () => {
   if (!mujocoPromise) {
     mujocoPromise = loadMujoco({
       locateFile: (fileName: string) => (fileName.endsWith('.wasm') ? mujocoWasmUrl : fileName),
     });
   }
   return mujocoPromise;
+};
+
+export type CameraPose = {
+  position: [number, number, number];
+  target: [number, number, number];
+  up?: [number, number, number];
+  fov?: number;
+};
+
+let persistedCameraPose: CameraPose | null = null;
+
+const DEFAULT_CAMERA_POSE: CameraPose = {
+  position: [0.95, -0.72, 0.82],
+  target: [0, 0.64, 0.16],
+  up: [0, 0, 1],
+  fov: 42,
+};
+
+// MetaWorld's fixed `corner` camera after the 180-degree frame rotation applied
+// by the Python recorder for this camera.
+export const CORNER_VIDEO_CAMERA_POSE: CameraPose = {
+  position: [-1.1, -0.4, 0.6],
+  target: [-0.079379, 0.620621, 0.191752],
+  up: [0.19245, 0.19245, 0.96225],
+  fov: 45,
 };
 
 class CapsuleGeometry extends THREE.BufferGeometry {
@@ -56,10 +83,11 @@ class CapsuleGeometry extends THREE.BufferGeometry {
   }
 }
 
-class MujocoSceneRenderer {
+export class MujocoSceneRenderer {
   private readonly mujoco: MainModule;
   private readonly model: any;
   private readonly data: any;
+  private readonly objectGeomId: number;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
@@ -71,11 +99,12 @@ class MujocoSceneRenderer {
   private readonly meshes: THREE.Mesh[] = [];
   private readonly geometryCache = new Map<string, THREE.BufferGeometry>();
   private readonly textureCache = new Map<string, THREE.Texture>();
-  private readonly backgroundTrajectoryLines: THREE.Line[] = [];
-  private readonly trajectoryLine: THREE.Line;
+  private readonly backgroundTrajectoryLines: THREE.Mesh[] = [];
+  private trajectoryLine: THREE.Mesh | null = null;
   private readonly trajectoryMarker: THREE.Mesh;
   private animationFrameId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private readonly persistCameraPose: boolean;
 
   constructor(
     mujoco: MainModule,
@@ -83,11 +112,19 @@ class MujocoSceneRenderer {
     data: any,
     container: HTMLDivElement,
     tcpPoints: THREE.Vector3[],
-    backgroundTcpPointSets: THREE.Vector3[][],
+    backgroundTrajectories: Array<{ points: THREE.Vector3[]; color: string }>,
+    trajectoryColor = '#ff6b35',
+    initialCameraPose?: CameraPose,
+    persistCameraPose = true,
   ) {
     this.mujoco = mujoco;
     this.model = model;
     this.data = data;
+    this.objectGeomId = (mujoco as any).mj_name2id(
+      model,
+      (mujoco as any).mjtObj.mjOBJ_GEOM.value,
+      'objGeom',
+    );
     this.option = new (mujoco as any).MjvOption();
     this.perturb = new (mujoco as any).MjvPerturb();
     this.mjCamera = new (mujoco as any).MjvCamera();
@@ -97,17 +134,32 @@ class MujocoSceneRenderer {
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // setSize(..., false) deliberately leaves CSS sizing to the layout. Without
+    // these rules, the canvas uses its high-DPI drawing-buffer dimensions as its
+    // displayed size and gets clipped by the responsive container on DPR > 1.
+    Object.assign(this.renderer.domElement.style, {
+      display: 'block',
+      width: '100%',
+      height: '100%',
+      maxWidth: '100%',
+      maxHeight: '100%',
+    });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.01, 100);
-    this.camera.up.set(0, 0, 1);
-    this.camera.position.set(1.35, -1.15, 1.15);
+    const cameraPose = initialCameraPose ?? persistedCameraPose ?? DEFAULT_CAMERA_POSE;
+    this.camera = new THREE.PerspectiveCamera(cameraPose.fov ?? 42, 1, 0.01, 100);
+    this.camera.up.fromArray(cameraPose.up ?? [0, 0, 1]);
+    this.camera.position.fromArray(cameraPose.position);
+    this.persistCameraPose = persistCameraPose;
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.target.set(0, 0.55, 0.2);
+    this.controls.target.fromArray(cameraPose.target);
     this.controls.enableDamping = true;
+    if (this.persistCameraPose) {
+      this.controls.addEventListener('change', this.saveCameraPose);
+    }
 
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x52606d, 1.15));
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.35);
@@ -115,32 +167,24 @@ class MujocoSceneRenderer {
     keyLight.castShadow = true;
     this.scene.add(keyLight);
 
-    backgroundTcpPointSets.forEach((backgroundTcpPoints) => {
-      const backgroundGeometry = new THREE.BufferGeometry().setFromPoints(backgroundTcpPoints);
-      const backgroundLine = new THREE.Line(
-        backgroundGeometry,
-        new THREE.LineBasicMaterial({
-          color: 0x9aa0a6,
-          transparent: true,
-          opacity: 0.28,
-          depthWrite: false,
-        }),
-      );
-      this.backgroundTrajectoryLines.push(backgroundLine);
-      this.scene.add(backgroundLine);
+    backgroundTrajectories.forEach(({ points, color }) => {
+      const backgroundLine = this.createTrajectoryPath(points, color, 0.0015, 0.4);
+      if (backgroundLine) {
+        this.backgroundTrajectoryLines.push(backgroundLine);
+        this.scene.add(backgroundLine);
+      }
     });
 
-    const lineGeometry = new THREE.BufferGeometry().setFromPoints(tcpPoints);
-    this.trajectoryLine = new THREE.Line(
-      lineGeometry,
-      new THREE.LineBasicMaterial({ color: 0xff6b35, linewidth: 2 }),
-    );
-    this.scene.add(this.trajectoryLine);
+    this.trajectoryLine = this.createTrajectoryPath(tcpPoints, trajectoryColor, 0.003, 0.96);
+    if (this.trajectoryLine) {
+      this.scene.add(this.trajectoryLine);
+    }
 
     this.trajectoryMarker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.018, 20, 20),
-      new THREE.MeshBasicMaterial({ color: 0xff6b35 }),
+      new THREE.SphereGeometry(0.021, 20, 20),
+      new THREE.MeshBasicMaterial({ color: trajectoryColor, depthTest: false }),
     );
+    this.trajectoryMarker.renderOrder = 11;
     this.scene.add(this.trajectoryMarker);
 
     this.resizeObserver = new ResizeObserver(() => this.resize(container));
@@ -149,14 +193,70 @@ class MujocoSceneRenderer {
     this.renderLoop();
   }
 
+  setTrajectory(points: THREE.Vector3[], color?: string) {
+    if (this.trajectoryLine) {
+      this.scene.remove(this.trajectoryLine);
+      this.trajectoryLine.geometry.dispose();
+      (this.trajectoryLine.material as THREE.Material).dispose();
+    }
+    const markerMaterial = this.trajectoryMarker.material as THREE.MeshBasicMaterial;
+    if (color) {
+      markerMaterial.color.set(color);
+    }
+    this.trajectoryLine = this.createTrajectoryPath(
+      points,
+      color ?? `#${markerMaterial.color.getHexString()}`,
+      0.006,
+      0.96,
+    );
+    if (this.trajectoryLine) {
+      this.scene.add(this.trajectoryLine);
+    }
+  }
+
   setState(state: MujocoTrajectoryState, tcpPoint?: THREE.Vector3) {
     this.data.qpos.set(state.qpos);
     this.data.qvel.set(state.qvel);
     (this.mujoco as any).mj_forward(this.model, this.data);
-    if (tcpPoint) {
-      this.trajectoryMarker.position.copy(tcpPoint);
-    }
+    this.trajectoryMarker.position.copy(tcpPoint ?? getTcpPoint(this.data));
     this.updateSceneMeshes();
+  }
+
+  refresh(tcpPoint?: THREE.Vector3) {
+    (this.mujoco as any).mj_forward(this.model, this.data);
+    this.trajectoryMarker.position.copy(tcpPoint ?? getTcpPoint(this.data));
+    this.updateSceneMeshes();
+  }
+
+  private createTrajectoryPath(
+    points: THREE.Vector3[],
+    color: string,
+    radius: number,
+    opacity: number,
+  ): THREE.Mesh | null {
+    if (points.length < 2) {
+      return null;
+    }
+    const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+    const geometry = new THREE.TubeGeometry(
+      curve,
+      Math.max(8, Math.min(points.length * 2, 600)),
+      radius,
+      6,
+      false,
+    );
+    const path = new THREE.Mesh(
+      geometry,
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+    path.renderOrder = opacity >= 0.9 ? 10 : 9;
+    return path;
   }
 
   dispose() {
@@ -164,6 +264,10 @@ class MujocoSceneRenderer {
       cancelAnimationFrame(this.animationFrameId);
     }
     this.resizeObserver?.disconnect();
+    if (this.persistCameraPose) {
+      this.saveCameraPose();
+      this.controls.removeEventListener('change', this.saveCameraPose);
+    }
     this.controls.dispose();
     this.meshes.forEach((mesh) => {
       mesh.geometry.dispose();
@@ -173,8 +277,10 @@ class MujocoSceneRenderer {
         mesh.material.dispose();
       }
     });
-    this.trajectoryLine.geometry.dispose();
-    (this.trajectoryLine.material as THREE.Material).dispose();
+    this.trajectoryLine?.geometry.dispose();
+    if (this.trajectoryLine) {
+      (this.trajectoryLine.material as THREE.Material).dispose();
+    }
     this.backgroundTrajectoryLines.forEach((line) => {
       line.geometry.dispose();
       (line.material as THREE.Material).dispose();
@@ -191,9 +297,22 @@ class MujocoSceneRenderer {
     this.option.delete();
   }
 
+  private saveCameraPose = () => {
+    persistedCameraPose = {
+      position: this.camera.position.toArray() as [number, number, number],
+      target: this.controls.target.toArray() as [number, number, number],
+      up: this.camera.up.toArray() as [number, number, number],
+      fov: this.camera.fov,
+    };
+  };
+
   private resize(container: HTMLDivElement) {
     const width = Math.max(container.clientWidth, 1);
     const height = Math.max(container.clientHeight, 1);
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    if (this.renderer.getPixelRatio() !== pixelRatio) {
+      this.renderer.setPixelRatio(pixelRatio);
+    }
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
@@ -247,19 +366,30 @@ class MujocoSceneRenderer {
   }
 
   private getMaterial(mjvGeom: any) {
+    const isTaskObject =
+      mjvGeom.objtype === (this.mujoco as any).mjtObj.mjOBJ_GEOM.value
+      && mjvGeom.objid === this.objectGeomId;
     const material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(mjvGeom.rgba[0], mjvGeom.rgba[1], mjvGeom.rgba[2]),
+      color: isTaskObject
+        ? new THREE.Color(0xf5f7fa)
+        : new THREE.Color(mjvGeom.rgba[0], mjvGeom.rgba[1], mjvGeom.rgba[2]),
       opacity: mjvGeom.rgba[3],
       transparent: mjvGeom.rgba[3] < 1,
-      roughness: mjvGeom.matid >= 0 ? this.model.mat_roughness[mjvGeom.matid] : 0.65,
-      metalness: mjvGeom.matid >= 0 ? this.model.mat_metallic[mjvGeom.matid] : 0.08,
+      roughness: isTaskObject
+        ? 0.48
+        : (mjvGeom.matid >= 0 ? this.model.mat_roughness[mjvGeom.matid] : 0.65),
+      metalness: isTaskObject
+        ? 0
+        : (mjvGeom.matid >= 0 ? this.model.mat_metallic[mjvGeom.matid] : 0.08),
       side:
         mjvGeom.type === (this.mujoco as any).mjtGeom.mjGEOM_MESH.value
           ? THREE.DoubleSide
           : THREE.FrontSide,
     });
 
-    const colorTexture = this.getColorTexture(mjvGeom.matid, mjvGeom.type);
+    const colorTexture = isTaskObject
+      ? null
+      : this.getColorTexture(mjvGeom.matid, mjvGeom.type);
     if (colorTexture) {
       material.map = colorTexture;
     }
@@ -446,7 +576,7 @@ class MujocoSceneRenderer {
   }
 }
 
-const getTcpPoint = (data: any) => {
+export const getTcpPoint = (data: any) => {
   const right = data.site('rightEndEffector').xpos;
   const left = data.site('leftEndEffector').xpos;
   return new THREE.Vector3(
@@ -456,7 +586,7 @@ const getTcpPoint = (data: any) => {
   );
 };
 
-const writeBundleFiles = async (mujoco: MainModule, manifest: MujocoModelManifest) => {
+export const writeBundleFiles = async (mujoco: MainModule, manifest: MujocoModelManifest) => {
   const fs = (mujoco as any).FS;
   const getVirtualPaths = (filePath: string) => {
     const paths = [`/metaworld/${filePath}`];
@@ -488,7 +618,7 @@ const writeBundleFiles = async (mujoco: MainModule, manifest: MujocoModelManifes
   );
 };
 
-const loadTrajectory = async (episode: Episode) => {
+export const loadTrajectory = async (episode: Episode) => {
   const params = new URLSearchParams({
     env_name: episode.env_name,
     benchmark_id: String(episode.benchmark_id),
@@ -502,7 +632,7 @@ const loadTrajectory = async (episode: Episode) => {
   return (await response.json()) as MujocoTrajectoryResponse;
 };
 
-const loadManifest = async (envName: string) => {
+export const loadManifest = async (envName: string) => {
   const response = await fetch(`/data/get_mujoco_model_manifest?env_name=${encodeURIComponent(envName)}`);
   if (!response.ok) {
     throw new Error('No browser model bundle available');
@@ -520,7 +650,12 @@ const getEpisodeKey = (episode: Episode) =>
     episode.episode_num,
   ].join(':');
 
-const getTrajectoryTcpPoints = (mujoco: MainModule, model: any, data: any, states: MujocoTrajectoryState[]) =>
+export const getTrajectoryTcpPoints = (
+  mujoco: MainModule,
+  model: any,
+  data: any,
+  states: MujocoTrajectoryState[],
+) =>
   states.map((state: MujocoTrajectoryState) => {
     data.qpos.set(state.qpos);
     data.qvel.set(state.qvel);
@@ -528,12 +663,96 @@ const getTrajectoryTcpPoints = (mujoco: MainModule, model: any, data: any, state
     return getTcpPoint(data);
   });
 
+const getNamedPosition = (data: any, type: 'body' | 'site', name: string): number[] => {
+  try {
+    return Array.from(data[type](name).xpos as ArrayLike<number>);
+  } catch {
+    return [0, 0, 0];
+  }
+};
+
+export const getMujocoObservation = (
+  envName: string,
+  data: any,
+  previousObservation?: number[],
+): number[] => {
+  if (envName.toLowerCase().includes('sweep-into')) {
+    const tcp = getTcpPoint(data).toArray();
+    const rightClaw = getNamedPosition(data, 'body', 'rightclaw');
+    const leftClaw = getNamedPosition(data, 'body', 'leftclaw');
+    const gripperDistance = Math.min(
+      1,
+      new THREE.Vector3(...(rightClaw as [number, number, number])).distanceTo(
+        new THREE.Vector3(...(leftClaw as [number, number, number])),
+      ) / 0.1,
+    );
+    const objectPosition = getNamedPosition(data, 'body', 'obj');
+    let objectQuaternion = [0, 0, 0, 1];
+    try {
+      const xmat = Array.from(data.geom('objGeom').xmat as ArrayLike<number>);
+      const rotation = new THREE.Matrix4().set(
+        xmat[0], xmat[1], xmat[2], 0,
+        xmat[3], xmat[4], xmat[5], 0,
+        xmat[6], xmat[7], xmat[8], 0,
+        0, 0, 0, 1,
+      );
+      const quaternion = new THREE.Quaternion().setFromRotationMatrix(rotation);
+      objectQuaternion = quaternion.toArray();
+    } catch {
+      // Keep the identity quaternion when the task-specific geom is unavailable.
+    }
+    const current = [
+      ...tcp,
+      gripperDistance,
+      ...objectPosition,
+      ...objectQuaternion,
+      ...new Array(7).fill(0),
+    ];
+    const previous = previousObservation?.slice(0, 18) ?? current;
+    return [...current, ...previous, 0, 0.84, 0.02];
+  }
+
+  const raw = [...Array.from(data.qpos as ArrayLike<number>), ...Array.from(data.qvel as ArrayLike<number>)];
+  return [...raw.slice(0, 39), ...new Array(Math.max(0, 39 - raw.length)).fill(0)];
+};
+
+export const stepMujocoSimulation = (
+  mujoco: MainModule,
+  model: any,
+  data: any,
+  action: number[],
+) => {
+  const clipped = action.map((value) => Math.max(-1, Math.min(1, value)));
+  if (data.mocap_pos?.length >= 3) {
+    const lower = [-0.5, 0.4, 0.05];
+    const upper = [0.5, 1, 0.5];
+    for (let axis = 0; axis < 3; axis += 1) {
+      data.mocap_pos[axis] = Math.max(
+        lower[axis],
+        Math.min(upper[axis], data.mocap_pos[axis] + clipped[axis] * 0.01),
+      );
+    }
+  }
+  if (data.mocap_quat?.length >= 4) {
+    data.mocap_quat.set([1, 0, 1, 0]);
+  }
+  if (data.ctrl?.length >= 2) {
+    data.ctrl[0] = clipped[3];
+    data.ctrl[1] = -clipped[3];
+  }
+  for (let frame = 0; frame < 5; frame += 1) {
+    (mujoco as any).mj_step(model, data);
+  }
+};
+
 export default function MujocoTrajectoryViewer({
   episode,
   backgroundEpisodes = [],
   selectedStep,
   onStepChange,
   fallback,
+  trajectoryColor = '#ff6b35',
+  getBackgroundTrajectoryColor,
 }: MujocoTrajectoryViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRendererRef = useRef<MujocoSceneRenderer | null>(null);
@@ -541,6 +760,10 @@ export default function MujocoTrajectoryViewer({
   const dataRef = useRef<any>(null);
   const statesRef = useRef<MujocoTrajectoryState[]>([]);
   const tcpPointsRef = useRef<THREE.Vector3[]>([]);
+  // Selection playback can recreate the parent's color callback. Keep its latest
+  // value without treating that render-only callback as a model lifecycle change.
+  const getBackgroundTrajectoryColorRef = useRef(getBackgroundTrajectoryColor);
+  getBackgroundTrajectoryColorRef.current = getBackgroundTrajectoryColor;
   const [status, setStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
   const [playing, setPlaying] = useState(false);
   const maxStep = useMemo(() => Math.max(0, statesRef.current.length - 1), [status]);
@@ -566,20 +789,26 @@ export default function MujocoTrajectoryViewer({
         const data = new (mujoco as any).MjData(model);
         const tcpPoints = getTrajectoryTcpPoints(mujoco, model, data, trajectory.states);
         const selectedEpisodeKey = getEpisodeKey(episode);
+        const backgroundCandidates = backgroundEpisodes
+          .filter((backgroundEpisode) => getEpisodeKey(backgroundEpisode) !== selectedEpisodeKey);
         const backgroundTrajectories = await Promise.all(
-          backgroundEpisodes
-            .filter((backgroundEpisode) => getEpisodeKey(backgroundEpisode) !== selectedEpisodeKey)
-            .map(async (backgroundEpisode) => {
-              try {
-                return await loadTrajectory(backgroundEpisode);
-              } catch {
-                return null;
-              }
-            }),
+          backgroundCandidates.map(async (backgroundEpisode) => {
+            try {
+              return await loadTrajectory(backgroundEpisode);
+            } catch {
+              return null;
+            }
+          }),
         );
-        const backgroundTcpPointSets = backgroundTrajectories
-          .filter((backgroundTrajectory): backgroundTrajectory is MujocoTrajectoryResponse => Boolean(backgroundTrajectory))
-          .map((backgroundTrajectory) => getTrajectoryTcpPoints(mujoco, model, data, backgroundTrajectory.states));
+        const backgroundTrajectoryPaths = backgroundTrajectories.flatMap((backgroundTrajectory, index) => {
+          if (!backgroundTrajectory) {
+            return [];
+          }
+          return [{
+            points: getTrajectoryTcpPoints(mujoco, model, data, backgroundTrajectory.states),
+            color: getBackgroundTrajectoryColorRef.current?.(backgroundCandidates[index]) ?? '#9aa0a6',
+          }];
+        });
 
         if (disposed) {
           data.delete();
@@ -597,7 +826,8 @@ export default function MujocoTrajectoryViewer({
           data,
           containerRef.current,
           tcpPoints,
-          backgroundTcpPointSets,
+          backgroundTrajectoryPaths,
+          trajectoryColor,
         );
         const initialStep = clampStep(selectedStep, trajectory.states.length - 1);
         sceneRendererRef.current.setState(trajectory.states[initialStep], tcpPoints[initialStep]);
@@ -621,7 +851,14 @@ export default function MujocoTrajectoryViewer({
       statesRef.current = [];
       tcpPointsRef.current = [];
     };
-  }, [episode.env_name, episode.benchmark_id, episode.checkpoint_step, episode.episode_num, backgroundEpisodes]);
+  }, [
+    episode.env_name,
+    episode.benchmark_id,
+    episode.checkpoint_step,
+    episode.episode_num,
+    backgroundEpisodes,
+    trajectoryColor,
+  ]);
 
   useEffect(() => {
     if (status !== 'ready' || statesRef.current.length === 0) {

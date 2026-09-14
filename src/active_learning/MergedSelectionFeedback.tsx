@@ -2,8 +2,6 @@ import React, { useState, useRef, useEffect, useMemo, useCallback, startTransiti
 import {
   Box,
   Typography,
-  Card,
-  CardContent,
   IconButton,
   Paper,
   Button,
@@ -37,6 +35,7 @@ import { Episode, FeedbackType, Feedback } from '../types';
 import { getEpisodeColor as getEpisodeColorFromUtil } from './utils/trajectoryColors';
 import axios from 'axios';
 import WebRTCDemoComponent from './WebRTCDemoComponent';
+import { getDemoSaveEndpoint } from './demoEnvironment';
 import TimelineComponent from './TimelineComponent';
 import { OnboardingHighlight, useOnboarding } from './OnboardingSystem';
 import { limitEpisodesForCheckpoint } from '../trajectoryDisplayLimit';
@@ -45,6 +44,14 @@ type PendingStateSelectionSync = {
   episodeIdx: number;
   step: number;
   baseStateData: any;
+};
+
+type ClusterFrameSample = {
+  stateIndex: number;
+  episodeNumber: number;
+  episodeNum: number;
+  stepWithinEpisode: number;
+  episode: Episode;
 };
 
 const MujocoTrajectoryViewer = React.lazy(() => import('./MujocoTrajectoryViewer'));
@@ -156,6 +163,7 @@ const MergedSelectionFeedback = () => {
   const userDemoVideoRef = useRef<HTMLVideoElement | null>(null);
   const [videoURLs, setVideoURLs] = useState<Map<string, string>>(new Map<string, string>());
   const [clusterFrameImages, setClusterFrameImages] = useState<string[]>([]);
+  const [clusterFrameSamples, setClusterFrameSamples] = useState<ClusterFrameSample[]>([]);
   const [coordinateFrameImage, setCoordinateFrameImage] = useState<string | null>(null);
   const [selectionInstance, setSelectionInstance] = useState(0); // Unique identifier for each selection
   const lastUpdateStepRef = useRef(-1); // For tracking projection sync updates
@@ -570,16 +578,17 @@ const MergedSelectionFeedback = () => {
   }, [selectionData, allEpisodes, appState.selectedExperiment.id]);
 
   // Fetch cluster frame images from backend
-  const fetchClusterFrames = useCallback(async (clusterIndices: number[], episodeData: any[]) => {
+  const fetchClusterFrames = useCallback(async (clusterIndices: number[], episodeData: Episode[]) => {
     try {
       const response = await fetch('/data/get_cluster_frames', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cluster_indices: clusterIndices, episode_data: episodeData, max_states_to_show: 12 }),
+        body: JSON.stringify({ cluster_indices: clusterIndices, episode_data: episodeData, max_states_to_show: 9 }),
       });
       if (!response.ok) throw new Error('Failed to fetch cluster frames');
-      const frameImages = await response.json();
-      setClusterFrameImages(frameImages);
-    } catch (error) { setClusterFrameImages([]); }
+      return await response.json() as string[];
+    } catch (error) {
+      return [];
+    }
   }, []);
 
   // Fetch video URLs for trajectories
@@ -644,15 +653,26 @@ const MergedSelectionFeedback = () => {
 
   // Fetch cluster frame images when cluster is selected
   useEffect(() => {
+    let active = true;
+
     if (selectionData.type === 'cluster' && selectionData.data && selectionData.data.length > 0) {
       setSelectionInstance(prev => prev + 1); // Increment selection instance for unique keys
       const episodeIndices = (activeLearningState as any).episodeIndices;
-      if (!episodeIndices || episodeIndices.length === 0) { setClusterFrameImages([]); return; }
-      if (!allEpisodes || allEpisodes.length === 0) { setClusterFrameImages([]); return; }
-      let clusterIndices: number[] = selectionData.data as number[];
-      if (clusterIndices.length === 0) return;
-      if (clusterIndices.length > 12) clusterIndices = d3.shuffle(clusterIndices).slice(0, 12);
-      const episodeStepPairs = clusterIndices
+      if (!episodeIndices || episodeIndices.length === 0 || !allEpisodes || allEpisodes.length === 0) {
+        setClusterFrameSamples([]);
+        setClusterFrameImages([]);
+        return () => { active = false; };
+      }
+
+      const clusterIndices: number[] = selectionData.data as number[];
+      const sampleCount = Math.min(clusterIndices.length, 9);
+      const sampledIndices = sampleCount <= 1
+        ? clusterIndices.slice(0, sampleCount)
+        : Array.from({ length: sampleCount }, (_, index) => {
+          const clusterIndex = Math.round((index / (sampleCount - 1)) * (clusterIndices.length - 1));
+          return clusterIndices[clusterIndex];
+        });
+      const episodeStepPairs = sampledIndices
         .map((stateIndex: number) => {
           const episodeNumber = episodeIndices[stateIndex];
           if (episodeNumber === undefined) return null;
@@ -660,15 +680,31 @@ const MergedSelectionFeedback = () => {
           if (!episode) return null;
           const episodeStart = episodeIndices.indexOf(episodeNumber);
           const stepWithinEpisode = stateIndex - episodeStart;
-          return { stateIndex, episodeNumber, stepWithinEpisode, episode: { env_name: episode.env_name, benchmark_id: episode.benchmark_id, checkpoint_step: episode.checkpoint_step, episode_num: episode.episode_num } };
+          return {
+            stateIndex,
+            episodeNumber,
+            episodeNum: episode.episode_num,
+            stepWithinEpisode,
+            episode,
+          };
         })
-        .filter(Boolean) as any[];
+        .filter((sample): sample is ClusterFrameSample => sample !== null);
+
+      setClusterFrameSamples(episodeStepPairs);
+      setClusterFrameImages([]);
       if (episodeStepPairs.length > 0) {
         const episodeData = episodeStepPairs.map((pair) => pair.episode);
         const stepIndices = episodeStepPairs.map((pair) => pair.stepWithinEpisode);
-        fetchClusterFrames(stepIndices, episodeData);
+        fetchClusterFrames(stepIndices, episodeData).then((frameImages) => {
+          if (active) setClusterFrameImages(frameImages);
+        });
       }
-    } else { setClusterFrameImages([]); }
+    } else {
+      setClusterFrameSamples([]);
+      setClusterFrameImages([]);
+    }
+
+    return () => { active = false; };
   }, [selectionData, allEpisodes, fetchClusterFrames, (activeLearningState as any).episodeIndices]);
 
   useEffect(() => {
@@ -1063,7 +1099,7 @@ const MergedSelectionFeedback = () => {
         payload.checkpoint = Number(appState.selectedCheckpoint);
       }
 
-      const response = await axios.post('/demo_generation/save_webrtc_demo', payload);
+      const response = await axios.post(getDemoSaveEndpoint(payload), payload);
       const data = response.data;
 
       if (data?.success && data.artifacts) {
@@ -1145,6 +1181,15 @@ const MergedSelectionFeedback = () => {
     },
     [activeLearningState, allEpisodes.length]
   );
+  const getEpisodeTrajectoryColor = useCallback((targetEpisode: Episode) => {
+    const targetIndex = allEpisodes.findIndex((candidate) =>
+      candidate.env_name === targetEpisode.env_name
+      && candidate.benchmark_id === targetEpisode.benchmark_id
+      && candidate.checkpoint_step === targetEpisode.checkpoint_step
+      && candidate.episode_num === targetEpisode.episode_num
+    );
+    return targetIndex >= 0 ? getEpisodeColor(targetIndex) : '#9aa0a6';
+  }, [allEpisodes, getEpisodeColor]);
 
   const attachVideoRef = (index: number) => (el: HTMLVideoElement | null) => {
     videoRefs.current[index] = el;
@@ -1718,6 +1763,8 @@ const MergedSelectionFeedback = () => {
                     selectedStep={selectedStep}
                     onStepChange={updateSelectedStep}
                     fallback={getVideoElement(episode, episodeIdx, false, true, selectedStep, episodeLength)}
+                    trajectoryColor={getEpisodeColor(episodeIdx)}
+                    getBackgroundTrajectoryColor={getEpisodeTrajectoryColor}
                   />
                 </React.Suspense>
               </Box>
@@ -1818,6 +1865,7 @@ const MergedSelectionFeedback = () => {
                     experimentId={appState.selectedExperiment.id.toString()}
                     environmentId={appState.selectedExperiment.env_id}
                     checkpoint={Number(appState.selectedCheckpoint)}
+                    benchmarkId={episode.benchmark_id}
                     episodeNum={episode.episode_num}
                     step={effectiveCorrectionStep ?? selectedStep}
                     isSubmitting={savingDemo}
@@ -1867,39 +1915,73 @@ const MergedSelectionFeedback = () => {
       case 'cluster': {
         const clusterLabel = (selectionData as any).label;
         const clusterIndices: number[] = (selectionData as any).data;
-        const maxStatesToShow = 12;
-        const limitedIndices = clusterIndices.slice(0, maxStatesToShow);
+        const maxStatesToShow = 9;
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom>
               Cluster {clusterLabel} Selected ({clusterIndices.length} states)
             </Typography>
             <Box sx={{ mb: 2 }}>
-              <Grid container spacing={2} sx={{ mb: 1 }}>
-                {limitedIndices.map((i: number, index: number) => (
-                  <Grid item xs={6} sm={4} md={3} key={`cluster-state-${selectionInstance}-${i}-${index}`}>
-                    <Card sx={{ height: '100%' }}>
-                      <CardContent>
-                        {clusterFrameImages[index] ? (
-                          <Box sx={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.paper', borderRadius: 1, overflow: 'hidden' }}>
-                            <img src={clusterFrameImages[index]} alt={`Cluster state ${i}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          </Box>
-                        ) : (
-                          <Box sx={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.paper', border: '1px dashed', borderColor: 'primary.main', borderRadius: 1 }}>
-                            <ImageIcon sx={{ fontSize: 30, color: 'text.secondary' }} />
-                          </Box>
-                        )}
-                        <Typography variant="caption" align="center" display="block">State #{i}</Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    sm: 'repeat(2, minmax(0, 1fr))',
+                    md: 'repeat(3, minmax(0, 1fr))',
+                  },
+                  gap: 1,
+                  mb: 1,
+                }}
+              >
+                {clusterFrameSamples.map((sample, index) => (
+                  <Box
+                    key={`cluster-state-${selectionInstance}-${sample.stateIndex}-${index}`}
+                    sx={{
+                      borderRadius: 1,
+                      overflow: 'hidden',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      bgcolor: 'background.default',
+                    }}
+                  >
+                    {clusterFrameImages[index] ? (
+                      <Box
+                        component="img"
+                        src={clusterFrameImages[index]}
+                        alt={`Episode ${sample.episodeNum}, step ${sample.stepWithinEpisode}`}
+                        sx={{
+                          width: '100%',
+                          height: 'clamp(120px, 12vh, 160px)',
+                          objectFit: 'cover',
+                          display: 'block',
+                        }}
+                      />
+                    ) : (
+                      <Box
+                        sx={{
+                          width: '100%',
+                          height: 'clamp(120px, 12vh, 160px)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'text.secondary',
+                        }}
+                      >
+                        <ImageIcon sx={{ fontSize: 30 }} />
+                      </Box>
+                    )}
+                    <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', py: 0.25 }}>
+                      Episode {sample.episodeNum} • Step {sample.stepWithinEpisode}
+                    </Typography>
+                  </Box>
                 ))}
-                {clusterIndices.length > maxStatesToShow && (
-                  <Grid item xs={12}>
-                    <Typography variant="body2" color="text.secondary">+ {clusterIndices.length - maxStatesToShow} more states not shown</Typography>
-                  </Grid>
-                )}
-              </Grid>
+              </Box>
+              {clusterIndices.length > maxStatesToShow && (
+                <Typography variant="body2" color="text.secondary">
+                  + {clusterIndices.length - maxStatesToShow} more states not shown
+                </Typography>
+              )}
             </Box>
             <Box sx={{ ...sectionCardSx, mt: 2 }}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>

@@ -25,6 +25,7 @@ import EvaluativeFeedback from "./evaluative-feedback";
 import TextFeedback from "./text-feedback";
 import FeatureHighlightModal from "../feature-highlight-modal";
 import WebRTCDemoComponent from "../../../active_learning/WebRTCDemoComponent";
+import { getDemoSaveEndpoint } from "../../../active_learning/demoEnvironment";
 
 // Types and Context
 import { EpisodeFromID, IDfromEpisode } from "../../../id";
@@ -601,11 +602,12 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     const safeSubmitPayload = sanitizeSubmitPayload(submitPayload);
     setIsSubmittingCorrection(true);
     try {
-      const response = await axios.post("/demo_generation/save_webrtc_demo", {
+      const payload = {
         session_id: correctionSessionId,
         checkpoint: normalizedCheckpoint,
         ...safeSubmitPayload,
-      });
+      };
+      const response = await axios.post(getDemoSaveEndpoint(payload), payload);
       if (response.data?.success) {
         const correctionPath =
           response.data?.artifacts?.demo_file ?? response.data?.file_path ?? null;
@@ -623,7 +625,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           granularity: "state",
           timestamp: Date.now(),
           session_id: sessionId,
-          correction: `WebRTC correction for episode ${episodeID}, step ${correctionStep}`,
+          correction: `Interactive correction for episode ${episodeID}, step ${correctionStep}`,
           correction_path: correctionPath,
         };
         setGivenFeedbackMarkers((prev) => [
@@ -835,11 +837,12 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     const safeSubmitPayload = sanitizeSubmitPayload(submitPayload);
     setIsSubmittingDemo(true);
     try {
-      const response = await axios.post("/demo_generation/save_webrtc_demo", {
+      const payload = {
         session_id: demoSessionId,
         checkpoint: normalizedCheckpoint,
         ...safeSubmitPayload,
-      });
+      };
+      const response = await axios.post(getDemoSaveEndpoint(payload), payload);
       if (response.data?.success) {
         const demoNumber = response.data?.demo_number ?? Date.now();
         const demoPath =
@@ -894,6 +897,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           experimentId={String(experimentId)}
           environmentId={environmentId}
           checkpoint={normalizedCheckpoint}
+          benchmarkId={demoReferenceEpisode.benchmark_id}
           episodeNum={demoReferenceEpisode.episode_num}
           step={0}
           isSubmitting={isSubmittingDemo}
@@ -910,8 +914,10 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           experimentId={String(experimentId)}
           environmentId={environmentId}
           checkpoint={normalizedCheckpoint}
+          benchmarkId={EpisodeFromID(episodeID || "").benchmark_id}
           episodeNum={EpisodeFromID(episodeID || "").episode_num}
           step={correctionStep}
+          initialCameraPreset="corner-video"
           isSubmitting={isSubmittingCorrection}
           onSubmit={onCorrectionDemoSubmit}
           onCancel={closeActivePanel}
