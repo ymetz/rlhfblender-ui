@@ -17,6 +17,7 @@ import GridUncertaintyMap from './GridMap';
 import FeedbackWaterfallChart from './FeedbackWaterfallChart';
 import { useActiveLearningState, FeedbackHistoryEntry } from '../ActiveLearningContext';
 import { useAppState } from '../AppStateContext';
+import { parseCheckpoint } from '../checkpoint';
 
 type TrainingSummaryProps = {
   isTraining: boolean;
@@ -155,12 +156,12 @@ const TrainingProgressPanel: React.FC<TrainingProgressPanelProps> = ({ onClose }
       .map((value) => Number(value))
       .filter((value) => Number.isFinite(value));
 
-    if (numericCheckpoints.length === 0) {
+    const selected = parseCheckpoint(appState.selectedCheckpoint);
+    if (numericCheckpoints.length === 0 || selected === null) {
       return { current: null as number | null, previous: null as number | null };
     }
 
     const uniqueSorted = Array.from(new Set(numericCheckpoints)).sort((a, b) => a - b);
-    const selected = Number(appState.selectedCheckpoint);
 
     if (Number.isFinite(selected) && uniqueSorted.includes(selected)) {
       const selectedIndex = uniqueSorted.indexOf(selected);

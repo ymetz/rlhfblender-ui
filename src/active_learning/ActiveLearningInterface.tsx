@@ -40,7 +40,7 @@ const ActiveLearningInterface: React.FC<ActiveLearningInterfaceProps> = ({ stepS
   const checkpointProgress = useMemo(() => {
     const checkpoints = appState.selectedExperiment.checkpoint_list || [];
     const total = checkpoints.length;
-    if (total === 0) {
+    if (total === 0 || appState.selectedCheckpoint === null) {
       return { current: 0, total: 0, index: -1 };
     }
 

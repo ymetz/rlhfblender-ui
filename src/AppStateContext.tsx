@@ -9,7 +9,7 @@ type AppAction =
   | { type: "SET_EXPERIMENTS"; payload: any[] }
   | { type: "SET_SELECTED_PROJECT"; payload: any }
   | { type: "SET_SELECTED_EXPERIMENT"; payload: any }
-  | { type: "SET_SELECTED_CHECKPOINT"; payload: number }
+  | { type: "SET_SELECTED_CHECKPOINT"; payload: number | null }
   | { type: "SET_UI_CONFIG_MODAL_OPEN"; payload: boolean }
   | { type: "SET_BACKEND_CONFIG_MODAL_OPEN"; payload: boolean }
   | { type: "SET_SESSION_ID"; payload: string }
@@ -35,7 +35,7 @@ type AppAction =
   | { type: "SET_MAX_STEPS"; payload: number }
   | { type: "SET_FEEDBACK_INTERFACE_RESET"; payload: () => void };
 
-const initialState: AppState = {
+export const initialState: AppState = {
   app_mode: "study",
   videoURLCache: {},
   rewardsCache: {},
@@ -49,7 +49,7 @@ const initialState: AppState = {
   highlightedEpisodes: [],
   selectedProject: { id: -1, project_name: "", project_experiments: [] },
   selectedExperiment: { id: -1, exp_name: "", env_id: "", env_config: "",  framework: "", checkpoint_list: []},
-  selectedCheckpoint: -1,
+  selectedCheckpoint: null,
   sliderValue: 0,
   uiConfigModalOpen: false,
   backendConfigModalOpen: false,
@@ -74,16 +74,35 @@ type AsyncDispatch = (action: AppAction) => Promise<void>;
 const AppStateContext = createContext<AppState | undefined>(undefined);
 const AppDispatchContext = createContext<AsyncDispatch | undefined>(undefined);
 
-function appReducer(state: AppState, action: AppAction): AppState {
+export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "SET_PROJECTS":
       return { ...state, projects: action.payload };
     case "SET_EXPERIMENTS":
       return { ...state, experiments: action.payload };
     case "SET_SELECTED_PROJECT":
-      return { ...state, selectedProject: action.payload };
+      return state.selectedProject.id === action.payload.id
+        ? { ...state, selectedProject: action.payload }
+        : {
+            ...state,
+            selectedProject: action.payload,
+            selectedExperiment: initialState.selectedExperiment,
+            selectedCheckpoint: null,
+            episodeIDsChronologically: [],
+            rankeableEpisodeIDs: [],
+            sessionId: "-",
+          };
     case "SET_SELECTED_EXPERIMENT":
-      return { ...state, selectedExperiment: action.payload };
+      return state.selectedExperiment.id === action.payload.id
+        ? { ...state, selectedExperiment: action.payload }
+        : {
+            ...state,
+            selectedExperiment: action.payload,
+            selectedCheckpoint: null,
+            episodeIDsChronologically: [],
+            rankeableEpisodeIDs: [],
+            sessionId: "-",
+          };
     case "SET_SELECTED_CHECKPOINT":
       return { ...state, selectedCheckpoint: action.payload };
     case "SET_UI_CONFIG_MODAL_OPEN":

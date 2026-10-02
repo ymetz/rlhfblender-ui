@@ -40,6 +40,7 @@ import { interpolateBrightCividis } from './utils/vsupColors';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { buildEpisodeKeepMask } from '../trajectoryDisplayLimit';
 import { postCached } from '../utils/cachedPostRequests';
+import { parseCheckpoint } from '../checkpoint';
 
 type LastDrawParams = {
     data: number[][];
@@ -506,6 +507,9 @@ const StateSequenceProjection = (props: any) => {
 
     // Load data from API
     const loadData = useCallback(() => {
+        if (props.benchmarkId === -1 || parseCheckpoint(props.checkpointStep) === null) {
+            return;
+        }
         // Capture current transform before clearing the visualization
         if (embeddingRef.current) {
             const svg = d3.select(embeddingRef.current).select('svg');

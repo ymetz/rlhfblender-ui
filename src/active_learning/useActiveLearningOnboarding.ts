@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useOnboarding, createActiveLearningOnboardingSteps } from './OnboardingSystem';
 import { useAppState } from '../AppStateContext';
+import { parseCheckpoint } from '../checkpoint';
 
 export const useActiveLearningOnboarding = () => {
   const onboarding = useOnboarding();
@@ -11,7 +12,7 @@ export const useActiveLearningOnboarding = () => {
 
     return !!(
       appState.selectedExperiment &&
-      appState.selectedCheckpoint !== -1 &&
+      parseCheckpoint(appState.selectedCheckpoint) !== null &&
       appState.episodeIDsChronologically &&
       appState.episodeIDsChronologically.length > 0
     );

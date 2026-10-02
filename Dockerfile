@@ -11,6 +11,11 @@ COPY . .
 # Install dependencies
 RUN npm install
 
+# Vite embeds these browser-facing addresses during the build.
+ARG VITE_DASH_PLAYER_URL=http://localhost:5173
+ARG VITE_DASH_PLAYER_ORIGIN=http://localhost:5173
+ENV VITE_DASH_PLAYER_URL=$VITE_DASH_PLAYER_URL
+ENV VITE_DASH_PLAYER_ORIGIN=$VITE_DASH_PLAYER_ORIGIN
 RUN npm run build
 
 # Set user to node

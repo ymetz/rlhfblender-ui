@@ -32,6 +32,7 @@ import BestOfKColumn from "./feedbackinterface/best-of-k-column";
 import ScrollableEpisodeList from "./feedbackinterface/scrollable-episode-list";
 import { useFeedbackShortcuts } from "./feedbackinterface/hooks/useShortcuts";
 import { limitEpisodesForCheckpoint } from "../trajectoryDisplayLimit";
+import { parseCheckpoint } from "../checkpoint";
 
 // Add new type for feedback mode
 type FeedbackMode = "ranking" | "bestOfK" | "annotation";
@@ -66,7 +67,7 @@ const FeedbackInterface: React.FC = () => {
   const checkpointProgress = useMemo(() => {
     const checkpoints = selectedExperiment?.checkpoint_list ?? [];
     const total = checkpoints.length;
-    if (total === 0) {
+    if (total === 0 || parseCheckpoint(selectedCheckpoint) === null) {
       return { current: 0, total: 0 };
     }
 
@@ -88,9 +89,9 @@ const FeedbackInterface: React.FC = () => {
   const showCheckpointProgress =
     state.app_mode === "study" && checkpointProgress.total > 1;
   const checkpointEpisodeIDs = useMemo(() => {
-    const selectedCheckpointValue = Number(selectedCheckpoint);
-    if (!Number.isFinite(selectedCheckpointValue) || selectedCheckpointValue < 0) {
-      return episodeIDsChronologically;
+    const selectedCheckpointValue = parseCheckpoint(selectedCheckpoint);
+    if (selectedCheckpointValue === null) {
+      return [];
     }
     const limitedEpisodes = limitEpisodesForCheckpoint(
       episodeIDsChronologically,
@@ -473,7 +474,7 @@ const FeedbackInterface: React.FC = () => {
                       updateEvalFeedback={updateEvalFeedback}
                       experimentId={selectedExperiment?.id ?? 0}
                       environmentId={selectedExperiment?.env_id ?? ""}
-                      checkpoint={selectedCheckpoint}
+                      checkpoint={selectedCheckpoint ?? undefined}
                       onMouseEnter={handleEpisodeHover}
                       onMouseLeave={() => handleEpisodeHover(null)}
                       isHovered={hoveredEpisodeId === columnId}
@@ -505,7 +506,7 @@ const FeedbackInterface: React.FC = () => {
               updateEvalFeedback={updateEvalFeedback}
               experimentId={selectedExperiment?.id ?? 0}
               environmentId={selectedExperiment?.env_id ?? ""}
-              checkpoint={selectedCheckpoint}
+              checkpoint={selectedCheckpoint ?? undefined}
               onMouseEnter={handleEpisodeHover}
               onMouseLeave={() => handleEpisodeHover(null)}
               isHovered={hoveredEpisodeId === selectedColumn}

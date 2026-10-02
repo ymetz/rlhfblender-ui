@@ -57,6 +57,7 @@ import StudyPhaseSurveyScreen, {
 } from "./components/study/study-phase-survey-screen";
 import ExperimentCompletionScreen from "./components/study/experiment-completion-screen";
 import { limitEpisodesForCheckpoint } from "./trajectoryDisplayLimit";
+import { parseCheckpoint } from "./checkpoint";
 import {
   clearCachedPostRequests,
   postCached,
@@ -1339,9 +1340,9 @@ const App: React.FC = () => {
         relevantUiConfigs.map(async (uiConfig) => {
           let elementCount = episodeCount;
           if (uiConfig.feedbackComponents.clusterRating) {
-            const checkpointStep = Number(state.selectedCheckpoint);
+            const checkpointStep = parseCheckpoint(state.selectedCheckpoint);
             if (
-              Number.isFinite(checkpointStep) &&
+              checkpointStep !== null &&
               Number.isFinite(state.selectedExperiment.id) &&
               state.selectedExperiment.id !== -1
             ) {
@@ -1417,14 +1418,11 @@ const App: React.FC = () => {
   }, [dispatch]);
 
   const resetSampler = useCallback(async () => {
-    if (state.selectedExperiment.id === -1 || state.selectedCheckpoint === -1) {
+    const checkpointValue = parseCheckpoint(state.selectedCheckpoint);
+    if (state.selectedExperiment.id === -1 || checkpointValue === null) {
       return;
     }
 
-    const checkpointNumber = Number(state.selectedCheckpoint);
-    const checkpointValue = Number.isFinite(checkpointNumber)
-      ? checkpointNumber
-      : null;
     const requestedResetParams: ResetParams = {
       experimentId: state.selectedExperiment.id,
       checkpoint: checkpointValue,
@@ -1500,12 +1498,7 @@ const App: React.FC = () => {
 
         // Get episodes first and store the result
         const episodes = await getEpisodeIDsChronologically();
-        const selectedCheckpointValue = Number(state.selectedCheckpoint);
-        const checkpointEpisodes =
-          Number.isFinite(selectedCheckpointValue) &&
-          selectedCheckpointValue >= 0
-            ? limitEpisodesForCheckpoint(episodes, selectedCheckpointValue)
-            : episodes;
+        const checkpointEpisodes = limitEpisodesForCheckpoint(episodes, checkpointValue);
 
         // Generate UI config sequence with the fetched episodes
         await generateUiConfigSequence(
@@ -1553,7 +1546,8 @@ const App: React.FC = () => {
   const stepSampler = async () => {
     // Step sampler with current sessionID, but we set new episode data and clear feedback
     // submit step feedback
-    if (state.selectedExperiment.id === -1) {
+    const checkpointValue = parseCheckpoint(state.selectedCheckpoint);
+    if (state.selectedExperiment.id === -1 || checkpointValue === null) {
       return;
     }
 
@@ -1591,11 +1585,7 @@ const App: React.FC = () => {
 
       // Get episodes first and store the result
       const episodes = await getEpisodeIDsChronologically();
-      const selectedCheckpointValue = Number(state.selectedCheckpoint);
-      const checkpointEpisodes =
-        Number.isFinite(selectedCheckpointValue) && selectedCheckpointValue >= 0
-          ? limitEpisodesForCheckpoint(episodes, selectedCheckpointValue)
-          : episodes;
+      const checkpointEpisodes = limitEpisodesForCheckpoint(episodes, checkpointValue);
 
       // Generate UI config sequence with the fetched episodes
       await generateUiConfigSequence(
@@ -1615,14 +1605,12 @@ const App: React.FC = () => {
     }
 
     const experimentId = state.selectedExperiment?.id ?? -1;
-    if (experimentId === -1) {
+    const checkpointValue = parseCheckpoint(state.selectedCheckpoint);
+    if (experimentId === -1 || checkpointValue === null) {
+      lastResetParamsRef.current = null;
       return;
     }
 
-    const parsedCheckpoint = Number(state.selectedCheckpoint);
-    const checkpointValue = Number.isFinite(parsedCheckpoint)
-      ? parsedCheckpoint
-      : null;
 
     const requestedResetParams: ResetParams = {
       experimentId,
@@ -1657,7 +1645,7 @@ const App: React.FC = () => {
         const data = res.data as Partial<{
           project: unknown;
           experiment: unknown;
-          checkpoint: number | string;
+          checkpoint: number | string | null;
           ui_config: UIConfig;
           backend_config: BackendConfig;
           message: string;
@@ -1666,10 +1654,11 @@ const App: React.FC = () => {
         if (data.message === "Setup not found.") {
           throw new Error(`Setup '${studyCode}' not found.`);
         }
+        const parsedCheckpoint = parseCheckpoint(data.checkpoint);
         if (
           !data.project ||
           !data.experiment ||
-          data.checkpoint === undefined
+          parsedCheckpoint === null
         ) {
           throw new Error(`Invalid setup payload for study '${studyCode}'.`);
         }
@@ -1704,12 +1693,9 @@ const App: React.FC = () => {
         });
         await dispatch({
           type: "SET_SELECTED_CHECKPOINT",
-          payload: Number(data.checkpoint),
+          payload: parsedCheckpoint,
         });
-        const parsedCheckpoint = Number(data.checkpoint);
-        loadedCheckpoint = Number.isFinite(parsedCheckpoint)
-          ? parsedCheckpoint
-          : null;
+        loadedCheckpoint = parsedCheckpoint;
         if (data.ui_config) {
           const hasUiConfig = resolvedUiConfigs.some(
             (cfg) => cfg.id === data.ui_config?.id,
@@ -2198,10 +2184,7 @@ const App: React.FC = () => {
     }
 
     const experimentId = state.selectedExperiment?.id ?? -1;
-    const parsedCheckpoint = Number(state.selectedCheckpoint);
-    const checkpointValue = Number.isFinite(parsedCheckpoint)
-      ? parsedCheckpoint
-      : null;
+    const checkpointValue = parseCheckpoint(state.selectedCheckpoint);
     const requestedResetParams: ResetParams = {
       experimentId,
       checkpoint: checkpointValue,
@@ -2210,7 +2193,7 @@ const App: React.FC = () => {
     const last = lastResetParamsRef.current;
     const pending = pendingResetParamsRef.current;
 
-    if (experimentId !== -1) {
+    if (experimentId !== -1 && checkpointValue !== null) {
       if (
         !areResetParamsEqual(last, requestedResetParams) &&
         !areResetParamsEqual(pending, requestedResetParams)

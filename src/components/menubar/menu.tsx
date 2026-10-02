@@ -25,6 +25,7 @@ import {
   useSetupConfigDispatch,
 } from "../../SetupConfigContext";
 import DynamicRLHFModal from "../modals/dynamic-rlhf-modal";
+import { parseCheckpoint } from "../../checkpoint";
 
 type MenuProps = {
   resetSampler: () => void;
@@ -35,9 +36,11 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
   const dispatch = useAppDispatch();
   const setupConfigState = useSetupConfigState();
   const configDispatch = useSetupConfigDispatch();
-  const [availableCheckpoints, setAvailableCheckpoints] = React.useState<
-    { id: string; name: string }[]
-  >([]);
+  const availableCheckpoints = (state.selectedExperiment.checkpoint_list || []).map((checkpoint) => ({
+    id: String(checkpoint),
+    name: Number(checkpoint) === -1 ? "Random" : `Checkpoint ${checkpoint}`,
+  }));
+  const hasCheckpoint = parseCheckpoint(state.selectedCheckpoint) !== null;
   const [dynamicRLHFModalOpen, setDynamicRLHFModalOpen] = React.useState(false);
   const [showDynamicRLHFButton, setShowDynamicRLHFButton] = React.useState(false);
   const theme = useTheme();
@@ -83,21 +86,11 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
         (experiment) => experiment.id === Number(event.target.value),
       ) || state.selectedExperiment;
 
-      // Filter checkpoints related to the selected experiment
-    const experimentCheckpoints = selectedExperiment.checkpoint_list || [];
-    setAvailableCheckpoints(experimentCheckpoints.map((checkpoint) => {
-      const checkpointNumber = Number(checkpoint);
-      return {
-        id: checkpointNumber.toString(),
-        name: checkpointNumber !== -1 ? `Checkpoint ${checkpointNumber}` : "Random",
-      };
-    }));
-
     dispatch({ type: "SET_SELECTED_EXPERIMENT", payload: selectedExperiment });
   };
 
   const selectCheckpoint = (event: SelectChangeEvent) => {
-    const selectedCheckpoint = Number(event.target.value);
+    const selectedCheckpoint = parseCheckpoint(event.target.value);
     dispatch({ type: "SET_SELECTED_CHECKPOINT", payload: selectedCheckpoint });
   }
 
@@ -178,13 +171,6 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
         // Set checkpoint to 0 (initial data collection)
         dispatch({ type: "SET_SELECTED_CHECKPOINT", payload: 0 });
         
-        // Update available checkpoints for the new experiment
-        const experimentCheckpoints = newExperiment.checkpoint_list || [0];
-        setAvailableCheckpoints(experimentCheckpoints.map((checkpoint: any) => ({
-          id: checkpoint.toString(),
-          name: checkpoint !== -1 ? `Checkpoint ${checkpoint}` : "Random",
-        })));
-        
         // Set the DynamicRLHF session ID in the app state
         dispatch({ type: "SET_SESSION_ID", payload: sessionData.session_id });
 
@@ -257,7 +243,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
           <Select
             labelId="checkpoint-select-label"
             id="checkpoint-select"
-            value={state.selectedCheckpoint.toString()}
+            value={state.selectedCheckpoint?.toString() ?? ""}
             label="Checkpoint"
             onChange={selectCheckpoint}
           >
@@ -322,7 +308,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
         <FormControl
           sx={{ width: "5vw", marginRight: "2vw", marginTop: "1vh" }}
         >
-          <Button variant="contained" onClick={resetSampler}>
+          <Button variant="contained" onClick={resetSampler} disabled={state.selectedExperiment.id === -1 || !hasCheckpoint}>
             Load
           </Button>
         </FormControl>
@@ -369,6 +355,7 @@ const Menu: React.FC<MenuProps> = ({ resetSampler }: MenuProps) => {
           }}
           variant="contained"
           color="success"
+          disabled={state.selectedExperiment.id === -1 || !hasCheckpoint}
           onClick={() => {
             //dispatch({ type: 'SET_APP_MODE', payload: 'study' });
             //dispatch({ type: 'TOGGLE_STATUS_BAR' });

@@ -4,6 +4,7 @@ import { useAppDispatch, useAppState } from "./AppStateContext";
 import { useSetupConfigDispatch, useSetupConfigState } from "./SetupConfigContext";
 import { IDfromEpisode } from "./id";
 import { limitEpisodesForCheckpoint } from "./trajectoryDisplayLimit";
+import { parseCheckpoint } from "./checkpoint";
 
 export const useConfigBasedSampling = () => {
   const dispatch = useAppDispatch();
@@ -16,9 +17,9 @@ export const useConfigBasedSampling = () => {
 
   const getCheckpointEpisodePool = useCallback(() => {
     const allEpisodes = state.episodeIDsChronologically ?? [];
-    const selectedCheckpointValue = Number(state.selectedCheckpoint);
-    if (!Number.isFinite(selectedCheckpointValue) || selectedCheckpointValue < 0) {
-      return allEpisodes;
+    const selectedCheckpointValue = parseCheckpoint(state.selectedCheckpoint);
+    if (selectedCheckpointValue === null) {
+      return [];
     }
 
     const filteredEpisodes = limitEpisodesForCheckpoint(

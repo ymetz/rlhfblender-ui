@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback, startTransition } from 'react';
+import { parseCheckpoint } from '../checkpoint';
 import {
   Box,
   Typography,
@@ -206,8 +207,8 @@ const MergedSelectionFeedback = () => {
   const allEpisodes = useMemo(() => {
     const episodes = appState.episodeIDsChronologically || [];
     const selectedCheckpoint = appState.selectedCheckpoint;
-    const checkpointStep = Number(selectedCheckpoint);
-    if (!Number.isFinite(checkpointStep) || checkpointStep < 0) {
+    const checkpointStep = parseCheckpoint(selectedCheckpoint);
+    if (checkpointStep === null) {
       return [];
     }
 
@@ -1864,7 +1865,7 @@ const MergedSelectionFeedback = () => {
                     sessionId={`${appState.sessionId}_correction`}
                     experimentId={appState.selectedExperiment.id.toString()}
                     environmentId={appState.selectedExperiment.env_id}
-                    checkpoint={Number(appState.selectedCheckpoint)}
+                    checkpoint={parseCheckpoint(appState.selectedCheckpoint) ?? undefined}
                     benchmarkId={episode.benchmark_id}
                     episodeNum={episode.episode_num}
                     step={effectiveCorrectionStep ?? selectedStep}

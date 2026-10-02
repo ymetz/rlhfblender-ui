@@ -124,7 +124,7 @@ type AppState = {
   filtered_experiments: Experiment[];
   selectedProject: Project;
   selectedExperiment: Experiment;
-  selectedCheckpoint: number | string; // Allow string for compatibility with dynamic RLHF
+  selectedCheckpoint: number | string | null; // null is unselected; -1 is Random.
   sliderValue: number;
   rankeableEpisodeIDs: string[];
   episodeIDsChronologically: Episode[];
