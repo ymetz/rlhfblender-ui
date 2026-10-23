@@ -24,6 +24,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   const dcIntervalRef = useRef<number | null>(null);
 
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [connected, setConnected] = useState(false);
   const initialLogs = {
     dataChannel: '',
     iceConnection: '',
@@ -124,6 +125,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       dcRef.current = dc;
 
       dc.onopen = () => {
+        setConnected(true);
         appendLog('dataChannel', '- open');
         
         // Send a test ping to confirm channel is working
@@ -135,6 +137,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
       };
 
       dc.onclose = () => {
+        setConnected(false);
         appendLog('dataChannel', '- close');
         if (dcIntervalRef.current) clearInterval(dcIntervalRef.current);
       };
@@ -209,6 +212,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     });
 
     const answer = await res.json();
+    if (!res.ok) throw new Error(answer.detail || `Failed to start demo: ${res.status}`);
     setLogs((prev) => ({ ...prev, answerSDP: answer.sdp }));
     // If backend also returns iceServers, normalize and apply for parity
     try {
@@ -244,6 +248,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   };
 
   const stop = () => {
+    setConnected(false);
     if (dcRef.current) {
       try {
         dcRef.current.close();
@@ -276,5 +281,5 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     setRemoteStream(null);
   };
 
-  return { start, stop, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction };
+  return { start, stop, connected, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction };
 }

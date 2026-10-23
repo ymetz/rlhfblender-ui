@@ -14,8 +14,9 @@ import {
 } from '@mui/material';
 import { Close, Fullscreen, FullscreenExit, KeyboardArrowDown, KeyboardArrowUp } from '@mui/icons-material';
 import { useWebRTC } from './useWebRTC';
-import { isBrowserMujocoEnvironment, isDashDrivingEnvironment } from './demoEnvironment';
+import { isBrowserMujocoEnvironment, isDashDrivingEnvironment, isMiniGridEnvironment, miniGridKeyActions } from './demoEnvironment';
 import DashIframeDemoComponent from './DashIframeDemoComponent';
+import BabyAIInput from '../custom_env_inputs/babyai_input';
 
 const MujocoDemoComponent = React.lazy(() => import('./MujocoDemoComponent'));
 
@@ -101,8 +102,18 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     );
   }
 
-  // State management
-  const [connected, setConnected] = useState(false);
+  return <StreamedDemoComponent
+    sessionId={sessionId} experimentId={experimentId} environmentId={environmentId}
+    coordinate={coordinate} checkpoint={checkpoint} episodeNum={episodeNum} step={step}
+    onSubmit={onSubmit} onCancel={onCancel} isSubmitting={isSubmitting} footerContent={footerContent}
+  />;
+};
+
+const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
+  sessionId, experimentId, environmentId, coordinate, checkpoint, episodeNum, step,
+  onSubmit, onCancel, isSubmitting = false, footerContent,
+}) => {
+  const isMiniGrid = isMiniGridEnvironment(environmentId);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [tabValue, setTabValue] = useState(0);
@@ -116,7 +127,7 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // WebRTC hook
-  const { start, stop, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction } = useWebRTC({
+  const { start, stop, connected, remoteStream, sendKeyDown, sendKeyUp, sendAction } = useWebRTC({
     sessionId,
     environmentId,
     experimentId,
@@ -127,32 +138,46 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     serverUrl: '/demo_generation/gym_offer'
   });
 
+  const takeAction = useCallback((action: number) => {
+    if (!connected) return;
+    sendAction(action);
+    setStepCount(prev => prev + 1);
+  }, [connected, sendAction]);
+
   // Handle keyboard events
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    if (!connected) return;
+    if (!connected || event.metaKey || event.altKey || (isMiniGrid && event.ctrlKey)) return;
+    if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
 
     const key = event.key.toLowerCase();
+    if (isMiniGrid) {
+      const action = miniGridKeyActions[key];
+      if (action === undefined) return;
+      event.preventDefault();
+      if (!event.repeat) takeAction(action);
+      return;
+    }
     sendKeyDown(key);
 
     // Increment step count for visual feedback
     setStepCount(prev => prev + 1);
     event.preventDefault();
-  }, [connected, sendKeyDown]);
+  }, [connected, isMiniGrid, sendKeyDown, takeAction]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
-    if (!connected) return;
+    if (!connected || isMiniGrid) return;
 
     const key = event.key.toLowerCase();
     sendKeyUp(key);
     event.preventDefault();
-  }, [connected, sendKeyUp]);
+  }, [connected, isMiniGrid, sendKeyUp]);
 
   // Set up video stream when remoteStream changes
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.srcObject = remoteStream ?? null;
     }
-  }, [remoteStream]);
+  }, [remoteStream, loading]);
 
   const coordinateKey = coordinate ? `${coordinate.x},${coordinate.y}` : 'none';
   const startRef = useRef(start);
@@ -182,7 +207,6 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   useEffect(() => {
     let isActive = true;
 
-    setConnected(false);
     setLoading(true);
     setError(null);
     setStepCount(0);
@@ -191,10 +215,8 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     const initDemo = async () => {
       try {
         await endRemoteSession();
+        if (!isActive) return;
         await startRef.current?.({ useDataChannel: true });
-        if (isActive) {
-          setConnected(true);
-        }
       } catch (err) {
         if (isActive) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -221,7 +243,6 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const handleRetry = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setConnected(false);
     setStepCount(0);
     setEpisodeDone(false);
 
@@ -230,7 +251,6 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     try {
       await endRemoteSession();
       await start({ useDataChannel: true });
-      setConnected(true);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMsg);
@@ -284,7 +304,14 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   }, []);
 
   // Keyboard controls info - updated for Metaworld
-  const keyboardControls = {
+  const keyboardControls = isMiniGrid ? {
+    '←/A, →/D': 'Turn left/right',
+    '↑/W': 'Move forward',
+    'PageUp/Q': 'Pick up',
+    'PageDown/E': 'Drop',
+    'Space': 'Toggle door/object',
+    'Enter': 'Done',
+  } : {
     'W/S': 'Forward/Backward (dx)',
     'A/D': 'Left/Right (dy)',
     'Shift/Ctrl': 'Up/Down (dz)',
@@ -481,12 +508,18 @@ const WebRTCDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
             {!fullscreen && (
               <Typography variant="caption" color="text.secondary">
                 {connected ?
-                  'Use keyboard to control the robot (WASD + Q/E + Shift/Ctrl)' :
+                  (isMiniGrid ? 'Use the buttons or arrow keys to act one step at a time.' : 'Use keyboard to control the robot (WASD + Q/E + Shift/Ctrl)') :
                   'Waiting for connection...'
                 }
               </Typography>
             )}
           </Box>
+
+          {isMiniGrid && tabValue === 0 && (
+            <Box component="fieldset" disabled={!connected || isSubmitting} sx={{ border: 0, m: 0, p: 1 }}>
+              <BabyAIInput setFeedback={takeAction} />
+            </Box>
+          )}
 
           {tabValue === 1 && (
             <Box sx={{ p: 1, color: fullscreen ? 'white' : 'inherit' }}>

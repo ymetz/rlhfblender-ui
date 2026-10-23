@@ -58,6 +58,7 @@ import StudyPhaseSurveyScreen, {
 import ExperimentCompletionScreen from "./components/study/experiment-completion-screen";
 import { limitEpisodesForCheckpoint } from "./trajectoryDisplayLimit";
 import { parseCheckpoint } from "./checkpoint";
+import { standaloneUIConfigKey } from "./utils/uiConfigSelection";
 import {
   clearCachedPostRequests,
   postCached,
@@ -424,6 +425,7 @@ const App: React.FC = () => {
       configState.activeBackendConfig.samplingStrategy ?? "no-sampler",
       configState.activeBackendConfig.uiConfigMode ?? "no-mode",
       selectedUiIds || "no-selected-ui",
+      standaloneUIConfigKey(configState.activeBackendConfig, configState.activeUIConfig),
       currentComparativePhaseKind,
       baselineSelectionMode,
       mixedSelectionMode,
@@ -434,6 +436,7 @@ const App: React.FC = () => {
     configState.activeBackendConfig.samplingStrategy,
     configState.activeBackendConfig.selectedUiConfigs,
     configState.activeBackendConfig.uiConfigMode,
+    configState.activeUIConfig,
     currentComparativePhaseKind,
     mixedSelectionMode,
   ]);
@@ -730,6 +733,7 @@ const App: React.FC = () => {
         "/projection/generate_projection",
         null,
         {
+          timeout: 15_000,
           params: {
             benchmark_id: benchmarkId,
             checkpoint_step: checkpointStep,
@@ -1198,7 +1202,9 @@ const App: React.FC = () => {
       const fallbackUiConfig = configState.activeUIConfig;
       let resolvedAllUiConfigs = configState.allUIConfigs;
       const episodeCount = Math.max(episodes.length || 0, 1);
-      const sampledEpisodeCount = Math.min(episodeCount, 10);
+      const sampledEpisodeCount = state.app_mode === "configure"
+        ? episodeCount
+        : Math.min(episodeCount, 10);
       const mode =
         selectedUiConfigs.length === 0
           ? "sequential"
@@ -1339,7 +1345,9 @@ const App: React.FC = () => {
       await Promise.all(
         relevantUiConfigs.map(async (uiConfig) => {
           let elementCount = episodeCount;
-          if (uiConfig.feedbackComponents.clusterRating) {
+          // The interactive default UI must be usable while optional clusters
+          // load in the episode panel. Study sequences still use cluster counts.
+          if (state.app_mode !== "configure" && uiConfig.feedbackComponents.clusterRating) {
             const checkpointStep = parseCheckpoint(state.selectedCheckpoint);
             if (
               checkpointStep !== null &&
@@ -1378,7 +1386,7 @@ const App: React.FC = () => {
       configState.activeBackendConfig.selectedUiConfigs,
       configState.activeBackendConfig.id,
       configState.allUIConfigs,
-      configState.activeUIConfig.id,
+      configState.activeUIConfig,
       configState.activeBackendConfig.uiConfigMode,
       getProjectionClusterCount,
       isComparativeStudyMode,
@@ -1390,6 +1398,7 @@ const App: React.FC = () => {
       configDispatch,
       state.selectedCheckpoint,
       state.selectedExperiment.id,
+      state.app_mode,
     ],
   );
 
@@ -1452,6 +1461,8 @@ const App: React.FC = () => {
     }
 
     pendingResetParamsRef.current = requestedResetParams;
+    configDispatch({ type: "SET_UI_CONFIG_SEQUENCE", payload: [] });
+    dispatch({ type: "SET_RANKEABLE_EPISODE_IDS", payload: [] });
     let runPromise: Promise<void> | null = null;
     runPromise = (async () => {
       try {
@@ -1534,6 +1545,7 @@ const App: React.FC = () => {
     state.selectedCheckpoint,
     state.feedbackInterfaceReset,
     configState.activeBackendConfig.samplingStrategy,
+    configDispatch,
     dispatch,
     generateUiConfigSequence,
     getEpisodeIDsChronologically,

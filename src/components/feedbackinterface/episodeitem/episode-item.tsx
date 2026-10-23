@@ -443,8 +443,8 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
 
     let active = true;
     postCached("/projection/generate_projection", null, {
+        timeout: 15_000,
         params: {
-          env_name: episodeReference.env_name,
           benchmark_id: episodeReference.benchmark_id,
           checkpoint_step: episodeReference.checkpoint_step,
           projection_method: "PCA",

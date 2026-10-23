@@ -20,3 +20,17 @@ export function getDemoSaveEndpoint(payload?: Record<string, any>): string {
     ? '/demo_generation/save_browser_demo'
     : '/demo_generation/save_webrtc_demo';
 }
+
+export function isMiniGridEnvironment(environmentId: string): boolean {
+  return /^(minigrid|babyai)-/i.test((environmentId || '').trim());
+}
+
+export const miniGridKeyActions: Readonly<Record<string, number>> = {
+  arrowleft: 0, a: 0,
+  arrowright: 1, d: 1,
+  arrowup: 2, w: 2,
+  pageup: 3, q: 3,
+  pagedown: 4, e: 4,
+  ' ': 5, space: 5,
+  enter: 6,
+};
