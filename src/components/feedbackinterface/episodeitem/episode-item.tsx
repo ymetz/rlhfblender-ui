@@ -950,7 +950,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     return null;
   })();
 
-  const toolControls = shouldShowPanels ? (
+  const toolControls = shouldShowPanels && activePanel !== "demo" && activePanel !== "correction" ? (
     <Box
       sx={{
         display: "flex",
@@ -1219,10 +1219,11 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           <Box
             sx={{
               position: "relative",
-              width: "min(calc(100% - 16px), 33vw)",
+              width: activePanel === "demo" ? "calc(100% - 16px)" : "min(calc(100% - 16px), 33vw)",
               minWidth: 260,
               maxWidth: "100%",
-              aspectRatio: `${staticFrameAspectRatio}`,
+              aspectRatio: activePanel === "demo" ? undefined : `${staticFrameAspectRatio}`,
+              height: activePanel === "demo" ? "min(640px, 56dvh)" : undefined,
               maxHeight: "56vh",
               boxSizing: "border-box",
               mx: "auto",

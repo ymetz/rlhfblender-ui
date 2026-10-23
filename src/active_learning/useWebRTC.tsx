@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { EpisodeStatus, parseEpisodeStatus } from './webrtcMessages';
 
 interface Coordinate {
   x: number;
@@ -25,6 +26,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
 
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connected, setConnected] = useState(false);
+  const [episodeStatus, setEpisodeStatus] = useState<EpisodeStatus | null>(null);
   const initialLogs = {
     dataChannel: '',
     iceConnection: '',
@@ -111,6 +113,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
   };
 
   const start = async ({ useDataChannel }: { useDataChannel: boolean }) => {
+    setEpisodeStatus(null);
     const servers = await fetchIceServers();
     const pc = await createPeerConnection(servers);
     // As a safety, ensure configuration is applied (some browsers allow updating)
@@ -131,6 +134,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
         // Send a test ping to confirm channel is working
         try {
           dc.send('ping test_connection');
+          dc.send(JSON.stringify({ type: 'get_status' }));
         } catch (error) {
           console.error('Error sending ping test:', error);
         }
@@ -152,7 +156,12 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
           messageStr = String(evt.data);
         }
         
-        appendLog('dataChannel', '< ' + messageStr);
+        const status = parseEpisodeStatus(messageStr);
+        if (status) {
+          setEpisodeStatus(status);
+        } else {
+          appendLog('dataChannel', '< ' + messageStr);
+        }
       };
 
       dc.onerror = (error) => {
@@ -249,6 +258,7 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
 
   const stop = () => {
     setConnected(false);
+    setEpisodeStatus(null);
     if (dcRef.current) {
       try {
         dcRef.current.close();
@@ -281,5 +291,5 @@ export function useWebRTC({ serverUrl = '/demo_generation/gym_offer', sessionId,
     setRemoteStream(null);
   };
 
-  return { start, stop, connected, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction };
+  return { start, stop, connected, episodeStatus, logs, remoteStream, sendKeyDown, sendKeyUp, sendAction };
 }

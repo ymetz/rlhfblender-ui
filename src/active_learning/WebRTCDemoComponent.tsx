@@ -117,8 +117,6 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [tabValue, setTabValue] = useState(0);
-  const [stepCount, setStepCount] = useState(0);
-  const [episodeDone, setEpisodeDone] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
 
@@ -127,7 +125,7 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // WebRTC hook
-  const { start, stop, connected, remoteStream, sendKeyDown, sendKeyUp, sendAction } = useWebRTC({
+  const { start, stop, connected, episodeStatus, remoteStream, sendKeyDown, sendKeyUp, sendAction } = useWebRTC({
     sessionId,
     environmentId,
     experimentId,
@@ -137,16 +135,17 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     step,
     serverUrl: '/demo_generation/gym_offer'
   });
+  const episodeDone = episodeStatus?.done ?? false;
+  const stepCount = episodeStatus?.step_count ?? 0;
 
   const takeAction = useCallback((action: number) => {
-    if (!connected) return;
+    if (!connected || episodeDone || isSubmitting) return;
     sendAction(action);
-    setStepCount(prev => prev + 1);
-  }, [connected, sendAction]);
+  }, [connected, episodeDone, isSubmitting, sendAction]);
 
   // Handle keyboard events
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    if (!connected || event.metaKey || event.altKey || (isMiniGrid && event.ctrlKey)) return;
+    if (!connected || episodeDone || isSubmitting || event.metaKey || event.altKey || (isMiniGrid && event.ctrlKey)) return;
     if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
 
     const key = event.key.toLowerCase();
@@ -159,10 +158,8 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
     }
     sendKeyDown(key);
 
-    // Increment step count for visual feedback
-    setStepCount(prev => prev + 1);
     event.preventDefault();
-  }, [connected, isMiniGrid, sendKeyDown, takeAction]);
+  }, [connected, episodeDone, isSubmitting, isMiniGrid, sendKeyDown, takeAction]);
 
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
     if (!connected || isMiniGrid) return;
@@ -209,8 +206,6 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
 
     setLoading(true);
     setError(null);
-    setStepCount(0);
-    setEpisodeDone(false);
 
     const initDemo = async () => {
       try {
@@ -243,8 +238,6 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
   const handleRetry = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setStepCount(0);
-    setEpisodeDone(false);
 
     stop();
 
@@ -262,7 +255,7 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
 
   // Setup keyboard event listeners when connected
   useEffect(() => {
-    if (connected) {
+    if (connected && !episodeDone) {
       document.addEventListener('keydown', handleKeyDown);
       document.addEventListener('keyup', handleKeyUp);
     }
@@ -271,7 +264,7 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
     };
-  }, [connected, handleKeyDown, handleKeyUp]);
+  }, [connected, episodeDone, handleKeyDown, handleKeyUp]);
 
   // Handle tab change
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -330,6 +323,7 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
       }}>
         <CircularProgress />
         <Typography variant="body2">Initializing WebRTC demo session...</Typography>
+        <Button size="small" onClick={onCancel}>Cancel</Button>
       </Box>
     );
   }
@@ -341,6 +335,7 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
         <Button size="small" onClick={handleRetry} sx={{ ml: 1 }}>
           Retry
         </Button>
+        <Button size="small" onClick={onCancel}>Cancel</Button>
       </Alert>
     );
   }
@@ -351,6 +346,8 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
       sx={{
         width: '100%',
         height: fullscreen ? '100vh' : '100%',
+        minHeight: 0,
+        minWidth: 0,
         display: 'flex',
         flexDirection: 'column',
         bgcolor: fullscreen ? 'black' : 'transparent',
@@ -361,6 +358,7 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
         elevation={2}
         sx={{
           flex: 1,
+          minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -369,13 +367,16 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
         }}
       >
         {/* Header with tabs and controls */}
-        <Box sx={{ position: 'relative' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <Tabs
             value={tabValue}
             onChange={handleTabChange}
             centered
             variant="fullWidth"
             sx={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: 40,
               bgcolor: fullscreen ? 'rgba(0,0,0,0.8)' : 'background.paper',
               color: fullscreen ? 'white' : 'inherit'
             }}
@@ -387,12 +388,10 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
           {/* Fullscreen toggle */}
           <IconButton
             onClick={toggleFullscreen}
+            aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             sx={{
-              position: 'absolute',
-              top: 4,
-              right: 40,
               color: fullscreen ? 'white' : 'inherit',
-              zIndex: 10
+              mx: 0.5,
             }}
             size="small"
           >
@@ -403,12 +402,10 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
           {fullscreen && (
             <IconButton
               onClick={() => setControlsVisible(!controlsVisible)}
+              aria-label={controlsVisible ? 'Hide controls' : 'Show controls'}
               sx={{
-                position: 'absolute',
-                top: 4,
-                right: 4,
                 color: 'white',
-                zIndex: 10
+                mr: 0.5,
               }}
               size="small"
             >
@@ -419,6 +416,17 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
 
         <Divider />
 
+        {episodeDone && (
+          <Alert
+            severity="info"
+            sx={{ flexShrink: 0 }}
+            action={<Button disabled={isSubmitting} onClick={handleRetry}>Restart</Button>}
+          >
+            {episodeStatus?.truncated ? 'Episode reached its time limit.' : 'Episode finished.'}
+            {' '}Submit this demo or restart.
+          </Alert>
+        )}
+
         {/* Content area */}
         <Box sx={{
           flex: 1,
@@ -426,23 +434,24 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
           flexDirection: 'column',
           p: fullscreen ? (controlsVisible ? 1 : 0) : 1,
           bgcolor: fullscreen ? 'black' : 'transparent',
-          overflow: 'auto', // Allow scrolling
-          minHeight: 0 // Important for flex containers
+          overflow: 'hidden',
+          minHeight: 0,
         }}>
           {/* Always render video but hide when not on tab 0 */}
           <Box sx={{
             display: tabValue === 0 ? 'flex' : 'none',
             flexDirection: 'column',
             alignItems: 'center',
+            flex: 1,
             gap: 1,
-            minHeight: 'fit-content' // Allow natural sizing
+            minHeight: 0,
           }}>
             {/* Video stream display */}
-            <Box sx={{
+            <Box role="region" aria-label="Live environment" sx={{
               position: 'relative',
               width: '100%',
-              maxWidth: fullscreen ? '100%' : '600px',
-              height: fullscreen ? '70vh' : '400px', // Fixed height instead of aspect ratio
+              flex: '1 1 300px',
+              minHeight: 0,
               bgcolor: 'black',
               borderRadius: fullscreen ? 0 : 1,
               overflow: 'hidden',
@@ -456,6 +465,9 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
                 muted
                 onError={(e) => console.error('Video error:', e)}
                 style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'block',
                   width: '100%',
                   height: '100%',
                   objectFit: 'contain',
@@ -504,25 +516,39 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
               )}
             </Box>
 
-            {/* Status info */}
-            {!fullscreen && (
-              <Typography variant="caption" color="text.secondary">
-                {connected ?
-                  (isMiniGrid ? 'Use the buttons or arrow keys to act one step at a time.' : 'Use keyboard to control the robot (WASD + Q/E + Shift/Ctrl)') :
-                  'Waiting for connection...'
-                }
-              </Typography>
+            {(!fullscreen || controlsVisible) && (!episodeDone || isMiniGrid) && (
+              <Box
+                role="region"
+                aria-label="Demo controls"
+                tabIndex={0}
+                sx={{
+                  width: '100%',
+                  flexShrink: 0,
+                  maxHeight: '32%',
+                  overflowY: 'auto',
+                  overscrollBehavior: 'contain',
+                  scrollbarGutter: 'stable',
+                }}
+              >
+                {!episodeDone && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mb: 1 }}>
+                    {connected ?
+                      (isMiniGrid ? 'Use the buttons or arrow keys to act one step at a time.' : 'Use keyboard to control the robot (WASD + Q/E + Shift/Ctrl)') :
+                      'Waiting for connection...'
+                    }
+                  </Typography>
+                )}
+                {isMiniGrid && (
+                  <Box component="fieldset" disabled={!connected || episodeDone || isSubmitting} sx={{ border: 0, minWidth: 0, m: 0, p: 0.5 }}>
+                    <BabyAIInput setFeedback={takeAction} />
+                  </Box>
+                )}
+              </Box>
             )}
           </Box>
 
-          {isMiniGrid && tabValue === 0 && (
-            <Box component="fieldset" disabled={!connected || isSubmitting} sx={{ border: 0, m: 0, p: 1 }}>
-              <BabyAIInput setFeedback={takeAction} />
-            </Box>
-          )}
-
           {tabValue === 1 && (
-            <Box sx={{ p: 1, color: fullscreen ? 'white' : 'inherit' }}>
+            <Box sx={{ p: 1, overflowY: 'auto', minHeight: 0, color: fullscreen ? 'white' : 'inherit' }}>
               <Typography variant="h6" gutterBottom>Keyboard Controls</Typography>
 
               <Box sx={{ display: 'grid', gap: 1, mb: 2 }}>
@@ -563,6 +589,7 @@ const StreamedDemoComponent: React.FC<WebRTCDemoComponentProps> = ({
             <Box
               sx={{
                 display: 'flex',
+                flexShrink: 0,
                 justifyContent: 'space-between',
                 p: 1,
                 bgcolor: fullscreen ? 'rgba(0,0,0,0.8)' : 'background.paper',
